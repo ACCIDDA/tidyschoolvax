@@ -1,0 +1,55 @@
+Package: tidyschoolvax
+Type: Package
+Title: Preprocessing and Data Quality Assurance for School Vaccination Data
+Version: 0.1.0
+Authors@R: c(
+    person("ACCIDDA Team", email = "contact@accidda.org", role = c("aut", "cre"))
+    )
+Description: Provides modular functions for preprocessing, cleaning, and 
+    quality assurance of state-level school vaccination data. The package 
+    standardizes data formats across states and implements comprehensive 
+    data quality checks for measles, mumps, and rubella (MMR) vaccination 
+    coverage data from kindergarten enrollment records.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 7.3.2
+Depends: 
+    R (>= 3.5.0)
+Imports:
+    arrow,
+    data.table,
+    dplyr,
+    furrr,
+    future,
+    geosphere,
+    httr,
+    janitor,
+    jsonlite,
+    purrr,
+    readr,
+    readxl,
+    rlang,
+    sf,
+    stringdist,
+    stringi,
+    stringr,
+    tibble,
+    tidygeocoder,
+    tidyr,
+    tidyselect,
+    tigris,
+    utils,
+    tools
+Suggests:
+    here,
+    knitr,
+    rmarkdown,
+    writexl,
+    zipcodeR,
+    tidyverse,
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3
+VignetteBuilder: knitr
+URL: https://github.com/ACCIDDA/tidyschoolvax
+BugReports: https://github.com/ACCIDDA/tidyschoolvax/issues

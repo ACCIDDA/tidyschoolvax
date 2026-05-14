@@ -1,0 +1,240 @@
+---
+title: "Preprocessing Orchestration"
+subtitle: "From data download to geocoding"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    theme: flatly
+    number_sections: true
+vignette: >
+  %\VignetteIndexEntry{Preprocessing Orchestration}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = TRUE, warning = TRUE)
+```
+
+# Preparation
+
+```{r install_packages, eval=FALSE}
+# Install tidyschoolvax package (if not already installed)
+# devtools::install_github("ACCIDDA/tidyschoolvax")
+```
+
+
+## Load Packages
+
+```{r load-packages}
+# For development (working directly in the repo), use:
+#   devtools::load_all()
+# For a fully installed package, use:
+#   library(tidyschoolvax)
+library(tidyschoolvax)
+```
+
+## Specify Inputs
+
+Edit the variables in this section to configure the run for a given state and vaccine type.
+
+```{r specify-inputs}
+project_root <- normalizePath(here::here(), winslash = "/", mustWork = TRUE)
+state <- "md"  # <-- Specify state
+state_id <- "md"  # <-- Specify state for geocoding search string.
+vaccine_type_to_keep <- "mmr"   # <-- specify what vaccine type you want
+current_state <- toupper(state)
+state_name <- state.name[match(current_state, state.abb)]  # Full state name (e.g., "North Carolina")
+# Read Google API key from the environment (set GOOGLEGEO_API_KEY before knitting,
+# e.g. in .Renviron or via Sys.setenv() in an untracked secrets file).
+# Never hard-code a key here.
+
+google_api_key <- "AIzaSyCIeLh02T9btqw5-v-ssx-ZjzawmSeJqOM"  # <-- Specify Google API key
+Sys.setenv(GOOGLEGEO_API_KEY = google_api_key)
+```
+
+## New state onboarding (run once, then comment out)
+
+When adding a new state for the first time, uncomment the lines below. They scaffold the state-specific download and cleaning scripts from the
+package templates and immediately open them in your editor so you can fill in the CUSTOMIZE sections before running the rest of the pipeline.
+
+`project_root` is passed explicitly so the files are always written relative to the same root used by the rest of this script.  It defaults to getwd()
+inside the function if omitted. The namespaced calls below assume the tidyschoolvax package is installed (or loaded via devtools::load_all()).
+```{r setup_stateskeletons, eval=FALSE}
+download_script <- tidyschoolvax::create_state_download_script(state, project_root = project_root)
+file.edit(download_script)
+
+cleaning_script <- tidyschoolvax::create_state_cleaning_script(state, project_root = project_root)
+file.edit(cleaning_script)
+```
+
+Address source preference controls which data source's address is used as the primary address in the output.
+
+| Value | Description |
+|-------|-------------|
+| `"greatschools"` | Use GreatSchools address (default) |
+| `"doe"` | Use Department of Education address |
+| `"other"` | Use additional dataset address (if available for the state) |
+| `"kinder"` | Use kindergarten data address where available |
+
+Set to `"kinder"` if the state's kindergarten vaccination data includes reliable school addresses that should take priority over other sources.
+
+```{r addr-source-pref}
+addr_source_pref <- "kinder"
+```
+
+## Set Up Paths
+
+```{r set-paths}
+paths <- tidyschoolvax::setup_paths(project_root = project_root, state = state)
+list2env(paths, envir = environment())
+```
+
+
+# Download Vaccination Data and Standardize Column Names
+
+Download kindergarten school-level vaccination data, state school data (DOE,
+DOA, etc.), GreatSchools.org data for standardized school names, and VaxView
+data.
+
+## Step 1a: State-Agnostic Downloads (GreatSchools.org, CDC VaxView)
+
+```{r step-1a-download-agnostic}
+tidyschoolvax::download_agnostic_data(
+  state            = state,
+  state_name       = state_name,
+  greatschools_dir = greatschools_dir,
+  vaxview_dir      = vaxview_dir
+)
+```
+
+## Step 1b: State-Specific Downloads (Kindergarten Vax Data, DOE/DOA School Data)
+
+```{r step-1b-download-state}
+cat("Step 1b: Download state-specific data...\n")
+source(file.path(state_dir, "01_cleaning/01_download.R"))
+```
+
+**Expected outputs:**
+
+- Merged annual kindergarten school-level vax data (`kinder.csv` & `kinder.rds`)
+- GreatSchools.org data for state (`greatschools.csv` & `greatschools.rds`)
+- State data on all schools – DOE, DOA, etc. (`doe.csv` & `doe.rds`)
+- VaxView data
+
+```{r check-outputs-1}
+check_expected_files(
+  paths = c(
+    file.path(kinder_dir, "kinder_dat.csv"),
+    file.path(kinder_dir, "kinder_dat.rds"),
+    file.path(greatschools_dir, "greatschools_dat.csv"),
+    file.path(greatschools_dir, "greatschools_dat.rds"),
+    file.path(doe_dir, "doe_dat.csv"),
+    file.path(doe_dir, "doe_dat.rds"),
+    file.path(vaxview_dir, "ChildVaxView.csv"),
+    file.path(vaxview_dir, "SchoolVaxView.csv"),
+    file.path(vaxview_dir, "TeenVaxView.csv"),
+    file.path(vaxview_dir, "vax_view.parquet")
+  ),
+  step_name = "01_download"
+)
+```
+
+# Standardize School Names, Assign Unique IDs, and Geocode
+
+Standardize school names by matching across data sources (DOE, GreatSchools,
+kinder), assign unique school and county IDs, and use the Google API to
+geocode schools and look up school operational status.
+
+```{r step-2-standardize}
+cat("Step 2: Standardize school names, assign unique school and county IDs\n")
+school_vax_joined <- tidyschoolvax::standardize_schools(
+  state_id         = state_id,
+  kinder_dir       = kinder_dir,
+  greatschools_dir = greatschools_dir,
+  doe_dir          = doe_dir,
+  state_school_dir = state_school_dir,
+  temp_data_dir    = temp_data_dir,
+  state_geo_dir    = state_geo_dir,
+  state_dir        = state_dir,
+  addr_source_pref = addr_source_pref
+)
+```
+
+**Expected outputs:**
+
+- Data with addresses, school level, county, standardized names, lat/lon, and
+  operational status
+- County key
+- School key
+
+```{r check-outputs-2}
+check_expected_files(
+  paths = c(
+    file.path(temp_data_dir, "kinder_vaccination_clean_02.csv"),
+    file.path(temp_data_dir, "kinder_vaccination_clean_02.rds")
+  ),
+  step_name = "02_standardize_school"
+)
+```
+
+# State-Specific Fixes
+
+Apply any state-specific data cleaning rules before final formatting.
+
+```{r step-3-state-cleaning}
+cat("Step 3: State-specific data cleaning...\n")
+source(file.path(state_dir, "01_cleaning/03_state_cleaning.R"))
+```
+
+**Expected outputs:**
+
+- State-specific cleaned data (intermediate file) to be used for Step 4
+
+```{r check-outputs-3}
+check_expected_files(
+  paths = c(
+    file.path(temp_data_dir, "kinder_vaccination_clean_03.rds"),
+    file.path(temp_data_dir, "kinder_vaccination_clean_03.csv")
+  ),
+  step_name = "03_state_cleaning"
+)
+```
+
+# Final Formatting and DQA Checks
+
+Apply final formatting rules and data quality assurance (DQA) checks to
+produce a clean dataset ready for the model.
+
+```{r step-4-final-formatting}
+cat("Step 4: Final formatting and DQA checks...\n")
+tidyschoolvax::run_final_formatting(
+  state                = state,
+  vaccine_type_to_keep = vaccine_type_to_keep,
+  temp_data_dir        = temp_data_dir,
+  clean_data_dir       = clean_data_dir,
+  vaxview_dir          = vaxview_dir,
+  general_data_dir     = general_data_dir,
+  state_dir            = state_dir,
+  outputs_data_dir     = outputs_data_dir
+)
+```
+
+**Expected outputs:**
+
+- Cleaned vaccination data with DQA checks applied, ready for geocoding
+  (`cleaned_data.rds`, `cleaned_data.csv`)
+- DQA `.csv` files with issue cases in the temp directory
+
+```{r check-outputs-4}
+check_expected_files(
+  paths = c(
+    file.path(clean_data_dir, "cleaned_data.rds"),
+    file.path(clean_data_dir, "cleaned_data.csv")
+  ),
+  step_name = "04_final_formatting"
+)
+```
