@@ -151,16 +151,13 @@ get_zip <- function(lat, lon, data_year = 2020) {
 get_geo_info <- function(state_abbr = state, lat, lon, data_year = 2020) {
   
   # load zip codes to filter and speedup
-  state_code_prefix <- readr::read_csv(
-    system.file("extdata", "state_zip_prefix.csv", package = "tidyschoolvax"),
-    show_col_types = FALSE
-  )
-  state_zip_prefix <- state_code_prefix %>% 
+  data("state_zip_prefix")
+  state_fips_prefix <- state_zip_prefix %>% 
+    dplyr::filter(state %in% tolower(state_abbr)) %>%
+    dplyr::pull(fips) %>% unique()  
+  state_zip_prefix <- state_zip_prefix %>% 
     dplyr::filter(state %in% tolower(state_abbr)) %>%
     dplyr::pull(zip) %>% unique()
-  state_fips_prefix <- state_code_prefix %>% 
-    dplyr::filter(state %in% tolower(state_abbr)) %>%
-    dplyr::pull(fips) %>% unique()
     
   pts <- sf::st_as_sf(
     data.frame(lat = lat, lon = lon),
