@@ -51,9 +51,13 @@ key, matches kindergarten vaccination records to the reference, geocodes
 schools, produces QC reports, and saves the final dataset.
 }
 \details{
-This function calls preprocessing utility functions
-(\code{clean_kinder_data}, \code{match_schools_names}, etc.) that are
-defined in the \code{00_preprocessing/code/} utility scripts.  Those scripts
-must be sourced into the calling environment before invoking
-\code{standardize_schools()}, as \code{00_orchestration.R} already does.
+All preprocessing utility functions (\code{clean_kinder_data},
+\code{match_schools_names}, etc.) are exported by the
+\code{tidyschoolvax} package and do not need to be sourced separately.
+The typical entry point for the full pipeline is the
+\code{vignettes/preprocessing-orchestration.R} script (or its
+\code{.Rmd} counterpart), which calls \code{setup_paths()}, sources the
+state-specific \code{01_download.R}, and then calls
+\code{download_agnostic_data()}, \code{standardize_schools()}, and
+\code{run_final_formatting()} in order.
 }

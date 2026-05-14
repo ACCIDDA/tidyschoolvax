@@ -10,7 +10,7 @@ check_enrollment_deviation(data, deviation_threshold = 0.5)
 \item{data}{A data frame containing school vaccination data}
 
 \item{deviation_threshold}{Numeric value for maximum acceptable deviation 
-(default: 0.5 for 50%)}
+(default: 0.5 for 50 percent)}
 }
 \value{
 A list with two components:

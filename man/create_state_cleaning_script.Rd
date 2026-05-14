@@ -28,9 +28,9 @@ location for a new state:
 The template provides a fully commented scaffold that covers all six
 pipeline sections: data loading, state-specific column adjustments, manual
 data-entry corrections, address/geocoding fixes, column-name standardisation
-and school ID assignment, and export.  Every state-specific section is marked
-with a \code{# CUSTOMIZE:} comment so the analyst knows exactly what needs to
-be edited before running the script.
+and school ID assignment, and export.  Every state-specific section is
+marked with a \code{# CUSTOMIZE:} comment so the analyst knows exactly what
+needs to be edited before running the script.
 }
 \details{
 The template bundled with the package is stored in

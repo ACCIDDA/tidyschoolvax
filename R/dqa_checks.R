@@ -177,14 +177,15 @@ check_exceeding_enrollment_values <- function(data,
 }
 
 
+
 #' Check for Coverage Outliers
 #'
 #' @description
-#' Identifies records with unrealistic MMR coverage (<0 or >105%) and cases
+#' Identifies records with unrealistic MMR coverage (<0 or >105 percent) and cases
 #' where current + delayed + exemptions exceed enrollment.
 #'
 #' @param data A data frame containing school vaccination data
-#' @param coverage_threshold Numeric value for maximum acceptable coverage (default: 1.05 for 105%)
+#' @param coverage_threshold Numeric value for maximum acceptable coverage (default: 1.05 for 105 percent)
 #'
 #' @return A list with two data frames:
 #'   \itemize{
@@ -198,6 +199,7 @@ check_exceeding_enrollment_values <- function(data,
 #' }
 #'
 #' @export
+#' 
 check_coverage_outliers <- function(data, coverage_threshold = 1.05) {
   
   # Calculate MMR coverage if not present
@@ -255,7 +257,7 @@ check_coverage_outliers <- function(data, coverage_threshold = 1.05) {
 #'
 #' @param data A data frame containing school vaccination data
 #' @param deviation_threshold Numeric value for maximum acceptable deviation 
-#'   (default: 0.5 for 50%)
+#'   (default: 0.5 for 50 percent)
 #'
 #' @return A list with two components:
 #'   \itemize{
@@ -273,6 +275,7 @@ check_coverage_outliers <- function(data, coverage_threshold = 1.05) {
 #' }
 #'
 #' @export
+#' 
 check_enrollment_deviation <- function(data, deviation_threshold = 0.5) {
   
   if (!"school_id" %in% colnames(data) || !"enrollment" %in% colnames(data)) {
@@ -322,7 +325,7 @@ check_enrollment_deviation <- function(data, deviation_threshold = 0.5) {
 #'
 #' @param data A data frame containing school vaccination data
 #' @param deviation_threshold Numeric value for maximum acceptable deviation
-#'   (default: 0.5 for 50%)
+#'   (default: 0.5 for 50 percent)
 #'
 #' @return A list with two components:
 #'   \itemize{

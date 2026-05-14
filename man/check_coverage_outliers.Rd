@@ -9,7 +9,7 @@ check_coverage_outliers(data, coverage_threshold = 1.05)
 \arguments{
 \item{data}{A data frame containing school vaccination data}
 
-\item{coverage_threshold}{Numeric value for maximum acceptable coverage (default: 1.05 for 105%)}
+\item{coverage_threshold}{Numeric value for maximum acceptable coverage (default: 1.05 for 105 percent)}
 }
 \value{
 A list with two data frames:
@@ -19,7 +19,7 @@ A list with two data frames:
   }
 }
 \description{
-Identifies records with unrealistic MMR coverage (<0 or >105%) and cases
+Identifies records with unrealistic MMR coverage (<0 or >105 percent) and cases
 where current + delayed + exemptions exceed enrollment.
 }
 \examples{
