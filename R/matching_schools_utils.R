@@ -427,32 +427,52 @@ match_schools_names <- function(data1, data2,
   data2 <- data2 %>%
     dplyr::select(tidyselect::any_of(data2_cols)) %>%
     distinct()
-  
+
+  # Pre-lowercase the match columns of data2 ONCE before the loop (avoids
+  # repeating mutate(across(tolower)) on every iteration).  Build a named list
+  # keyed by the group values so each per-row lookup is O(1) instead of an
+  # inner_join over the full data2.
+  data2_lowered <- data2 %>%
+    dplyr::mutate(dplyr::across(dplyr::all_of(match_cols2), tolower))
+
+  # Compound key: paste all match_cols2 values together with a rare separator
+  data2_lowered$.grp_key_ <- do.call(
+    paste,
+    c(lapply(match_cols2, function(col) data2_lowered[[col]]), sep = "\x00")
+  )
+  data2_by_group <- split(data2_lowered, data2_lowered$.grp_key_, drop = TRUE)
+
   # Track which data2 rows have been matched (use list for efficiency)
   matched_data2_ids <- list()
   matched_rows <- list()
   unmatched_rows <- list()
   match_options <- list()
   best_match_scores <- list()
-  
+
   for (i in seq_len(nrow(data1))) {
-  
+
     data1_row <- data1[i, ]
     best_match_scores <- NULL
-    
-    # subset data2 to only rows with the same value for match_col2
-    filter_vals <- data1_row %>% dplyr::select(all_of(match_cols1)) %>%
-      mutate(across(everything(), tolower))
-    
-    data2_sub <- data2 %>% 
-      mutate(across(all_of(match_cols2), tolower)) %>%
-      dplyr::inner_join(filter_vals, by = setNames(match_cols2, match_cols1))
 
-    # add rows from data1 that have a value for match_col1 that is not present in data2
-    if (nrow(data2_sub) == 0) {
-      unmatched_rows[[length(unmatched_rows) + 1]] <- data1_row
+    # Build the lookup key from data1_row's match columns (lowercased to match
+    # the pre-lowercased data2_by_group keys built above).
+    filter_vals <- data1_row %>%
+      dplyr::select(dplyr::all_of(match_cols1)) %>%
+      dplyr::mutate(dplyr::across(dplyr::everything(), tolower))
+
+    group_key <- paste(unlist(filter_vals[match_cols1], use.names = FALSE),
+                       collapse = "\x00")
+
+    # O(1) list lookup replaces inner_join on every iteration
+    data2_sub <- data2_by_group[[group_key]]
+
+    if (is.null(data2_sub) || nrow(data2_sub) == 0L) {
+      unmatched_rows[[length(unmatched_rows) + 1L]] <- data1_row
       next
     }
+
+    # Drop the helper key column before distance computation
+    data2_sub$.grp_key_ <- NULL
     
     # get the distances (quick, can skip if all above threshold)
     dists_jw <- stringdist::stringdist(data1_row$school_name_std, data2_sub$school_name_std, method = "jw")
@@ -619,7 +639,7 @@ match_schools_names <- function(data1, data2,
   matched_df <- dplyr::bind_rows(matched_rows)
   unmatched_dat1 <- dplyr::bind_rows(unmatched_rows)
   unmatched_dat2 <- data2 %>%
-    filter(!(school_name_std %in% matched_df$school_name_std_data2))
+    dplyr::filter(!(school_name_std %in% matched_df$school_name_std_data2))
   
   match_options <- dplyr::bind_rows(match_options)
   
