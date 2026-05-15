@@ -246,10 +246,10 @@ match_locations <- function(
     "jw",
     "soundex"
   )
-  dists <- as.data.frame(matrix(NA, nrow = length(b_cln), ncol = length(methods)+1,
-                                dimnames = list(b_cln, c("name", methods))))
-  for (j in 1:length(methods)){
-    dists[, j+1]  <-
+  dists <- as.data.frame(matrix(NA, nrow = length(b_cln), ncol = length(methods),
+                                dimnames = list(b_cln, methods)))
+  for (j in seq_along(methods)){
+    dists[[methods[j]]] <-
       suppressWarnings(stringdist::stringdist(a_cln, b_cln, method = methods[j]))
   }
   dists$score_sums <- rowSums(dists, na.rm = TRUE)
