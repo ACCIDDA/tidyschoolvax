@@ -247,7 +247,8 @@ match_locations <- function(
     "soundex"
   )
   # Compute all string distances in a single vectorized pass (one call per method,
-  # avoiding the overhead of a sequential for-loop and an intermediate NA matrix).
+  # avoiding the overhead of a sequential for-loop over methods).  The 'name'
+  # column is added separately after this block, following the original ordering.
   dist_mat <- do.call(cbind, lapply(methods, function(m) {
     suppressWarnings(stringdist::stringdist(a_cln, b_cln, method = m))
   }))
@@ -303,8 +304,10 @@ match_locations <- function(
 #'
 #' @param data A data.frame or tibble containing school-level records.
 #' @param n_years_data Integer. Threshold for checking unusually large group sizes.
-#' @param id_col String. Column name of unique row IDs (unused; kept for backward
-#'   compatibility with the previous dplyr-based implementation).
+#' @param id_col (Deprecated) String. Previously the column name of unique row
+#'   IDs used to merge corrected rows back. This parameter is no longer needed
+#'   by the data.table implementation and has no effect; it is retained only
+#'   for backward compatibility with existing call sites.
 #'
 #' @return A data.frame with school_level NA values fixed where appropriate.
 #' @importFrom data.table as.data.table
@@ -359,8 +362,10 @@ fix_school_level_na <- function(data, n_years_data, id_col = "ids_tmp") {
 #'
 #' @param data A data.frame or tibble containing school-level records.
 #' @param n_years_data Integer. Threshold for checking unusually large group sizes.
-#' @param id_col String. Column name of unique row IDs (unused; kept for backward
-#'   compatibility with the previous dplyr-based implementation).
+#' @param id_col (Deprecated) String. Previously the column name of unique row
+#'   IDs used to merge corrected rows back. This parameter is no longer needed
+#'   by the data.table implementation and has no effect; it is retained only
+#'   for backward compatibility with existing call sites.
 #'
 #' @return A data.frame with school_type NA values fixed where appropriate.
 #' @importFrom data.table as.data.table
@@ -403,6 +408,43 @@ fix_school_type_na <- function(data, n_years_data, id_col = "ids_tmp") {
 
 
 
+#' Match two school datasets using fuzzy string matching with full outer join
+#'
+#' Deduplicates both datasets, assigns IDs, and performs fuzzy matching using
+#' Jaro-Winkler string distance within a specified grouping column (e.g., county,
+#' zip). Returns a full outer join of both datasets, preserving all schools from
+#' both sources.
+#'
+#' @param data1 A data frame of school data (first dataset to match).
+#' @param data2 A data frame of school data (second dataset, typically the
+#'   reference with addresses).
+#' @param match_cols1 Column name(s) in data1 to use for grouping matches
+#'   (default = "county_std").
+#' @param match_cols2 Column name(s) in data2 to use for grouping matches
+#'   (default = "county_std").
+#' @param data_1_source Label for the first data source (default = "GreatSchools").
+#' @param data_2_source Label for the second data source (default = "DOE").
+#' @param threshold_jw Numeric threshold for Jaro-Winkler distance used in
+#'   initial filtering of candidate matches (default = 0.6).
+#' @param threshold_jw_min Numeric threshold; data1 rows where all data2
+#'   candidates exceed this JW distance are immediately marked as unmatched
+#'   (default = 0.6).
+#' @param exact_jw Numeric threshold below which a JW distance is treated as an
+#'   exact match (default = 0.05).
+#' @param parallel Logical. When \code{TRUE}, dispatches the per-row matching
+#'   loop to parallel workers via \pkg{furrr}. The caller must set up a
+#'   \code{future} plan before calling this function, for example:
+#'   \code{future::plan(future::multisession, workers = 4)}.
+#'   Defaults to \code{FALSE} for sequential (single-core) execution.
+#'
+#' @return A list with:
+#'   \describe{
+#'     \item{matched}{Data frame of matched schools.}
+#'     \item{unmatched_dat1}{Data frame of unmatched schools from data1.}
+#'     \item{unmatched_dat2}{Data frame of unmatched schools from data2.}
+#'     \item{match_options}{Data frame of near-miss candidates for manual review.}
+#'     \item{match_summary}{Table of match categories.}
+#'   }
 match_schools_names <- function(data1, data2,
                                 match_cols1 = "county_std",
                                 match_cols2 = "county_std",
@@ -435,7 +477,12 @@ match_schools_names <- function(data1, data2,
   data2_lowered <- data2 %>%
     dplyr::mutate(dplyr::across(dplyr::all_of(match_cols2), tolower))
 
-  # Compound key: paste all match_cols2 values together with a rare separator
+  # Compound key: paste all match_cols2 values together separated by \x01 (SOH
+  # control character).  This character is chosen because it is extremely
+  # unlikely to appear in school or county names and avoids false key collisions.
+  # The data1 lookup key (line ~503) uses paste(..., collapse = "\x01") which
+  # produces an identical string for a single-row filter_vals data frame,
+  # ensuring the two key-building approaches are compatible.
   data2_lowered$.grp_key_ <- do.call(
     paste,
     c(lapply(match_cols2, function(col) data2_lowered[[col]]), sep = "\x01")

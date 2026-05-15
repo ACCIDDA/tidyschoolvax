@@ -596,10 +596,10 @@ run_full_geocoding <- function(unique_schools, geo_dir, google_api_key) {
       if (!is.null(progress_data$chunk_results)) {
         results_list[processed_chunks] <- progress_data$chunk_results[processed_chunks]
       } else if (!is.null(progress_data$results)) {
-        # Old progress file: the accumulated df is already the combined result of
-        # all previously processed chunks; store it in slot 1 and mark those chunks
-        # as done so they are skipped.
-        results_list[[1L]] <- progress_data$results
+        # Old progress file: the combined df of all previously processed chunks.
+        # Append it as an extra list element so it is included in the final
+        # bind_rows; the loop will still skip the already-processed chunk indices.
+        results_list[[length(results_list) + 1L]] <- progress_data$results
       }
       cat(sprintf("Resuming from chunk %d of %d (processed: %d)\n",
                   length(processed_chunks) + 1L, n_chunks, length(processed_chunks)))
