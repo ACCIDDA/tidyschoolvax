@@ -318,6 +318,10 @@ match_locations <- function(
 #' cleaned <- fix_school_level_na(kinder_dat_unique, n_years_data = 10, id_col = "ids_tmp")
 fix_school_level_na <- function(data, n_years_data, id_col = "ids_tmp") {
 
+  if (!identical(id_col, "ids_tmp")) {
+    warning("The 'id_col' parameter is deprecated and has no effect. It will be removed in a future release.")
+  }
+
   grp_cols <- c("school_name_std", "county_std", "school_type")
 
   dt <- data.table::as.data.table(data)
@@ -375,6 +379,10 @@ fix_school_level_na <- function(data, n_years_data, id_col = "ids_tmp") {
 #' @examples
 #' cleaned <- fix_school_type_na(kinder_dat_unique, n_years_data = 10, id_col = "ids_tmp")
 fix_school_type_na <- function(data, n_years_data, id_col = "ids_tmp") {
+
+  if (!identical(id_col, "ids_tmp")) {
+    warning("The 'id_col' parameter is deprecated and has no effect. It will be removed in a future release.")
+  }
 
   grp_cols <- c("school_name_std", "county_std", "school_level")
 
@@ -653,6 +661,13 @@ match_schools_names <- function(data1, data2,
   # When parallel = TRUE the caller must set up a future plan first, e.g.:
   #   future::plan(future::multisession, workers = parallel::detectCores() - 1)
   if (isTRUE(parallel)) {
+    if (inherits(future::plan(), "sequential")) {
+      stop(
+        "parallel = TRUE requires a non-sequential future plan. ",
+        "Call `future::plan(future::multisession, workers = N)` before ",
+        "using parallel = TRUE."
+      )
+    }
     row_results <- furrr::future_map(
       seq_len(nrow(data1)),
       function(i) .process_one_row(data1[i, ]),

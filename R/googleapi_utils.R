@@ -596,9 +596,11 @@ run_full_geocoding <- function(unique_schools, geo_dir, google_api_key) {
       if (!is.null(progress_data$chunk_results)) {
         results_list[processed_chunks] <- progress_data$chunk_results[processed_chunks]
       } else if (!is.null(progress_data$results)) {
-        # Old progress file: the combined df of all previously processed chunks.
-        # Append it as an extra list element so it is included in the final
-        # bind_rows; the loop will still skip the already-processed chunk indices.
+        # Old progress file: a single combined df for all previously-processed
+        # chunks.  Append it as an extra list element.  The loop skips chunk
+        # indices in processed_chunks so those slots in results_list remain NULL;
+        # dplyr::bind_rows() ignores NULL entries, so the final combine is
+        # exactly: old_combined + new_chunks — no duplicates, no omissions.
         results_list[[length(results_list) + 1L]] <- progress_data$results
       }
       cat(sprintf("Resuming from chunk %d of %d (processed: %d)\n",
