@@ -52,7 +52,7 @@ state_name <- state.name[match(current_state, state.abb)]  # Full state name (e.
 # e.g. in .Renviron or via Sys.setenv() in an untracked secrets file).
 # Never hard-code a key here.
 
-google_api_key <- "AIzaSyCIeLh02T9btqw5-v-ssx-ZjzawmSeJqOM"  # <-- Specify Google API key
+google_api_key <- ""  # <-- Specify Google API key
 Sys.setenv(GOOGLEGEO_API_KEY = google_api_key)
 ```
 
