@@ -402,6 +402,30 @@ fix_school_type_na <- function(data, n_years_data, id_col = "ids_tmp") {
 
 
 
+#' Match school records across two datasets by name and location
+#'
+#' Deduplicates the selected columns from each input dataset and performs
+#' school-name matching within the provided grouping columns using the supplied
+#' string-distance thresholds.
+#'
+#' @param data1 A data frame containing the first set of school records.
+#' @param data2 A data frame containing the second set of school records.
+#' @param match_cols1 Character vector of column names used to group records in
+#'   `data1` before matching. Defaults to `"county_std"`.
+#' @param match_cols2 Character vector of column names used to group records in
+#'   `data2` before matching. Defaults to `"county_std"`.
+#' @param data_1_source A label describing the source of `data1`.
+#' @param data_2_source A label describing the source of `data2`.
+#' @param threshold_jw Numeric Jaro-Winkler distance threshold used for
+#'   candidate matching.
+#' @param threshold_jw_min Numeric minimum Jaro-Winkler threshold used in the
+#'   matching workflow.
+#' @param exact_jw Numeric threshold used to identify near-exact
+#'   Jaro-Winkler matches.
+#'
+#' @return A data frame containing the school-name matching results between the
+#'   two input datasets.
+#' @export
 match_schools_names <- function(data1, data2, 
                                 match_cols1 = "county_std",
                                 match_cols2 = "county_std",
