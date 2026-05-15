@@ -248,9 +248,9 @@ match_locations <- function(
   )
   dists <- as.data.frame(matrix(NA, nrow = length(b_cln), ncol = length(methods),
                                 dimnames = list(b_cln, methods)))
-  for (j in seq_along(methods)){
-    dists[[methods[j]]] <-
-      suppressWarnings(stringdist::stringdist(a_cln, b_cln, method = methods[j]))
+  for (method_idx in seq_along(methods)){
+    dists[[methods[method_idx]]] <-
+      suppressWarnings(stringdist::stringdist(a_cln, b_cln, method = methods[method_idx]))
   }
   dists$score_sums <- rowSums(dists, na.rm = TRUE)
   dists$osa <- as.integer(dists$osa)
