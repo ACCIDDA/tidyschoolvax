@@ -302,62 +302,50 @@ match_locations <- function(
 #'
 #' @param data A data.frame or tibble containing school-level records.
 #' @param n_years_data Integer. Threshold for checking unusually large group sizes.
-#' @param id_col String. Column name of unique row IDs (used to merge corrected rows back).
+#' @param id_col String. Column name of unique row IDs (unused; kept for backward
+#'   compatibility with the previous dplyr-based implementation).
 #'
-#' @return A tibble with school_level NA values fixed where appropriate.
-#' @importFrom dplyr mutate group_by filter n summarise distinct ungroup arrange desc bind_rows
-#' @importFrom rlang sym
+#' @return A data.frame with school_level NA values fixed where appropriate.
+#' @importFrom data.table as.data.table
 #' @importFrom stats na.omit
 #' @export
 #'
 #' @examples
 #' cleaned <- fix_school_level_na(kinder_dat_unique, n_years_data = 10, id_col = "ids_tmp")
 fix_school_level_na <- function(data, n_years_data, id_col = "ids_tmp") {
-  
-  # ensure tidy eval safety
-  id_col_sym <- rlang::sym(id_col)
-  
-  # add original value for matching later
-  data <- data %>%
-    dplyr::mutate(school_level_orig = school_level)
-  
-  # Step 1: identify groups where school_level can be reliably filled
-  fix_groups <- data %>%
-    dplyr::group_by(school_name_std, county_std, school_type) %>%
-    dplyr::filter(
-      dplyr::n() > 1,
-      length(stats::na.omit(unique(school_level[!is.na(school_level)]))) == 1
-    ) %>%
-    dplyr::mutate(
-      school_level = stats::na.omit(unique(school_level[!is.na(school_level)])),
-      n_group = dplyr::n()
-    ) %>%
-    dplyr::ungroup() %>%
-    dplyr::arrange(school_name_std, county_std, dplyr::desc(n_group))
-  
-  # Step 2: Optional QA check (printed but not stopping processing)
-  qa_check <- fix_groups %>%
-    dplyr::select(-school_level_orig) %>%
-    dplyr::group_by(school_name_std, county_std, school_type, school_level) %>%
-    dplyr::summarise(n = dplyr::n(), .groups = "drop") %>%
-    dplyr::distinct() %>%
-    dplyr::filter(n > n_years_data)
-  
-  if (nrow(qa_check) > 0) {
+
+  grp_cols <- c("school_name_std", "county_std", "school_type")
+
+  dt <- data.table::as.data.table(data)
+  dt[, school_level_orig := school_level]
+
+  # For each group with >1 row and exactly one distinct non-NA school_level,
+  # fill every row in that group with that value (NAs are updated; non-NA rows
+  # are a no-op since they already hold the only non-NA value).
+  dt[, c(".n_grp", ".n_unique") := .(
+    .N,
+    length(stats::na.omit(unique(school_level)))
+  ), by = grp_cols]
+
+  dt[.n_grp > 1L & .n_unique == 1L, `:=`(
+    school_level = stats::na.omit(unique(school_level))[1L],
+    n_group      = .N
+  ), by = grp_cols]
+
+  dt[, c(".n_grp", ".n_unique") := NULL]
+
+  # QA: flag groups where the filled size exceeds n_years_data
+  qa_dt    <- dt[!is.na(n_group), .N, by = c(grp_cols, "school_level")][N > n_years_data]
+  qa_check <- as.data.frame(qa_dt)
+
+  if (nrow(qa_check) > 0L) {
     message("QA warning: Some fixed groups have more rows than n_years_data. Inspect returned 'qa_check' attribute.")
   }
-  
-  # Step 3: integrate back into full dataset
-  out <- data %>%
-    dplyr::filter(!(!!id_col_sym %in% fix_groups[[id_col]])) %>%
-    dplyr::bind_rows(fix_groups)
-  
-  # attach QA check as attribute
+
+  out <- as.data.frame(dt)
   attr(out, "qa_check") <- qa_check
-  
   return(out)
 }
-
 
 
 
@@ -370,91 +358,50 @@ fix_school_level_na <- function(data, n_years_data, id_col = "ids_tmp") {
 #'
 #' @param data A data.frame or tibble containing school-level records.
 #' @param n_years_data Integer. Threshold for checking unusually large group sizes.
-#' @param id_col String. Column name of unique row IDs (used to merge corrected rows back).
+#' @param id_col String. Column name of unique row IDs (unused; kept for backward
+#'   compatibility with the previous dplyr-based implementation).
 #'
-#' @return A tibble with school_type NA values fixed where appropriate.
-#' @importFrom dplyr mutate group_by filter n summarise distinct ungroup arrange desc bind_rows
-#' @importFrom rlang sym
+#' @return A data.frame with school_type NA values fixed where appropriate.
+#' @importFrom data.table as.data.table
 #' @importFrom stats na.omit
 #' @export
 #'
 #' @examples
 #' cleaned <- fix_school_type_na(kinder_dat_unique, n_years_data = 10, id_col = "ids_tmp")
 fix_school_type_na <- function(data, n_years_data, id_col = "ids_tmp") {
-  
-  id_col_sym <- rlang::sym(id_col)
-  
-  # add original value for matching later
-  data <- data %>%
-    dplyr::mutate(school_type_orig = school_type)
-  
-  # Step 1: identify groups where school_type can be reliably filled
-  fix_groups <- data %>%
-    dplyr::group_by(school_name_std, county_std, school_level) %>%
-    dplyr::filter(
-      dplyr::n() > 1,
-      length(stats::na.omit(unique(school_type[!is.na(school_type)]))) == 1
-    ) %>%
-    dplyr::mutate(
-      school_type = stats::na.omit(unique(school_type[!is.na(school_type)])),
-      n_group = dplyr::n()
-    ) %>%
-    dplyr::ungroup() %>%
-    dplyr::arrange(school_name_std, county_std, dplyr::desc(n_group))
-  
-  # Step 2: QA check
-  qa_check <- fix_groups %>%
-    dplyr::group_by(school_name_std, county_std, school_level, school_type) %>%
-    dplyr::summarise(n = dplyr::n(), .groups = "drop") %>%
-    dplyr::distinct() %>%
-    dplyr::filter(n > n_years_data)
-  
-  if (nrow(qa_check) > 0) {
+
+  grp_cols <- c("school_name_std", "county_std", "school_level")
+
+  dt <- data.table::as.data.table(data)
+  dt[, school_type_orig := school_type]
+
+  dt[, c(".n_grp", ".n_unique") := .(
+    .N,
+    length(stats::na.omit(unique(school_type)))
+  ), by = grp_cols]
+
+  dt[.n_grp > 1L & .n_unique == 1L, `:=`(
+    school_type = stats::na.omit(unique(school_type))[1L],
+    n_group     = .N
+  ), by = grp_cols]
+
+  dt[, c(".n_grp", ".n_unique") := NULL]
+
+  qa_dt    <- dt[!is.na(n_group), .N, by = c(grp_cols, "school_type")][N > n_years_data]
+  qa_check <- as.data.frame(qa_dt)
+
+  if (nrow(qa_check) > 0L) {
     message("QA warning: Some fixed groups have more rows than n_years_data. Inspect returned 'qa_check' attribute.")
   }
-  
-  # Step 3: integrate fixed records back into full dataset
-  out <- data %>%
-    dplyr::filter(!(!!id_col_sym %in% fix_groups[[id_col]])) %>%
-    dplyr::bind_rows(fix_groups)
-  
+
+  out <- as.data.frame(dt)
   attr(out, "qa_check") <- qa_check
-  
   return(out)
 }
 
 
 
 
-
-
-
-
-
-
-
-
-
-#' Match two school datasets using fuzzy string matching with full outer join
-#'
-#' This function deduplicates both datasets, assigns IDs, and performs fuzzy matching
-#' using Jaro-Winkler string distance within a specified grouping column (e.g., county, zip).
-#' Returns a full outer join of both datasets, preserving all schools from both sources.
-#'
-#' @param data1 A data frame of school data (first dataset to match).
-#' @param data2 A data frame of school data (second dataset, typically the reference with addresses).
-#' @param match_col1 Column name in data1 to use for grouping matches (default = "county_std").
-#' @param match_col2 Column name in data2 to use for grouping matches (default = "county_std").
-#' @param match_threshold Numeric threshold for detailed matching (default = 0.20).
-#' @param threshold_jw Numeric threshold for initial Jaro-Winkler distance (default = 0.35).
-#'
-#' @return A list with:
-#'   - matched: Data frame of matched schools with both datasets' information
-#'   - unmatched: Data frame of unmatched schools from data1
-#'   - all_rows: Full outer join with all schools from both datasets, includes
-#'               school_name_final and school_name_std_final (preferring data2)
-#'   - updated_school_info: Deduplicated data2 with assigned IDs
-#'   - match_summary: Table of match categories including unmatched from both datasets
 match_schools_names <- function(data1, data2, 
                                 match_cols1 = "county_std",
                                 match_cols2 = "county_std",
