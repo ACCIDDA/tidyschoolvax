@@ -422,6 +422,11 @@ fix_school_type_na <- function(data, n_years_data, id_col = "ids_tmp") {
 #'   matching workflow.
 #' @param exact_jw Numeric threshold used to identify near-exact
 #'   Jaro-Winkler matches.
+#' @param parallel Logical. If `TRUE`, row-level matching is dispatched to
+#'   worker processes via [furrr::future_map()]. The caller must configure a
+#'   `future` plan (e.g. `future::plan(future::multisession)`) before setting
+#'   this to `TRUE`; if no non-sequential plan is active a warning is issued and
+#'   execution falls back to sequential. Defaults to `FALSE`.
 #'
 #' @return A data frame containing the school-name matching results between the
 #'   two input datasets.
