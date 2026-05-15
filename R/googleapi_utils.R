@@ -582,69 +582,75 @@ run_full_geocoding <- function(unique_schools, geo_dir, google_api_key) {
     chunks <- split(prepped_df, (seq_len(nrow(prepped_df)) - 1) %/% 250)
     n_chunks <- length(chunks)
     
-    # Check for previous progress
+    # Pre-allocate a list so each chunk result is stored by index; this avoids
+    # the O(n²) memory cost of repeatedly calling bind_rows(accumulated_df, chunk).
+    # A single bind_rows over all chunks is done once at the end.
+    results_list <- vector("list", n_chunks)
     processed_chunks <- c()
-    results <- NULL
-    
+
     if (file.exists(progress_path)) {
       progress_data <- readRDS(progress_path)
       processed_chunks <- progress_data$processed_chunks
-      results <- progress_data$results
-      cat(sprintf("Resuming from chunk %d of %d (processed: %d)\n", 
-                  length(processed_chunks) + 1, n_chunks, length(processed_chunks)))
+      # Backward-compatible: accept either the old "results" (single df) or the
+      # new "chunk_results" (list) format saved by a previous run.
+      if (!is.null(progress_data$chunk_results)) {
+        results_list[processed_chunks] <- progress_data$chunk_results[processed_chunks]
+      } else if (!is.null(progress_data$results)) {
+        # Old progress file: the accumulated df is already the combined result of
+        # all previously processed chunks; store it in slot 1 and mark those chunks
+        # as done so they are skipped.
+        results_list[[1L]] <- progress_data$results
+      }
+      cat(sprintf("Resuming from chunk %d of %d (processed: %d)\n",
+                  length(processed_chunks) + 1L, n_chunks, length(processed_chunks)))
     }
-    
+
     # Process remaining chunks
     for (i in seq_along(chunks)) {
       if (i %in% processed_chunks) {
         next
       }
-      
+
       cat(sprintf("  Processing chunk %d of %d...", i, n_chunks))
-      
+
       chunk_result <- tryCatch({
         process_chunk(chunks[[i]], google_api_key = google_api_key)
       }, error = function(e) {
         cat(sprintf(" ERROR\n"))
         cat(sprintf("    Error message: %s\n", e$message))
         cat("    Saving progress and stopping...\n")
-        
-        # Save partial results before stopping
+
         progress_data <- list(
           processed_chunks = processed_chunks,
-          results = results,
-          error_chunk = i,
-          error_message = e$message,
-          timestamp = Sys.time()
+          chunk_results    = results_list,
+          error_chunk      = i,
+          error_message    = e$message,
+          timestamp        = Sys.time()
         )
         saveRDS(progress_data, progress_path)
         cat(sprintf("    Progress saved to: %s\n", progress_path))
         cat("    Run the function again to resume from this point.\n\n")
-        
+
         stop(e)
       })
-      
-      # Consolidate chunk results
-      if (is.null(results)) {
-        results <- chunk_result
-      } else {
-        results <- dplyr::bind_rows(results, chunk_result)
-      }
-      
-      # Save intermediate progress
+
+      results_list[[i]] <- chunk_result
+
+      # Save intermediate progress (per-chunk list; no incremental bind_rows)
       processed_chunks <- c(processed_chunks, i)
       progress_data <- list(
         processed_chunks = processed_chunks,
-        results = results,
+        chunk_results    = results_list,
         chunks_remaining = n_chunks - i,
-        timestamp = Sys.time()
+        timestamp        = Sys.time()
       )
       saveRDS(progress_data, progress_path)
-      
+
       cat(sprintf(" Done (%d/%d chunks)\n", i, n_chunks))
     }
-    
-    # All chunks processed - clean up progress file
+
+    # All chunks processed – combine once and clean up the progress file
+    results <- dplyr::bind_rows(results_list)
     if (file.exists(progress_path)) {
       file.remove(progress_path)
       cat("Geocoding progress file cleaned up.\n")
