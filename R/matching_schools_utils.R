@@ -464,6 +464,7 @@ match_schools_names <- function(data1, data2,
     c(lapply(match_cols2, function(col) data2_lowered[[col]]), sep = "\x01")
   )
   data2_by_group <- split(data2_lowered, data2_lowered$.grp_key_, drop = TRUE)
+  data2_lowered$.grp_key_ <- NULL
 
   # ---------------------------------------------------------------------------
   # Inner helper: match a single data1 row against data2_by_group.
@@ -628,7 +629,15 @@ match_schools_names <- function(data1, data2,
   # Dispatch: sequential (default) or parallel via furrr.
   # When parallel = TRUE the caller must set up a future plan first, e.g.:
   #   future::plan(future::multisession, workers = parallel::detectCores() - 1)
+  # If no plan has been set, furrr falls back to sequential execution.
   if (isTRUE(parallel)) {
+    if (inherits(future::plan(), "sequential")) {
+      warning(
+        "parallel = TRUE but no future plan has been set; falling back to sequential execution. ",
+        "Call future::plan(future::multisession) before invoking match_schools_names() to enable parallelism.",
+        call. = FALSE
+      )
+    }
     row_results <- furrr::future_map(
       seq_len(nrow(data1)),
       function(i) .process_one_row(data1[i, ]),
