@@ -34,6 +34,13 @@
 #' @param addr_source_pref Character.  Address source to prefer as the primary
 #'   address in the output.  One of \code{"greatschools"} (default),
 #'   \code{"doe"}, \code{"third"}, or \code{"kinder"}.
+#' @param parallel Logical. If \code{TRUE}, row-level matching inside every
+#'   \code{\link{match_schools_names}} call is dispatched to worker processes
+#'   via \code{\link[furrr:future_map]{furrr::future_map()}}. The caller must
+#'   configure a \code{future} plan (e.g.
+#'   \code{future::plan(future::multisession)}) before setting this to
+#'   \code{TRUE}; if no non-sequential plan is active a warning is issued and
+#'   execution falls back to sequential. Defaults to \code{FALSE}.
 #'
 #' @return The final cleaned \code{data.frame} (invisibly).  The same object is
 #'   also written to \code{temp_data_dir} as
@@ -64,7 +71,8 @@ standardize_schools <- function(state_id,
                                 temp_data_dir,
                                 state_geo_dir,
                                 state_dir,
-                                addr_source_pref = "greatschools") {
+                                addr_source_pref = "greatschools",
+                                parallel = FALSE) {
 
   # ---- PART 1: Load and clean all data sources --------------------------------
   kinder_result   <- clean_kinder_data(readRDS(file.path(kinder_dir, "kinder_dat.rds")))
@@ -88,7 +96,8 @@ standardize_schools <- function(state_id,
     greatschools_dat = greatschools_dat,
     doe_dat          = doe_dat,
     other_dat        = other_dat,
-    addr_source_pref = addr_source_pref
+    addr_source_pref = addr_source_pref,
+    parallel         = parallel
   )
 
   # ---- PART 3: Build unique kinder school records ----------------------------
@@ -110,7 +119,8 @@ standardize_schools <- function(state_id,
     kinder_dat              = kinder_dat,
     temp_data_dir           = temp_data_dir,
     addr_source_pref        = addr_source_pref,
-    kinder_has_addr         = kinder_has_addr
+    kinder_has_addr         = kinder_has_addr,
+    parallel                = parallel
   )
 
   # ---- PART 6: Geocode and school-status lookup ------------------------------
@@ -183,13 +193,15 @@ standardize_schools <- function(state_id,
 #' @param doe_dat Cleaned DOE data frame.
 #' @param other_dat Optional cleaned third-source data frame, or \code{NULL}.
 #' @param addr_source_pref See \code{\link{standardize_schools}}.
+#' @param parallel See \code{\link{standardize_schools}}.
 #'
 #' @return A data frame: the merged reference key.
 #' @keywords internal
 build_reference_key <- function(greatschools_dat,
                                 doe_dat,
                                 other_dat        = NULL,
-                                addr_source_pref = "greatschools") {
+                                addr_source_pref = "greatschools",
+                                parallel         = FALSE) {
 
   gs <- greatschools_dat %>% dplyr::select(-county2, -county2_std)
   gs_city <- gs %>% dplyr::mutate(city_cln = tolower(city))
@@ -200,7 +212,8 @@ build_reference_key <- function(greatschools_dat,
     data1 = gs, data2 = doe_dat,
     match_cols1 = c("addr_clean_no_unit", "school_type"),
     match_cols2 = c("addr_clean_no_unit", "school_type"),
-    threshold_jw = 0.3, threshold_jw_min = 0.6, exact_jw = 0.15
+    threshold_jw = 0.3, threshold_jw_min = 0.6, exact_jw = 0.15,
+    parallel = parallel
   )
 
   unmatched1 <- m_addr$unmatched_dat1$school_name
@@ -209,7 +222,8 @@ build_reference_key <- function(greatschools_dat,
     data2 = doe_dat,
     match_cols1 = c("zip", "school_type", "level_code_match"),
     match_cols2 = c("zip", "school_type", "level_code_match"),
-    threshold_jw = 0.25, threshold_jw_min = 0.5, exact_jw = 0.15
+    threshold_jw = 0.25, threshold_jw_min = 0.5, exact_jw = 0.15,
+    parallel = parallel
   )
 
   unmatched2 <- m_zip$unmatched_dat1$school_name
@@ -218,7 +232,8 @@ build_reference_key <- function(greatschools_dat,
     data2 = doe_city,
     match_cols1 = c("city_cln", "school_type", "level_code_match"),
     match_cols2 = c("city_cln", "school_type", "level_code_match"),
-    threshold_jw = 0.2, threshold_jw_min = 0.5, exact_jw = 0.15
+    threshold_jw = 0.2, threshold_jw_min = 0.5, exact_jw = 0.15,
+    parallel = parallel
   )
 
   unmatched3 <- m_city$unmatched_dat1$school_name
@@ -227,7 +242,8 @@ build_reference_key <- function(greatschools_dat,
     data2 = doe_city,
     match_cols1 = c("county_std", "school_type", "level_code_match"),
     match_cols2 = c("county_std", "school_type", "level_code_match"),
-    threshold_jw = 0.2, threshold_jw_min = 0.5, exact_jw = 0.15
+    threshold_jw = 0.2, threshold_jw_min = 0.5, exact_jw = 0.15,
+    parallel = parallel
   )
 
   matched_scores <- dplyr::bind_rows(
@@ -278,7 +294,8 @@ build_reference_key <- function(greatschools_dat,
 
   # ---- Optionally integrate third dataset ------------------------------------
   if (!is.null(other_dat)) {
-    matched_df <- .integrate_third_dataset(matched_df, other_dat)
+    matched_df <- .integrate_third_dataset(matched_df, other_dat,
+                                           parallel = parallel)
   }
 
   # ---- Apply address source preference ---------------------------------------
@@ -289,7 +306,7 @@ build_reference_key <- function(greatschools_dat,
 
 
 # Internal: integrate third dataset into the reference key
-.integrate_third_dataset <- function(matched_df, other_dat) {
+.integrate_third_dataset <- function(matched_df, other_dat, parallel = FALSE) {
   matched_df <- matched_df %>% dplyr::mutate(temp_id = dplyr::row_number())
 
   matched_df_for_third <- matched_df %>%
@@ -308,7 +325,8 @@ build_reference_key <- function(greatschools_dat,
     data1 = third_match, data2 = matched_df_for_third,
     match_cols1 = c("addr_clean_no_unit", "school_type"),
     match_cols2 = c("addr_clean_no_unit", "school_type"),
-    threshold_jw = 0.3, threshold_jw_min = 0.6, exact_jw = 0.15
+    threshold_jw = 0.3, threshold_jw_min = 0.6, exact_jw = 0.15,
+    parallel = parallel
   )
 
   unmatched_t1 <- t_addr$unmatched_dat1$school_name
@@ -317,7 +335,8 @@ build_reference_key <- function(greatschools_dat,
     data2 = matched_df_for_third,
     match_cols1 = c("zip", "school_type", "level_code_match"),
     match_cols2 = c("zip", "school_type", "level_code_match"),
-    threshold_jw = 0.25, threshold_jw_min = 0.5, exact_jw = 0.15
+    threshold_jw = 0.25, threshold_jw_min = 0.5, exact_jw = 0.15,
+    parallel = parallel
   )
 
   unmatched_t2 <- t_zip$unmatched_dat1$school_name
@@ -326,7 +345,8 @@ build_reference_key <- function(greatschools_dat,
     data2 = matched_df_for_third,
     match_cols1 = c("county_std", "school_type", "level_code_match"),
     match_cols2 = c("county_std", "school_type", "level_code_match"),
-    threshold_jw = 0.2, threshold_jw_min = 0.5, exact_jw = 0.15
+    threshold_jw = 0.2, threshold_jw_min = 0.5, exact_jw = 0.15,
+    parallel = parallel
   )
 
   matched_third <- dplyr::bind_rows(
@@ -537,6 +557,7 @@ build_kinder_unique_schools <- function(kinder_dat, n_years_data) {
 #' @param addr_source_pref See \code{\link{standardize_schools}}.
 #' @param kinder_has_addr Logical. Whether \code{kinder_dat} contains address
 #'   columns (\code{addr_clean_kinder}, \code{city_kinder}, \code{zip_kinder}).
+#' @param parallel See \code{\link{standardize_schools}}.
 #'
 #' @return A long data frame with one row per vaccination record, merged with
 #'   school metadata and (optionally) kinder addresses.
@@ -546,7 +567,8 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
                                       kinder_dat,
                                       temp_data_dir,
                                       addr_source_pref = "greatschools",
-                                      kinder_has_addr  = FALSE) {
+                                      kinder_has_addr  = FALSE,
+                                      parallel         = FALSE) {
 
   matched_df <- matched_df %>%
     dplyr::distinct() %>%
@@ -568,7 +590,8 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
     data1 = kinder_elem, data2 = ref_elem,
     match_cols1 = c("county_std", "school_type"),
     match_cols2 = c("county_std", "school_type"),
-    threshold_jw = 0.169, threshold_jw_min = 0.3, exact_jw = 0.10
+    threshold_jw = 0.169, threshold_jw_min = 0.3, exact_jw = 0.10,
+    parallel = parallel
   )
 
   # ---- Match pass 2: county only, for remaining unmatched --------------------
@@ -578,7 +601,8 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
     data2 = ref_elem,
     match_cols1 = c("county_std"),
     match_cols2 = c("county_std"),
-    threshold_jw = 0.15, threshold_jw_min = 0.3, exact_jw = 0.10
+    threshold_jw = 0.15, threshold_jw_min = 0.3, exact_jw = 0.10,
+    parallel = parallel
   )
 
   matched_elem <- dplyr::bind_rows(m1$matched, m2$matched) %>%
@@ -608,7 +632,8 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
   self_match <- match_schools_names(
     data1 = vacc_to_match, data2 = vacc_matchto,
     match_cols1 = c("county_std"), match_cols2 = c("county_std"),
-    threshold_jw = 0.20, threshold_jw_min = 0.35, exact_jw = 0.10
+    threshold_jw = 0.20, threshold_jw_min = 0.35, exact_jw = 0.10,
+    parallel = parallel
   )
 
   vacc_matched_self <- kinder_elem %>%
