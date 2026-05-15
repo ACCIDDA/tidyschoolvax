@@ -456,13 +456,13 @@ match_schools_names <- function(data1, data2,
     )))) %>%
     distinct()
 
-  # Build composite group keys (lowercase; null-byte separator avoids collisions)
+  # Build composite group keys (lowercase; "|||" separator is unlikely in county/school names)
   make_group_key <- function(data, cols) {
     if (length(cols) == 1L) {
       tolower(as.character(data[[cols]]))
     } else {
       apply(data[, cols, drop = FALSE], 1L, function(row) {
-        paste(tolower(as.character(row)), collapse = "\x00")
+        paste(tolower(as.character(row)), collapse = "|||")
       })
     }
   }
