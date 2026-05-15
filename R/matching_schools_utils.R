@@ -228,9 +228,17 @@ match_locations <- function(
     stop("Need to supply vector to 'names_standard' to match against.")
   }
   
-  if(length(a) > 1 | length(a) == 0){
-    stop("ERROR: 'a' can only be of length 1")
+  if(length(a) == 0){
+    stop("ERROR: 'a' cannot be empty")
   }
+
+  # For vector input, apply element-wise and return a list
+  if (length(a) > 1) {
+    return(lapply(a, match_locations, names = names,
+                  return_name = return_name, return_score = return_score,
+                  return_score_matrix = return_score_matrix))
+  }
+
   if(is.na(a)){
     return(NA)
   }
@@ -246,12 +254,14 @@ match_locations <- function(
     "jw",
     "soundex"
   )
-  dists <- as.data.frame(matrix(NA, nrow = length(b_cln), ncol = length(methods)+1,
-                                dimnames = list(b_cln, c("name", methods))))
-  for (j in 1:length(methods)){
-    dists[, j+1]  <-
-      suppressWarnings(stringdist::stringdist(a_cln, b_cln, method = methods[j]))
-  }
+
+  # Vectorized: compute all method distances in one pass using lapply
+  dist_mat <- suppressWarnings(
+    do.call(cbind, lapply(methods, function(m)
+      stringdist::stringdist(a_cln, b_cln, method = m)))
+  )
+  colnames(dist_mat) <- methods
+  dists <- as.data.frame(dist_mat)
   dists$score_sums <- rowSums(dists, na.rm = TRUE)
   dists$osa <- as.integer(dists$osa)
   dists$name <- names
