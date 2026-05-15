@@ -246,12 +246,13 @@ match_locations <- function(
     "jw",
     "soundex"
   )
-  dists <- as.data.frame(matrix(NA, nrow = length(b_cln), ncol = length(methods)+1,
-                                dimnames = list(b_cln, c("name", methods))))
-  for (j in 1:length(methods)){
-    dists[, j+1]  <-
-      suppressWarnings(stringdist::stringdist(a_cln, b_cln, method = methods[j]))
-  }
+  # Compute all string distances in a single vectorized pass (one call per method,
+  # avoiding the overhead of a sequential for-loop and an intermediate NA matrix).
+  dist_mat <- do.call(cbind, lapply(methods, function(m) {
+    suppressWarnings(stringdist::stringdist(a_cln, b_cln, method = m))
+  }))
+  dists <- as.data.frame(dist_mat, row.names = b_cln)
+  colnames(dists) <- methods
   dists$score_sums <- rowSums(dists, na.rm = TRUE)
   dists$osa <- as.integer(dists$osa)
   dists$name <- names
