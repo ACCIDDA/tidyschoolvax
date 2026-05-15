@@ -316,7 +316,7 @@ fix_school_level_na <- function(data, n_years_data, id_col = "ids_tmp") {
 
   grp_cols <- c("school_name_std", "county_std", "school_type")
 
-  dt <- data.table::as.data.table(data)
+  dt <- data.table::copy(data.table::as.data.table(data))
   dt[, school_level_orig := school_level]
 
   # For each group with >1 row and exactly one distinct non-NA school_level,
