@@ -470,6 +470,11 @@ match_schools_names <- function(data1, data2,
   groups1 <- make_group_key(data1, match_cols1)
   groups2 <- make_group_key(data2, match_cols2)
 
+  # Pre-compute lowercased match-column values for every data1 row so we don't
+  # reconstruct them inside the loop for each ambiguous (status 3) match.
+  filter_vals_all <- data1[, match_cols1, drop = FALSE] %>%
+    dplyr::mutate(dplyr::across(dplyr::everything(), tolower))
+
   # C++ handles: per-group filtering, JW/Soundex/Cosine computation, candidate
   # selection (exact vs non-exact), and top-10 trimming for ambiguous cases.
   cpp_res <- match_schools_batch_cpp(
@@ -547,9 +552,8 @@ match_schools_names <- function(data1, data2,
         dists_gtbl <- dists_gtbl %>%
           dplyr::mutate(prob_osa = osa / nchar(data2_sub$school_name_std))
 
-        # Reconstruct filter_vals for bind_cols (mirrors the original logic)
-        filter_vals <- data1[i, match_cols1, drop = FALSE] %>%
-          dplyr::mutate(dplyr::across(dplyr::everything(), tolower))
+        # Use pre-computed lowercased filter values for this row
+        filter_vals_i <- filter_vals_all[i, , drop = FALSE]
 
         mo <- dists_gtbl %>%
           dplyr::as_tibble() %>%
@@ -557,7 +561,7 @@ match_schools_names <- function(data1, data2,
             name         = data1_row$school_name_std,
             name_options = data2_sub$school_name_std
           ) %>%
-          dplyr::bind_cols(filter_vals[rep(1L, nrow(.)), ]) %>%
+          dplyr::bind_cols(filter_vals_i[rep(1L, nrow(.)), ]) %>%
           dplyr::select(name, name_options, dplyr::any_of(match_cols1),
                         dplyr::everything()) %>%
           dplyr::filter(jw < .5, jaccard < .5) %>%

@@ -54,7 +54,7 @@ static double jaro_sim(const std::string& s1, const std::string& s2) {
         ++k;
     }
 
-    return ((double)m / n1 + (double)m / n2 + (double)(m - t / 2) / m) / 3.0;
+    return ((double)m / n1 + (double)m / n2 + (double)(m - t / 2.0) / m) / 3.0;
 }
 
 // Jaro-Winkler distance in [0, 1] (p = 0.1 — matches stringdist default)

@@ -145,33 +145,39 @@ test_that("candidates_idx values are valid 1-based indices into names2", {
 })
 
 test_that("soundex_cosine_thresh parameter affects candidate filtering", {
-  # Two strings with the same soundex but different cosine distances
+  # Use two strings that share a soundex code (S530) but whose JW is above
+  # threshold_jw so the cosine leg is the only way they pass the filter.
+  # "smith school" (s530) vs "smyth scool" (s530): JW ~0.1 which is below
+  # threshold_jw=0.6, so both strings would typically pass via JW anyway.
+  # Instead test with names where JW > threshold but soundex matches:
+  # "saintjohnprimary" vs "stjohnschool": similar soundex, high JW
   res_strict <- match_schools_batch_cpp(
-    names1           = "smith school",
+    names1           = "roosveltprimaryschool",
     groups1          = "alpha county",
-    names2           = c("smyth scool"),     # close phonetically
+    names2           = c("ruzveltelementary"),   # different spelling, same phonetic root
     groups2          = "alpha county",
     threshold_jw_min = 0.6,
-    threshold_jw     = 0.6,
-    exact_jw         = 0.05,
-    soundex_cosine_thresh = 0.0   # very strict cosine — unlikely to pass
+    threshold_jw     = 0.05,    # very tight JW — only cosine+soundex leg can pass
+    exact_jw         = 0.01,
+    soundex_cosine_thresh = 0.0  # cosine must be 0 — impossible, so will fail
   )
 
   res_lenient <- match_schools_batch_cpp(
-    names1           = "smith school",
+    names1           = "roosveltprimaryschool",
     groups1          = "alpha county",
-    names2           = c("smyth scool"),
+    names2           = c("ruzveltelementary"),
     groups2          = "alpha county",
     threshold_jw_min = 0.6,
-    threshold_jw     = 0.6,
-    exact_jw         = 0.05,
-    soundex_cosine_thresh = 1.0   # always pass cosine leg
+    threshold_jw     = 0.05,    # same tight JW
+    exact_jw         = 0.01,
+    soundex_cosine_thresh = 1.0  # cosine always passes when soundex matches
   )
 
-  # With lenient threshold, cosine leg can keep candidates that strict drops
-  # (exact outcome depends on JW; just check valid status values returned)
-  expect_true(res_strict$status[1]  %in% 0:3)
-  expect_true(res_lenient$status[1] %in% 0:3)
+  # With cosine_thresh=0 the cosine leg never fires (impossible cosine=0),
+  # so only the tight JW leg is active → likely unmatched.
+  # With cosine_thresh=1.0 the cosine leg admits the candidate when soundex=0.
+  # The two calls must produce different outcomes.
+  expect_false(identical(res_strict$status[1], res_lenient$status[1]))
 })
 
 # ---- match_schools_names: end-to-end ----------------------------------------
