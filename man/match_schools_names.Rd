@@ -41,11 +41,11 @@ matching workflow.}
 \item{exact_jw}{Numeric threshold used to identify near-exact
 Jaro-Winkler matches.}
 
-\item{parallel}{Logical. If \code{TRUE}, row-level matching is dispatched to
-worker processes via \code{\link[furrr:future_map]{furrr::future_map()}}. The caller must configure a
-\code{future} plan (e.g. \code{future::plan(future::multisession)}) before setting
-this to \code{TRUE}; if no non-sequential plan is active a warning is issued and
-execution falls back to sequential. Defaults to \code{FALSE}.}
+\item{parallel}{Logical. If `TRUE`, row-level matching is dispatched to
+worker processes via [furrr::future_map()]. The caller must configure a
+`future` plan (e.g. `future::plan(future::multisession)`) before setting
+this to `TRUE`; if no non-sequential plan is active a warning is issued and
+execution falls back to sequential. Defaults to `FALSE`.}
 }
 \value{
 A data frame containing the school-name matching results between the
