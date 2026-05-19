@@ -408,6 +408,13 @@ fix_school_type_na <- function(data, n_years_data, id_col = "ids_tmp") {
 #' school-name matching within the provided grouping columns using the supplied
 #' string-distance thresholds.
 #'
+#' The per-group distance computations (Jaro-Winkler, Soundex, Cosine) and
+#' candidate selection are handled by a compiled C++ routine
+#' (\code{match_schools_batch_cpp}), eliminating R interpreter overhead for
+#' the inner loop.  The R layer is responsible only for tie-breaking, the
+#' optional detailed \code{match_locations()} scoring for ambiguous cases, and
+#' assembling the final result tables.
+#'
 #' @param data1 A data frame containing the first set of school records.
 #' @param data2 A data frame containing the second set of school records.
 #' @param match_cols1 Character vector of column names used to group records in
@@ -422,14 +429,14 @@ fix_school_type_na <- function(data, n_years_data, id_col = "ids_tmp") {
 #'   matching workflow.
 #' @param exact_jw Numeric threshold used to identify near-exact
 #'   Jaro-Winkler matches.
-#' @param parallel Logical. If `TRUE`, row-level matching is dispatched to
-#'   worker processes via [furrr::future_map()]. The caller must configure a
-#'   `future` plan (e.g. `future::plan(future::multisession)`) before setting
-#'   this to `TRUE`; if no non-sequential plan is active a warning is issued and
-#'   execution falls back to sequential. Defaults to `FALSE`.
+#' @param parallel Logical. Accepted for API compatibility with prior versions of
+#'   this function; currently ignored. The per-group distance computations run
+#'   entirely in the compiled C++ batch routine (`match_schools_batch_cpp`) and
+#'   do not require external parallelism. Passing `TRUE` will emit a warning.
+#'   Defaults to `FALSE`.
 #'
-#' @return A data frame containing the school-name matching results between the
-#'   two input datasets.
+#' @return A named list with elements \code{matched}, \code{unmatched_dat1},
+#'   \code{unmatched_dat2}, \code{match_options}, and \code{match_summary}.
 #' @export
 match_schools_names <- function(data1, data2,
                                 match_cols1 = "county_std",
@@ -439,161 +446,173 @@ match_schools_names <- function(data1, data2,
                                 threshold_jw = 0.6,
                                 threshold_jw_min = 0.6,
                                 exact_jw = 0.05,
-                                parallel = FALSE){
-  
+                                parallel = FALSE) {
+
+  if (isTRUE(parallel)) {
+    warning("`parallel = TRUE` is ignored and can be removed: matching now runs in compiled C++ without requiring furrr/future.",
+            call. = FALSE)
+  }
+
   data1 <- data1 %>%
-    dplyr::select(tidyselect::any_of(unique(c("data1_id", "state","county", "county_std", "city", match_cols1,
-                                       "school_name", "school_name_std", 
-                                       "school_level", "school_type")))) %>%
+    dplyr::select(tidyselect::any_of(unique(c(
+      "data1_id", "state", "county", "county_std", "city", match_cols1,
+      "school_name", "school_name_std", "school_level", "school_type"
+    )))) %>%
     distinct()
-  
-  # Deduplicate data2
-  data2_cols <- unique(c("data2_id","state","county", "county_std", "city", match_cols2,
-                  "school_name", "school_name_std", 
-                  "school_level", "school_type"))
-  
+
   data2 <- data2 %>%
-    dplyr::select(tidyselect::any_of(data2_cols)) %>%
+    dplyr::select(tidyselect::any_of(unique(c(
+      "data2_id", "state", "county", "county_std", "city", match_cols2,
+      "school_name", "school_name_std", "school_level", "school_type"
+    )))) %>%
     distinct()
 
-  # Pre-lowercase the match columns of data2 ONCE before the loop (avoids
-  # repeating mutate(across(tolower)) on every iteration).  Build a named list
-  # keyed by the group values so each per-row lookup is O(1) instead of an
-  # inner_join over the full data2.
-  data2_lowered <- data2 %>%
-    dplyr::mutate(dplyr::across(dplyr::all_of(match_cols2), tolower))
-
-  # Compound key: paste all match_cols2 values together with a rare separator
-  data2_lowered$.grp_key_ <- do.call(
-    paste,
-    c(lapply(match_cols2, function(col) data2_lowered[[col]]), sep = "\x01")
-  )
-  data2_by_group <- split(data2_lowered, data2_lowered$.grp_key_, drop = TRUE)
-  data2_lowered$.grp_key_ <- NULL
-
-  # ---------------------------------------------------------------------------
-  # Inner helper: match a single data1 row against data2_by_group.
-  # Returns list(matched = <tibble or NULL>, unmatched = <row or NULL>,
-  #              match_opts = <named list of 0 or 1 data frames>).
-  # Defined as a closure so it captures the pre-processed data2_by_group and
-  # all threshold parameters without extra argument passing.  When parallel=TRUE
-  # it is dispatched to furrr workers; all captured state is plain R objects and
-  # therefore safely serialisable.
-  .process_one_row <- function(data1_row) {
-    best_match_scores <- NULL
-    row_match_opts <- list()
-
-    filter_vals <- data1_row %>%
-      dplyr::select(dplyr::all_of(match_cols1)) %>%
-      dplyr::mutate(dplyr::across(dplyr::everything(), tolower))
-
-    group_key <- paste(unlist(filter_vals[match_cols1], use.names = FALSE),
-                       collapse = "\x01")
-
-    data2_sub <- data2_by_group[[group_key]]
-
-    if (is.null(data2_sub) || nrow(data2_sub) == 0L) {
-      return(list(matched = NULL, unmatched = data1_row, match_opts = list()))
-    }
-
-    data2_sub$.grp_key_ <- NULL
-
-    dists_jw      <- stringdist::stringdist(data1_row$school_name_std, data2_sub$school_name_std, method = "jw")
-    dists_soundex <- stringdist::stringdist(data1_row$school_name_std, data2_sub$school_name_std, method = "soundex")
-    dists_cosine  <- stringdist::stringdist(data1_row$school_name_std, data2_sub$school_name_std, method = "cosine")
-
-    if (all(dists_jw > threshold_jw_min)) {
-      return(list(matched = NULL, unmatched = data1_row, match_opts = list()))
-    }
-
-    best_idx <- NULL
-
-    # ~ GOOD MATCHES ~
-    if (any(dists_jw <= exact_jw)) {
-      exact_match_idx <- which(dists_jw <= exact_jw)
-      if (length(exact_match_idx) > 1) {
-        exact_match_idx <- which(dists_jw == min(dists_jw))
-      }
-      if (length(exact_match_idx) > 1 && !is.na(data1_row$school_level)) {
-        level_match <- data2_sub$school_level[exact_match_idx] == data1_row$school_level
-        if (any(level_match, na.rm = TRUE)) {
-          best_idx <- exact_match_idx[level_match][1]
-        } else {
-          best_idx <- exact_match_idx[1]
-        }
-      } else {
-        best_idx <- exact_match_idx[1]
-      }
-
-    # ~ POTENTIAL OTHER MATCHES ~
+  # Build composite group keys (lowercase; "|||" separator is unlikely in county/school names)
+  make_group_key <- function(data, cols) {
+    if (length(cols) == 1L) {
+      tolower(as.character(data[[cols]]))
     } else {
-      keep_idx <- dists_jw <= threshold_jw | (dists_soundex == 0 & dists_cosine <= 0.25)
-      data2_sub     <- data2_sub[keep_idx, ]
-      dists_jw      <- dists_jw[keep_idx]
-      dists_soundex <- dists_soundex[keep_idx]
-      dists_cosine  <- dists_cosine[keep_idx]
+      apply(data[, cols, drop = FALSE], 1L, function(row) {
+        paste(tolower(as.character(row)), collapse = "|||")
+      })
+    }
+  }
 
-      if (nrow(data2_sub) == 0) {
-        return(list(matched = NULL, unmatched = data1_row, match_opts = list()))
+  groups1 <- make_group_key(data1, match_cols1)
+  groups2 <- make_group_key(data2, match_cols2)
+
+  # Pre-compute lowercased match-column values for every data1 row so we don't
+  # reconstruct them inside the loop for each ambiguous (status 3) match.
+  filter_vals_all <- data1[, match_cols1, drop = FALSE] %>%
+    dplyr::mutate(dplyr::across(dplyr::everything(), tolower))
+
+  # C++ handles: per-group filtering, JW/Soundex/Cosine computation, candidate
+  # selection (exact vs non-exact), and top-10 trimming for ambiguous cases.
+  # The `parallel` parameter is accepted for API compatibility; the C++ batch
+  # call already handles the hot path without requiring furrr workers.
+  cpp_res <- match_schools_batch_cpp(
+    names1           = data1$school_name_std,
+    groups1          = groups1,
+    names2           = data2$school_name_std,
+    groups2          = groups2,
+    threshold_jw_min = threshold_jw_min,
+    threshold_jw     = threshold_jw,
+    exact_jw         = exact_jw
+  )
+
+  matched_rows   <- list()
+  unmatched_rows <- list()
+  match_options  <- list()
+
+  for (i in seq_len(nrow(data1))) {
+
+    data1_row        <- data1[i, ]
+    best_match_scores <- NULL
+    status_i          <- cpp_res$status[i]
+
+    # ---- No group match (0) or unmatched (1) --------------------------------
+    if (status_i == 0L || status_i == 1L) {
+      unmatched_rows[[length(unmatched_rows) + 1L]] <- data1_row
+      next
+    }
+
+    # Shared setup for exact (2) and candidate (3) paths
+    cand_idx  <- cpp_res$candidates_idx[[i]]   # 1-based indices into data2
+    jw_dists  <- cpp_res$candidates_jw[[i]]
+    data2_sub <- data2[cand_idx, ]
+
+    # ---- Exact match path (status 2) ----------------------------------------
+    if (status_i == 2L) {
+
+      if (length(cand_idx) == 1L) {
+        best_idx <- 1L
+      } else {
+        # Tie-break: narrowest JW first, then school_level
+        min_jw      <- min(jw_dists)
+        min_jw_idxs <- which(jw_dists == min_jw)
+
+        if (length(min_jw_idxs) > 1L &&
+            "school_level" %in% names(data1_row) &&
+            !is.na(data1_row$school_level)) {
+          level_match <- data2_sub$school_level[min_jw_idxs] == data1_row$school_level
+          if (any(level_match, na.rm = TRUE)) {
+            best_idx <- min_jw_idxs[which(level_match)[1L]]
+          } else {
+            best_idx <- min_jw_idxs[1L]
+          }
+        } else {
+          best_idx <- min_jw_idxs[1L]
+        }
       }
 
-      candidate_indices <- order(dists_jw)[1:min(10, length(dists_jw))]
-      data2_sub <- data2_sub[candidate_indices, ]
-      dists_jw  <- dists_jw[candidate_indices]
+    # ---- Candidate (non-exact) path (status 3) ------------------------------
+    } else {
 
+      # data2_sub is already filtered and trimmed to top-10 by the C++ function.
+      # Call match_locations() for detailed multi-metric scoring.
       dists_gtbl <- match_locations(
-        a = data1_row$school_name_std,
-        names = data2_sub$school_name_std,
-        return_score = TRUE,
+        a                   = data1_row$school_name_std,
+        names               = data2_sub$school_name_std,
+        return_score        = TRUE,
         return_score_matrix = TRUE
       )
 
-      if (nrow(dists_gtbl) == 1) {
+      # match_locations() returns a single row when the match is unambiguous
+      if (nrow(dists_gtbl) == 1L) {
         best_idx <- match(dists_gtbl$name, data2_sub$school_name_std)
+
       } else {
         dists_gtbl <- dists_gtbl %>%
           dplyr::mutate(prob_osa = osa / nchar(data2_sub$school_name_std))
 
-        opt_df <- dists_gtbl %>%
+        # Use pre-computed lowercased filter values for this row
+        filter_vals_i <- filter_vals_all[i, , drop = FALSE]
+
+        mo <- dists_gtbl %>%
           dplyr::as_tibble() %>%
           dplyr::mutate(
             name         = data1_row$school_name_std,
             name_options = data2_sub$school_name_std
           ) %>%
-          dplyr::bind_cols(filter_vals[rep(1, nrow(.)), ]) %>%
-          dplyr::select(name, name_options, dplyr::any_of(match_cols1), dplyr::everything()) %>%
+          dplyr::bind_cols(filter_vals_i[rep(1L, nrow(.)), ]) %>%
+          dplyr::select(name, name_options, dplyr::any_of(match_cols1),
+                        dplyr::everything()) %>%
           dplyr::filter(jw < .5, jaccard < .5) %>%
           dplyr::mutate(match_level = dplyr::case_when(
-            (jaccard <= 0.05 & cosine <= 0.05)                    ~ 1,
-            (jw <= 0.15)                                          ~ 1,
-            (soundex == 0 & jw <= 0.3)                           ~ 1,
-            (soundex == 0 & cosine <= 0.25)                      ~ 2,
-            (jaccard <= 0.15 & cosine <= 0.15 & prob_osa <= 0.4) ~ 2,
-            (jw <= 0.21)                                          ~ 2,
-            TRUE                                                  ~ 1000
+            (jaccard <= 0.05 & cosine <= 0.05)                           ~ 1L,
+            (jw <= 0.15)                                                  ~ 1L,
+            (soundex == 0 & jw <= 0.3)                                    ~ 1L,
+            (soundex == 0 & cosine <= 0.25)                               ~ 2L,
+            (jaccard <= 0.15 & cosine <= 0.15 & prob_osa <= 0.4)          ~ 2L,
+            (jw <= 0.21)                                                   ~ 2L,
+            TRUE                                                           ~ 1000L
           ))
 
-        row_match_opts <- stats::setNames(list(opt_df), data1_row$school_name_std)
+        match_options[[length(match_options) + 1L]] <- mo
+        names(match_options)[length(match_options)]  <- data1_row$school_name_std
 
-        if (any(opt_df$match_level <= 3)) {
-          best_local_idx <- which.min(opt_df$match_level)
-          best_match_scores <- opt_df[best_local_idx, ]
-          best_idx <- match(opt_df$name_options[best_local_idx], data2_sub$school_name_std)
+        if (any(mo$match_level <= 3L)) {
+          best_local        <- which.min(mo$match_level)
+          best_match_scores <- mo[best_local, ]
+          best_idx          <- match(mo$name_options[best_local],
+                                     data2_sub$school_name_std)
         } else {
-          return(list(matched = NULL, unmatched = data1_row, match_opts = row_match_opts))
+          unmatched_rows[[length(unmatched_rows) + 1L]] <- data1_row
+          next
         }
       }
     }
 
-    best_distance <- dists_jw[best_idx]
+    # ---- Build match record -------------------------------------------------
+    best_distance <- jw_dists[best_idx]
 
-    match_record <- tibble::tibble(
+    match_record <- tibble(
       match_score = 1 - best_distance,
       match_category = dplyr::case_when(
         best_distance <= 0.05 ~ "Exact Match",
         best_distance <= 0.10 ~ "High",
         best_distance <= 0.25 ~ "Moderate",
-        TRUE ~ "Low"
+        TRUE                  ~ "Low"
       ),
       county_std            = data1_row$county_std,
       county                = data1_row$county,
@@ -606,80 +625,52 @@ match_schools_names <- function(data1, data2,
       school_level_data1    = if ("school_level" %in% names(data1_row)) data1_row$school_level else NA_character_,
       school_level_data2    = if ("school_level" %in% names(data2_sub)) data2_sub$school_level[best_idx] else NA_character_,
       school_type           = if ("school_type"  %in% names(data2_sub)) data2_sub$school_type[best_idx]  else NA_character_,
-      city                  = if ("city"          %in% names(data2_sub)) data2_sub$city[best_idx]          else NA_character_,
-      state                 = if ("state"         %in% names(data2_sub)) data2_sub$state[best_idx]         else NA_character_,
-      zip                   = if ("zip"           %in% names(data2_sub)) as.character(data2_sub$zip[best_idx]) else NA_character_,
-      lat                   = if ("lat"           %in% names(data2_sub)) data2_sub$lat[best_idx]           else NA_real_,
-      lon                   = if ("lon"           %in% names(data2_sub)) data2_sub$lon[best_idx]           else NA_real_,
-      street1               = if ("street1"       %in% names(data2_sub)) data2_sub$street1[best_idx]       else NA_character_,
+      city                  = if ("city"         %in% names(data2_sub)) data2_sub$city[best_idx]         else NA_character_,
+      state                 = if ("state"        %in% names(data2_sub)) data2_sub$state[best_idx]        else NA_character_,
+      zip                   = if ("zip"          %in% names(data2_sub)) as.character(data2_sub$zip[best_idx]) else NA_character_,
+      lat                   = if ("lat"          %in% names(data2_sub)) data2_sub$lat[best_idx]          else NA_real_,
+      lon                   = if ("lon"          %in% names(data2_sub)) data2_sub$lon[best_idx]          else NA_real_,
+      street1               = if ("street1"      %in% names(data2_sub)) data2_sub$street1[best_idx]      else NA_character_,
       data1_id              = data1_row$data1_id,
       data2_id              = data2_sub$data2_id[best_idx],
       {if (!is.null(best_match_scores)) {
-        best_match_scores %>% dplyr::select(-c(name, name_options, dplyr::any_of(match_cols1)))
+        best_match_scores %>%
+          dplyr::select(-c(name, name_options, dplyr::any_of(match_cols1)))
       } else {
-        tibble::tibble(osa = NA, lv = NA, dl = NA, lcs = NA, qgram = NA, cosine = NA,
-                       jaccard = NA, jw = NA, soundex = NA, score_sums = NA)
+        tibble(osa = NA, lv = NA, dl = NA, lcs = NA, qgram = NA, cosine = NA,
+               jaccard = NA, jw = NA, soundex = NA, score_sums = NA)
       }}
     )
 
     match_record <- match_record %>%
       dplyr::bind_cols(
-        data1_row %>% dplyr::select(match_cols1[!(match_cols1 %in% colnames(match_record))])
+        data1_row %>%
+          dplyr::select(match_cols1[!(match_cols1 %in% colnames(match_record))])
       )
 
-    list(matched = match_record, unmatched = NULL, match_opts = row_match_opts)
-  }  # end .process_one_row
-
-  # ---------------------------------------------------------------------------
-  # Dispatch: sequential (default) or parallel via furrr.
-  # When parallel = TRUE the caller must set up a future plan first, e.g.:
-  #   future::plan(future::multisession, workers = parallel::detectCores() - 1)
-  # If no plan has been set, furrr falls back to sequential execution.
-  if (isTRUE(parallel)) {
-    if (inherits(future::plan(), "sequential")) {
-      warning(
-        "parallel = TRUE but no future plan has been set; falling back to sequential execution. ",
-        "Call future::plan(future::multisession) before invoking match_schools_names() to enable parallelism.",
-        call. = FALSE
-      )
-    }
-    row_results <- furrr::future_map(
-      seq_len(nrow(data1)),
-      function(i) .process_one_row(data1[i, ]),
-      .options = furrr::furrr_options(seed = TRUE)
-    )
-  } else {
-    row_results <- lapply(
-      seq_len(nrow(data1)),
-      function(i) .process_one_row(data1[i, ])
-    )
+    matched_rows[[length(matched_rows) + 1L]] <- match_record
   }
 
-  matched_rows   <- Filter(Negate(is.null), lapply(row_results, `[[`, "matched"))
-  unmatched_rows <- Filter(Negate(is.null), lapply(row_results, `[[`, "unmatched"))
-  match_options  <- do.call(c, lapply(row_results, `[[`, "match_opts"))
-
-  # --- Combine matched + unmatched into one table with consistent columns ---
-  
-  # Ensure these exist even if no matches/unmatches
-  matched_df <- dplyr::bind_rows(matched_rows)
+  # ---- Combine matched + unmatched into result tables -----------------------
+  matched_df     <- dplyr::bind_rows(matched_rows)
   unmatched_dat1 <- dplyr::bind_rows(unmatched_rows)
   unmatched_dat2 <- data2 %>%
-    filter(!(school_name_std %in% matched_df$school_name_std_data2))
-  
+    dplyr::filter(!(school_name_std %in% matched_df$school_name_std_data2))
+
   match_options <- dplyr::bind_rows(match_options)
-  
-  # Update match summary to include unmatched data2
-  match_summary <- table(c(matched_df$match_category,
-                           rep("Unmatched_data1", nrow(unmatched_dat1)),
-                           rep("Unmatched_data2", nrow(unmatched_dat2))))
-  
+
+  match_summary <- table(c(
+    matched_df$match_category,
+    rep("Unmatched_data1", nrow(unmatched_dat1)),
+    rep("Unmatched_data2", nrow(unmatched_dat2))
+  ))
+
   return(list(
-    matched = matched_df,
+    matched        = matched_df,
     unmatched_dat1 = unmatched_dat1,
     unmatched_dat2 = unmatched_dat2,
-    match_options = match_options,
-    match_summary = match_summary
+    match_options  = match_options,
+    match_summary  = match_summary
   ))
 }
 
