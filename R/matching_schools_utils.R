@@ -437,6 +437,7 @@ fix_school_type_na <- function(data, n_years_data, id_col = "ids_tmp") {
 #'
 #' @return A named list with elements \code{matched}, \code{unmatched_dat1},
 #'   \code{unmatched_dat2}, \code{match_options}, and \code{match_summary}.
+#'   
 #' @export
 match_schools_names <- function(data1, data2,
                                 match_cols1 = "county_std",
