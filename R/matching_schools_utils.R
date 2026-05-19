@@ -432,7 +432,8 @@ fix_school_type_na <- function(data, n_years_data, id_col = "ids_tmp") {
 #' @param parallel Logical. Accepted for API compatibility with prior versions of
 #'   this function; currently ignored. The per-group distance computations run
 #'   entirely in the compiled C++ batch routine (`match_schools_batch_cpp`) and
-#'   do not require external parallelism. Defaults to `FALSE`.
+#'   do not require external parallelism. Passing `TRUE` will emit a warning.
+#'   Defaults to `FALSE`.
 #'
 #' @return A named list with elements \code{matched}, \code{unmatched_dat1},
 #'   \code{unmatched_dat2}, \code{match_options}, and \code{match_summary}.
@@ -446,6 +447,11 @@ match_schools_names <- function(data1, data2,
                                 threshold_jw_min = 0.6,
                                 exact_jw = 0.05,
                                 parallel = FALSE) {
+
+  if (isTRUE(parallel)) {
+    warning("`parallel = TRUE` is ignored and can be removed: matching now runs in compiled C++ without requiring furrr/future.",
+            call. = FALSE)
+  }
 
   data1 <- data1 %>%
     dplyr::select(tidyselect::any_of(unique(c(
