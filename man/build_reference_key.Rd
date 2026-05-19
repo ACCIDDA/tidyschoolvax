@@ -8,7 +8,8 @@ build_reference_key(
   greatschools_dat,
   doe_dat,
   other_dat = NULL,
-  addr_source_pref = "greatschools"
+  addr_source_pref = "greatschools",
+  parallel = FALSE
 )
 }
 \arguments{
@@ -19,6 +20,8 @@ build_reference_key(
 \item{other_dat}{Optional cleaned third-source data frame, or \code{NULL}.}
 
 \item{addr_source_pref}{See \code{\link{standardize_schools}}.}
+
+\item{parallel}{See \code{\link{standardize_schools}}.}
 }
 \value{
 A data frame: the merged reference key.

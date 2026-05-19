@@ -13,7 +13,8 @@ match_schools_names(
   data_2_source = "DOE",
   threshold_jw = 0.6,
   threshold_jw_min = 0.6,
-  exact_jw = 0.05
+  exact_jw = 0.05,
+  parallel = FALSE
 )
 }
 \arguments{
@@ -39,6 +40,12 @@ matching workflow.}
 
 \item{exact_jw}{Numeric threshold used to identify near-exact
 Jaro-Winkler matches.}
+
+\item{parallel}{Logical. If `TRUE`, row-level matching is dispatched to
+worker processes via [furrr::future_map()]. The caller must configure a
+`future` plan (e.g. `future::plan(future::multisession)`) before setting
+this to `TRUE`; if no non-sequential plan is active a warning is issued and
+execution falls back to sequential. Defaults to `FALSE`.}
 }
 \value{
 A data frame containing the school-name matching results between the

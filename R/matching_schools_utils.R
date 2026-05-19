@@ -429,6 +429,11 @@ fix_school_type_na <- function(data, n_years_data, id_col = "ids_tmp") {
 #'   matching workflow.
 #' @param exact_jw Numeric threshold used to identify near-exact
 #'   Jaro-Winkler matches.
+#' @param parallel Logical. If `TRUE`, row-level matching is dispatched to
+#'   worker processes via [furrr::future_map()]. The caller must configure a
+#'   `future` plan (e.g. `future::plan(future::multisession)`) before setting
+#'   this to `TRUE`; if no non-sequential plan is active a warning is issued and
+#'   execution falls back to sequential. Defaults to `FALSE`.
 #'
 #' @return A named list with elements \code{matched}, \code{unmatched_dat1},
 #'   \code{unmatched_dat2}, \code{match_options}, and \code{match_summary}.
@@ -440,7 +445,8 @@ match_schools_names <- function(data1, data2,
                                 data_2_source = "DOE",
                                 threshold_jw = 0.6,
                                 threshold_jw_min = 0.6,
-                                exact_jw = 0.05) {
+                                exact_jw = 0.05,
+                                parallel = FALSE) {
 
   data1 <- data1 %>%
     dplyr::select(tidyselect::any_of(unique(c(
@@ -477,6 +483,8 @@ match_schools_names <- function(data1, data2,
 
   # C++ handles: per-group filtering, JW/Soundex/Cosine computation, candidate
   # selection (exact vs non-exact), and top-10 trimming for ambiguous cases.
+  # The `parallel` parameter is accepted for API compatibility; the C++ batch
+  # call already handles the hot path without requiring furrr workers.
   cpp_res <- match_schools_batch_cpp(
     names1           = data1$school_name_std,
     groups1          = groups1,
@@ -595,7 +603,7 @@ match_schools_names <- function(data1, data2,
 
     match_record <- tibble(
       match_score = 1 - best_distance,
-      match_category = case_when(
+      match_category = dplyr::case_when(
         best_distance <= 0.05 ~ "Exact Match",
         best_distance <= 0.10 ~ "High",
         best_distance <= 0.25 ~ "Moderate",
