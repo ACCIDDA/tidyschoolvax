@@ -956,6 +956,7 @@ match_schools_names <- function(data1, data2,
                           as.data.frame(lapply(extra_out, `[`, idx),
                                         stringsAsFactors = FALSE))
     }
+    matched_df <- tibble::as_tibble(matched_df)
 
     unmatched_dat1 <- data1[unmatched_idxs[seq_len(unmatched_count)], , drop = FALSE]
   }
