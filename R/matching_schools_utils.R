@@ -460,7 +460,7 @@ match_schools_names <- function(data1, data2,
                                 parallel = FALSE) {
 
   # If parallel requested, verify that a non-sequential future plan is active.
-  # fall back to sequential with a warning when none is configured.
+  # Fall back to sequential with a warning when none is configured.
   if (isTRUE(parallel)) {
     plan_cls <- class(future::plan())
     if ("sequential" %in% plan_cls) {
@@ -672,17 +672,11 @@ match_schools_names <- function(data1, data2,
           dplyr::select(match_cols1[!(match_cols1 %in% colnames(match_record))])
       )
 
-    # Carry forward match_options entry for status-3 matches
+    # Carry forward match_options entry for status-3 matches.
+    # `mo` is the full candidate-scoring data frame already assembled above;
+    # reuse it directly rather than re-transforming best_match_scores.
     row_opts <- if (!is.null(best_match_scores)) {
-      setNames(list(best_match_scores %>%
-                      dplyr::mutate(
-                        name         = data1_row$school_name_std,
-                        name_options = data2_sub$school_name_std
-                      ) %>%
-                      dplyr::bind_cols(filter_vals_all[i, , drop = FALSE]) %>%
-                      dplyr::select(name, name_options, dplyr::any_of(match_cols1),
-                                    dplyr::everything())),
-               data1_row$school_name_std)
+      setNames(list(mo), data1_row$school_name_std)
     } else {
       list()
     }
