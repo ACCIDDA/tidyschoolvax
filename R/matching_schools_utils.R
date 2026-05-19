@@ -543,8 +543,8 @@ match_schools_names <- function(data1, data2,
   out_lat        <- rep(NA_real_,      n1)
   out_lon        <- rep(NA_real_,      n1)
   out_street1    <- rep(NA_character_, n1)
-  out_data1_id   <- { v <- vector(typeof(data1$data1_id), n1); v[] <- NA; v }
-  out_data2_id   <- { v <- vector(typeof(data2$data2_id), n1); v[] <- NA; v }
+  out_data1_id   <- rep(data1$data1_id[NA_integer_], n1)
+  out_data2_id   <- rep(data2$data2_id[NA_integer_], n1)
   out_osa        <- rep(NA_real_, n1)
   out_lv         <- rep(NA_real_, n1)
   out_dl         <- rep(NA_real_, n1)
@@ -698,18 +698,16 @@ match_schools_names <- function(data1, data2,
     out_data2_id[k]   <- data2_sub$data2_id[best_idx]
 
     if (!is.null(best_match_scores)) {
-      sc <- best_match_scores %>%
-        dplyr::select(-c(name, name_options, dplyr::any_of(match_cols1)))
-      out_osa[k]        <- sc$osa
-      out_lv[k]         <- sc$lv
-      out_dl[k]         <- sc$dl
-      out_lcs[k]        <- sc$lcs
-      out_qgram[k]      <- sc$qgram
-      out_cosine[k]     <- sc$cosine
-      out_jaccard[k]    <- sc$jaccard
-      out_jw_sc[k]      <- sc$jw
-      out_soundex[k]    <- sc$soundex
-      out_score_sums[k] <- sc$score_sums
+      out_osa[k]        <- best_match_scores$osa
+      out_lv[k]         <- best_match_scores$lv
+      out_dl[k]         <- best_match_scores$dl
+      out_lcs[k]        <- best_match_scores$lcs
+      out_qgram[k]      <- best_match_scores$qgram
+      out_cosine[k]     <- best_match_scores$cosine
+      out_jaccard[k]    <- best_match_scores$jaccard
+      out_jw_sc[k]      <- best_match_scores$jw
+      out_soundex[k]    <- best_match_scores$soundex
+      out_score_sums[k] <- best_match_scores$score_sums
     }
     # score columns for exact / unambiguous paths remain NA (pre-initialised above)
 
@@ -725,8 +723,8 @@ match_schools_names <- function(data1, data2,
     match_category        = out_cat[idx],
     county_std            = out_county_std[idx],
     county                = out_county[idx],
-    data_1_source         = rep_len(data_1_source, matched_count),
-    data_2_source         = rep_len(data_2_source, matched_count),
+    data_1_source         = rep(data_1_source, matched_count),
+    data_2_source         = rep(data_2_source, matched_count),
     school_name_data1     = out_sn_d1[idx],
     school_name_data2     = out_sn_d2[idx],
     school_name_std_data1 = out_sn_std_d1[idx],
