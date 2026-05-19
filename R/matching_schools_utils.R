@@ -413,7 +413,8 @@ fix_school_type_na <- function(data, n_years_data, id_col = "ids_tmp") {
 #' (\code{match_schools_batch_cpp}), eliminating R interpreter overhead for
 #' the inner loop.  The R layer is responsible only for tie-breaking, the
 #' optional detailed \code{match_locations()} scoring for ambiguous cases, and
-#' assembling the final result tables.
+#' assembling the final result tables.  When \code{parallel = TRUE} this R-level
+#' loop is dispatched across worker processes via \code{furrr::future_map()}.
 #'
 #' @param data1 A data frame containing the first set of school records.
 #' @param data2 A data frame containing the second set of school records.
@@ -429,15 +430,24 @@ fix_school_type_na <- function(data, n_years_data, id_col = "ids_tmp") {
 #'   matching workflow.
 #' @param exact_jw Numeric threshold used to identify near-exact
 #'   Jaro-Winkler matches.
-#' @param parallel Logical. Accepted for API compatibility with prior versions of
-#'   this function; currently ignored. The per-group distance computations run
-#'   entirely in the compiled C++ batch routine (`match_schools_batch_cpp`) and
-#'   do not require external parallelism. Passing `TRUE` will emit a warning.
-#'   Defaults to `FALSE`.
+#' @param parallel Logical. If `TRUE`, the per-row R post-processing loop is
+#'   dispatched to worker processes via [furrr::future_map()].  The caller must
+#'   configure a `future` plan (e.g.
+#'   `future::plan(future::multisession, workers = N)`) **before** setting this
+#'   to `TRUE`; if no non-sequential plan is active a warning is issued and
+#'   execution falls back to sequential.  Defaults to `FALSE`.
+#'
+#'   Note: the expensive per-group distance computations (Jaro-Winkler, Soundex,
+#'   Cosine) are already handled by the compiled C++ routine
+#'   `match_schools_batch_cpp` regardless of this flag.  The parallel flag
+#'   controls only the subsequent R-level tie-breaking and `match_locations()`
+#'   scoring loop, which remains the dominant cost for large states.
 #'
 #' @return A named list with elements \code{matched}, \code{unmatched_dat1},
 #'   \code{unmatched_dat2}, \code{match_options}, and \code{match_summary}.
-#'   
+#'
+#' @importFrom furrr future_map furrr_options
+#' @importFrom future plan
 #' @export
 match_schools_names <- function(data1, data2,
                                 match_cols1 = "county_std",
@@ -449,9 +459,20 @@ match_schools_names <- function(data1, data2,
                                 exact_jw = 0.05,
                                 parallel = FALSE) {
 
+  # If parallel requested, verify that a non-sequential future plan is active.
+  # Fall back to sequential with a warning when none is configured.
   if (isTRUE(parallel)) {
-    warning("`parallel = TRUE` is ignored and can be removed: matching now runs in compiled C++ without requiring furrr/future.",
-            call. = FALSE)
+    plan_cls <- class(future::plan())
+    if ("sequential" %in% plan_cls) {
+      warning(
+        "`parallel = TRUE` was requested but no non-sequential `future` plan is ",
+        "active.  Falling back to sequential execution.  Call ",
+        "`future::plan(future::multisession, workers = N)` before ",
+        "`match_schools_names()` to enable parallel processing.",
+        call. = FALSE
+      )
+      parallel <- FALSE
+    }
   }
 
   data1 <- data1 %>%
@@ -489,8 +510,6 @@ match_schools_names <- function(data1, data2,
 
   # C++ handles: per-group filtering, JW/Soundex/Cosine computation, candidate
   # selection (exact vs non-exact), and top-10 trimming for ambiguous cases.
-  # The `parallel` parameter is accepted for API compatibility; the C++ batch
-  # call already handles the hot path without requiring furrr workers.
   cpp_res <- match_schools_batch_cpp(
     names1           = data1$school_name_std,
     groups1          = groups1,
@@ -501,20 +520,25 @@ match_schools_names <- function(data1, data2,
     exact_jw         = exact_jw
   )
 
-  matched_rows   <- list()
-  unmatched_rows <- list()
-  match_options  <- list()
-
-  for (i in seq_len(nrow(data1))) {
-
-    data1_row        <- data1[i, ]
+  # ---------------------------------------------------------------------------
+  # Per-row closure: processes a single data1 row using the pre-computed C++
+  # results.  Returns a list with three slots:
+  #   matched    – a one-row tibble (match record), or NULL if no match
+  #   unmatched  – the data1 row if unmatched, or NULL
+  #   match_opts – a named list (length 0 or 1) of the match-options data frame
+  #                produced for ambiguous (status 3) rows
+  #
+  # All objects referenced from the enclosing scope (data1, data2, cpp_res,
+  # filter_vals_all, match_cols1, data_1_source, data_2_source) are plain R
+  # data structures and are safely serialisable for furrr workers.
+  .process_one_row <- function(i) {
+    data1_row         <- data1[i, ]
     best_match_scores <- NULL
     status_i          <- cpp_res$status[i]
 
     # ---- No group match (0) or unmatched (1) --------------------------------
     if (status_i == 0L || status_i == 1L) {
-      unmatched_rows[[length(unmatched_rows) + 1L]] <- data1_row
-      next
+      return(list(matched = NULL, unmatched = data1_row, match_opts = list()))
     }
 
     # Shared setup for exact (2) and candidate (3) paths
@@ -589,17 +613,15 @@ match_schools_names <- function(data1, data2,
             TRUE                                                           ~ 1000L
           ))
 
-        match_options[[length(match_options) + 1L]] <- mo
-        names(match_options)[length(match_options)]  <- data1_row$school_name_std
-
         if (any(mo$match_level <= 3L)) {
           best_local        <- which.min(mo$match_level)
           best_match_scores <- mo[best_local, ]
           best_idx          <- match(mo$name_options[best_local],
                                      data2_sub$school_name_std)
         } else {
-          unmatched_rows[[length(unmatched_rows) + 1L]] <- data1_row
-          next
+          return(list(matched    = NULL,
+                      unmatched  = data1_row,
+                      match_opts = setNames(list(mo), data1_row$school_name_std)))
         }
       }
     }
@@ -607,7 +629,7 @@ match_schools_names <- function(data1, data2,
     # ---- Build match record -------------------------------------------------
     best_distance <- jw_dists[best_idx]
 
-    match_record <- tibble(
+    match_record <- tibble::tibble(
       match_score = 1 - best_distance,
       match_category = dplyr::case_when(
         best_distance <= 0.05 ~ "Exact Match",
@@ -638,8 +660,9 @@ match_schools_names <- function(data1, data2,
         best_match_scores %>%
           dplyr::select(-c(name, name_options, dplyr::any_of(match_cols1)))
       } else {
-        tibble(osa = NA, lv = NA, dl = NA, lcs = NA, qgram = NA, cosine = NA,
-               jaccard = NA, jw = NA, soundex = NA, score_sums = NA)
+        tibble::tibble(osa = NA, lv = NA, dl = NA, lcs = NA, qgram = NA,
+                       cosine = NA, jaccard = NA, jw = NA, soundex = NA,
+                       score_sums = NA)
       }}
     )
 
@@ -649,8 +672,32 @@ match_schools_names <- function(data1, data2,
           dplyr::select(match_cols1[!(match_cols1 %in% colnames(match_record))])
       )
 
-    matched_rows[[length(matched_rows) + 1L]] <- match_record
+    # Carry forward match_options entry for status-3 matches.
+    # `mo` is the full candidate-scoring data frame already assembled above;
+    # reuse it directly rather than re-transforming best_match_scores.
+    row_opts <- if (!is.null(best_match_scores)) {
+      setNames(list(mo), data1_row$school_name_std)
+    } else {
+      list()
+    }
+
+    list(matched = match_record, unmatched = NULL, match_opts = row_opts)
   }
+
+  # ---------------------------------------------------------------------------
+  # Dispatch: furrr::future_map() when parallel = TRUE, lapply() otherwise.
+  row_indices <- seq_len(nrow(data1))
+  if (isTRUE(parallel)) {
+    row_results <- furrr::future_map(row_indices, .process_one_row,
+                                     .options = furrr::furrr_options(globals = TRUE))
+  } else {
+    row_results <- lapply(row_indices, .process_one_row)
+  }
+
+  # ---- Collect results from per-row list ------------------------------------
+  matched_rows   <- lapply(row_results, `[[`, "matched")
+  unmatched_rows <- lapply(row_results, `[[`, "unmatched")
+  match_options  <- unlist(lapply(row_results, `[[`, "match_opts"), recursive = FALSE)
 
   # ---- Combine matched + unmatched into result tables -----------------------
   matched_df     <- dplyr::bind_rows(matched_rows)
