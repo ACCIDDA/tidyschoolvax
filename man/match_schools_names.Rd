@@ -41,18 +41,26 @@ matching workflow.}
 \item{exact_jw}{Numeric threshold used to identify near-exact
 Jaro-Winkler matches.}
 
-\item{parallel}{Logical. If `TRUE`, row-level matching is dispatched to
-worker processes via [furrr::future_map()]. The caller must configure a
-`future` plan (e.g. `future::plan(future::multisession)`) before setting
-this to `TRUE`; if no non-sequential plan is active a warning is issued and
-execution falls back to sequential. Defaults to `FALSE`.}
+\item{parallel}{Logical. Accepted for API compatibility with prior versions of
+this function; currently ignored. The per-group distance computations run
+entirely in the compiled C++ batch routine (`match_schools_batch_cpp`) and
+do not require external parallelism. Passing `TRUE` will emit a warning.
+Defaults to `FALSE`.}
 }
 \value{
-A data frame containing the school-name matching results between the
-  two input datasets.
+A named list with elements \code{matched}, \code{unmatched_dat1},
+  \code{unmatched_dat2}, \code{match_options}, and \code{match_summary}.
 }
 \description{
 Deduplicates the selected columns from each input dataset and performs
 school-name matching within the provided grouping columns using the supplied
 string-distance thresholds.
+}
+\details{
+The per-group distance computations (Jaro-Winkler, Soundex, Cosine) and
+candidate selection are handled by a compiled C++ routine
+(\code{match_schools_batch_cpp}), eliminating R interpreter overhead for
+the inner loop.  The R layer is responsible only for tie-breaking, the
+optional detailed \code{match_locations()} scoring for ambiguous cases, and
+assembling the final result tables.
 }

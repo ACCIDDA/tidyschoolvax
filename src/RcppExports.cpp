@@ -2,7 +2,13 @@
 // Generator token: 10BE3573-1514-4C36-9D1C-5A225CD40393
 
 #include <Rcpp.h>
+
 using namespace Rcpp;
+
+#ifdef RCPP_USE_GLOBAL_ROSTREAM
+Rcpp::Rostream<true>&  Rcpp::Rcout = Rcpp::Rcpp_cout_get();
+Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
+#endif
 
 // match_schools_batch_cpp
 List match_schools_batch_cpp(CharacterVector names1, CharacterVector groups1, CharacterVector names2, CharacterVector groups2, double threshold_jw_min, double threshold_jw, double exact_jw, double soundex_cosine_thresh);
