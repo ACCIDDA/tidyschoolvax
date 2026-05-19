@@ -556,10 +556,10 @@ match_schools_names <- function(data1, data2,
   out_soundex    <- rep(NA_real_, n1)
   out_score_sums <- rep(NA_real_, n1)
 
-  # Pre-allocate vectors for any extra match_cols1 columns
+  # Pre-allocate vectors for any extra match_cols1 columns, preserving class
   extra_out <- setNames(
     lapply(extra_match_cols, function(.col) {
-      v <- vector(typeof(data1[[.col]]), n1); v[] <- NA; v
+      data1[[.col]][rep(NA_integer_, n1)]
     }),
     extra_match_cols
   )
