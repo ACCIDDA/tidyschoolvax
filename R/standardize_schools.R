@@ -34,10 +34,10 @@
 #' @param addr_source_pref Character.  Address source to prefer as the primary
 #'   address in the output.  One of \code{"greatschools"} (default),
 #'   \code{"doe"}, \code{"third"}, or \code{"kinder"}.
-#' @param parallel Logical. If \code{TRUE}, row-level matching inside every
-#'   \code{\link{match_schools_names}} call is dispatched to worker processes
-#'   via \code{\link[furrr:future_map]{furrr::future_map()}}. The caller must
-#'   configure a \code{future} plan (e.g.
+#' @param parallel Logical. If \code{TRUE}, the per-row R post-processing loop
+#'   inside every \code{\link{match_schools_names}} call is dispatched to worker
+#'   processes via \code{\link[furrr:future_map]{furrr::future_map()}}. The
+#'   caller must configure a \code{future} plan (e.g.
 #'   \code{future::plan(future::multisession)}) before setting this to
 #'   \code{TRUE}; if no non-sequential plan is active a warning is issued and
 #'   execution falls back to sequential. Defaults to \code{FALSE}.

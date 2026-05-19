@@ -41,11 +41,18 @@ matching workflow.}
 \item{exact_jw}{Numeric threshold used to identify near-exact
 Jaro-Winkler matches.}
 
-\item{parallel}{Logical. Accepted for API compatibility with prior versions of
-this function; currently ignored. The per-group distance computations run
-entirely in the compiled C++ batch routine (`match_schools_batch_cpp`) and
-do not require external parallelism. Passing `TRUE` will emit a warning.
-Defaults to `FALSE`.}
+\item{parallel}{Logical. If \code{TRUE}, the per-row R post-processing loop is
+dispatched to worker processes via \code{furrr::future_map()}.  The caller must
+configure a \code{future} plan (e.g.
+\code{future::plan(future::multisession, workers = N)}) \strong{before} setting this
+to \code{TRUE}; if no non-sequential plan is active a warning is issued and
+execution falls back to sequential.  Defaults to \code{FALSE}.
+
+Note: the expensive per-group distance computations (Jaro-Winkler, Soundex,
+Cosine) are already handled by the compiled C++ routine
+\code{match_schools_batch_cpp} regardless of this flag.  The parallel flag
+controls only the subsequent R-level tie-breaking and \code{match_locations()}
+scoring loop, which remains the dominant cost for large states.}
 }
 \value{
 A named list with elements \code{matched}, \code{unmatched_dat1},
@@ -62,5 +69,6 @@ candidate selection are handled by a compiled C++ routine
 (\code{match_schools_batch_cpp}), eliminating R interpreter overhead for
 the inner loop.  The R layer is responsible only for tie-breaking, the
 optional detailed \code{match_locations()} scoring for ambiguous cases, and
-assembling the final result tables.
+assembling the final result tables.  When \code{parallel = TRUE} this R-level
+loop is dispatched across worker processes via \code{furrr::future_map()}.
 }
