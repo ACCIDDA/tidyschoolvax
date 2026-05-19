@@ -584,12 +584,17 @@ run_full_geocoding <- function(unique_schools, geo_dir, google_api_key) {
     
     # Check for previous progress
     processed_chunks <- c()
-    results <- NULL
+    results_list <- list()
     
     if (file.exists(progress_path)) {
       progress_data <- readRDS(progress_path)
       processed_chunks <- progress_data$processed_chunks
-      results <- progress_data$results
+      if (!is.null(progress_data$results_list)) {
+        results_list <- progress_data$results_list
+      } else if (!is.null(progress_data$results)) {
+        # backward compat: old progress files stored a cumulative data frame
+        results_list <- list(progress_data$results)
+      }
       cat(sprintf("Resuming from chunk %d of %d (processed: %d)\n", 
                   length(processed_chunks) + 1, n_chunks, length(processed_chunks)))
     }
@@ -612,7 +617,7 @@ run_full_geocoding <- function(unique_schools, geo_dir, google_api_key) {
         # Save partial results before stopping
         progress_data <- list(
           processed_chunks = processed_chunks,
-          results = results,
+          results_list = results_list,
           error_chunk = i,
           error_message = e$message,
           timestamp = Sys.time()
@@ -624,18 +629,14 @@ run_full_geocoding <- function(unique_schools, geo_dir, google_api_key) {
         stop(e)
       })
       
-      # Consolidate chunk results
-      if (is.null(results)) {
-        results <- chunk_result
-      } else {
-        results <- dplyr::bind_rows(results, chunk_result)
-      }
+      # Append chunk to list – O(1) instead of O(n) bind_rows per iteration
+      results_list[[length(results_list) + 1]] <- chunk_result
       
       # Save intermediate progress
       processed_chunks <- c(processed_chunks, i)
       progress_data <- list(
         processed_chunks = processed_chunks,
-        results = results,
+        results_list = results_list,
         chunks_remaining = n_chunks - i,
         timestamp = Sys.time()
       )
@@ -643,6 +644,9 @@ run_full_geocoding <- function(unique_schools, geo_dir, google_api_key) {
       
       cat(sprintf(" Done (%d/%d chunks)\n", i, n_chunks))
     }
+    
+    # Combine all chunks in a single bind_rows call – O(n) total
+    results <- dplyr::bind_rows(results_list)
     
     # All chunks processed - clean up progress file
     if (file.exists(progress_path)) {
