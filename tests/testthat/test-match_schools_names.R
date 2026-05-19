@@ -245,3 +245,25 @@ test_that("match_schools_names respects custom match_cols", {
   expect_equal(nrow(res$matched), 1L)
   expect_equal(res$matched$state[1], "CA")
 })
+
+# ---- parallel = TRUE: sequential-plan fallback warning ----------------------
+
+test_that("parallel = TRUE with sequential plan emits a warning and still matches", {
+  d1 <- make_school_df("Lincoln Elementary", "Alpha County", "data1_id")
+  d2 <- make_school_df(c("Lincoln Elementary", "Jefferson Middle"),
+                       c("Alpha County",       "Alpha County"), "data2_id")
+
+  # Ensure we are on the default sequential plan
+  future::plan(future::sequential)
+
+  expect_warning(
+    res <- match_schools_names(d1, d2, parallel = TRUE),
+    regexp = "non-sequential.*future.*plan|sequential.*future.*plan",
+    ignore.case = TRUE
+  )
+
+  # Despite the fallback, results must be correct
+  expect_equal(nrow(res$matched),        1L)
+  expect_equal(nrow(res$unmatched_dat1), 0L)
+  expect_equal(res$matched$match_category[1], "Exact Match")
+})
