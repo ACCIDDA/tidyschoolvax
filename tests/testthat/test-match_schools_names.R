@@ -4,7 +4,7 @@
 # ---- match_schools_batch_cpp: basic contract --------------------------------
 
 test_that("match_schools_batch_cpp returns the right structure", {
-  res <- match_schools_batch_cpp(
+  res <- tidyschoolvax:::match_schools_batch_cpp(
     names1           = c("lincoln elementary", "washington high"),
     groups1          = c("alpha county", "beta county"),
     names2           = c("lincoln elementary", "jefferson middle", "washington high school"),
@@ -21,7 +21,7 @@ test_that("match_schools_batch_cpp returns the right structure", {
 })
 
 test_that("exact match produces status 2 and correct candidate index", {
-  res <- match_schools_batch_cpp(
+  res <- tidyschoolvax:::match_schools_batch_cpp(
     names1           = "lincoln elementary",
     groups1          = "alpha county",
     names2           = c("lincoln elementary", "jefferson middle"),
@@ -37,7 +37,7 @@ test_that("exact match produces status 2 and correct candidate index", {
 })
 
 test_that("unmatched when all JW above threshold_jw_min", {
-  res <- match_schools_batch_cpp(
+  res <- tidyschoolvax:::match_schools_batch_cpp(
     names1           = "zzz",
     groups1          = "alpha county",
     names2           = c("lincoln elementary", "jefferson middle"),
@@ -51,7 +51,7 @@ test_that("unmatched when all JW above threshold_jw_min", {
 })
 
 test_that("status 0 when no data2 rows share the group key", {
-  res <- match_schools_batch_cpp(
+  res <- tidyschoolvax:::match_schools_batch_cpp(
     names1           = "lincoln elementary",
     groups1          = "unknown county",
     names2           = "lincoln elementary",
@@ -69,7 +69,7 @@ test_that("non-exact candidates return status 3 with up to 10 rows", {
   names2  <- paste0("washington high school ", 1:15)
   groups2 <- rep("beta county", 15)
 
-  res <- match_schools_batch_cpp(
+  res <- tidyschoolvax:::match_schools_batch_cpp(
     names1           = "washington highschool",
     groups1          = "beta county",
     names2           = names2,
@@ -84,7 +84,7 @@ test_that("non-exact candidates return status 3 with up to 10 rows", {
 })
 
 test_that("NA name in data1 is treated as unmatched", {
-  res <- match_schools_batch_cpp(
+  res <- tidyschoolvax:::match_schools_batch_cpp(
     names1           = NA_character_,
     groups1          = "alpha county",
     names2           = "lincoln elementary",
@@ -98,7 +98,7 @@ test_that("NA name in data1 is treated as unmatched", {
 })
 
 test_that("NA group in data1 is treated as unmatched", {
-  res <- match_schools_batch_cpp(
+  res <- tidyschoolvax:::match_schools_batch_cpp(
     names1           = "lincoln elementary",
     groups1          = NA_character_,
     names2           = "lincoln elementary",
@@ -112,7 +112,7 @@ test_that("NA group in data1 is treated as unmatched", {
 })
 
 test_that("multiple data1 rows with different groups are handled independently", {
-  res <- match_schools_batch_cpp(
+  res <- tidyschoolvax:::match_schools_batch_cpp(
     names1           = c("lincoln elementary", "no match school"),
     groups1          = c("alpha county", "alpha county"),
     names2           = c("lincoln elementary", "jefferson middle"),
@@ -128,7 +128,7 @@ test_that("multiple data1 rows with different groups are handled independently",
 
 test_that("candidates_idx values are valid 1-based indices into names2", {
   names2 <- c("lincoln elementary", "lincoln middle", "jefferson primary")
-  res <- match_schools_batch_cpp(
+  res <- tidyschoolvax:::match_schools_batch_cpp(
     names1           = "lincoln elem",
     groups1          = "alpha county",
     names2           = names2,
@@ -151,7 +151,7 @@ test_that("soundex_cosine_thresh parameter affects candidate filtering", {
   # threshold_jw=0.6, so both strings would typically pass via JW anyway.
   # Instead test with names where JW > threshold but soundex matches:
   # "saintjohnprimary" vs "stjohnschool": similar soundex, high JW
-  res_strict <- match_schools_batch_cpp(
+  res_strict <- tidyschoolvax:::match_schools_batch_cpp(
     names1           = "roosveltprimaryschool",
     groups1          = "alpha county",
     names2           = c("ruzveltelementary"),   # different spelling, same phonetic root
@@ -162,7 +162,7 @@ test_that("soundex_cosine_thresh parameter affects candidate filtering", {
     soundex_cosine_thresh = 0.0  # cosine must be 0 — impossible, so will fail
   )
 
-  res_lenient <- match_schools_batch_cpp(
+  res_lenient <- tidyschoolvax:::match_schools_batch_cpp(
     names1           = "roosveltprimaryschool",
     groups1          = "alpha county",
     names2           = c("ruzveltelementary"),
