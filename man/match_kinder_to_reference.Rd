@@ -10,7 +10,8 @@ match_kinder_to_reference(
   kinder_dat,
   temp_data_dir,
   addr_source_pref = "greatschools",
-  kinder_has_addr = FALSE
+  kinder_has_addr = FALSE,
+  parallel = FALSE
 )
 }
 \arguments{
@@ -27,6 +28,8 @@ is written.}
 
 \item{kinder_has_addr}{Logical. Whether \code{kinder_dat} contains address
 columns (\code{addr_clean_kinder}, \code{city_kinder}, \code{zip_kinder}).}
+
+\item{parallel}{See \code{\link{standardize_schools}}.}
 }
 \value{
 A long data frame with one row per vaccination record, merged with
