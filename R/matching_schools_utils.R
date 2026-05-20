@@ -158,7 +158,7 @@ match_locations <- function(
   } else if (length(best_) == 0 & return_score_matrix){
     return(dists)
   }
-  if (length(best_ > 1)){
+  if (length(best_) > 1){
     name <- paste(names[best_], collapse = ", ")
     score_sum <- paste(dists$score_sums[best_], collapse = ", ")
   } else {
