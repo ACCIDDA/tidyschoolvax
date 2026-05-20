@@ -246,11 +246,11 @@ match_locations <- function(
     "jw",
     "soundex"
   )
-  dists <- as.data.frame(matrix(NA, nrow = length(b_cln), ncol = length(methods)+1,
-                                dimnames = list(b_cln, c("name", methods))))
-  for (j in 1:length(methods)){
-    dists[, j+1]  <-
-      suppressWarnings(stringdist::stringdist(a_cln, b_cln, method = methods[j]))
+  dists <- as.data.frame(matrix(NA, nrow = length(b_cln), ncol = length(methods),
+                                dimnames = list(b_cln, methods)))
+  for (method_idx in seq_along(methods)){
+    dists[[methods[method_idx]]] <-
+      suppressWarnings(stringdist::stringdist(a_cln, b_cln, method = methods[method_idx]))
   }
   dists$score_sums <- rowSums(dists, na.rm = TRUE)
   dists$osa <- as.integer(dists$osa)
