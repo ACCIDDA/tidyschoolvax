@@ -521,8 +521,8 @@ match_schools_names <- function(data1, data2,
   )
 
   # ---------------------------------------------------------------------------
-  # Per-row closure: processes a single data1 row using the pre-computed C++
-  # results.  Returns a list with three slots:
+  # Per-row closure: used by the parallel dispatch path (parallel = TRUE).
+  # Returns a list with three slots:
   #   matched    – a one-row tibble (match record), or NULL if no match
   #   unmatched  – the data1 row if unmatched, or NULL
   #   match_opts – a named list (length 0 or 1) of the match-options data frame
@@ -685,23 +685,281 @@ match_schools_names <- function(data1, data2,
   }
 
   # ---------------------------------------------------------------------------
-  # Dispatch: furrr::future_map() when parallel = TRUE, lapply() otherwise.
+  # Dispatch: parallel path uses furrr + bind_rows; sequential path uses
+  # pre-allocated vectors to avoid per-row tibble() allocation overhead.
   row_indices <- seq_len(nrow(data1))
+
   if (isTRUE(parallel)) {
-    row_results <- furrr::future_map(row_indices, .process_one_row,
-                                     .options = furrr::furrr_options(globals = TRUE))
+    # ---- Parallel path: closure-per-row + furrr::future_map() ---------------
+    row_results    <- furrr::future_map(row_indices, .process_one_row,
+                                        .options = furrr::furrr_options(globals = TRUE))
+    matched_rows   <- lapply(row_results, `[[`, "matched")
+    unmatched_rows <- lapply(row_results, `[[`, "unmatched")
+    match_options  <- unlist(lapply(row_results, `[[`, "match_opts"), recursive = FALSE)
+    matched_df     <- dplyr::bind_rows(matched_rows)
+    unmatched_dat1 <- dplyr::bind_rows(unmatched_rows)
+
   } else {
-    row_results <- lapply(row_indices, .process_one_row)
+    # ---- Sequential path: pre-allocated vectors (avoids per-row tibble) ------
+    # Check once which optional columns exist in data1 / data2
+    has_school_level_d1 <- "school_level" %in% names(data1)
+    has_school_level_d2 <- "school_level" %in% names(data2)
+    has_school_type_d2  <- "school_type"  %in% names(data2)
+    has_city_d2         <- "city"         %in% names(data2)
+    has_state_d2        <- "state"        %in% names(data2)
+    has_zip_d2          <- "zip"          %in% names(data2)
+    has_lat_d2          <- "lat"          %in% names(data2)
+    has_lon_d2          <- "lon"          %in% names(data2)
+    has_street1_d2      <- "street1"      %in% names(data2)
+
+    # Columns in match_cols1 not already covered by the fixed output schema
+    core_out_cols <- c("match_score", "match_category", "county_std", "county",
+                       "data_1_source", "data_2_source",
+                       "school_name_data1", "school_name_data2",
+                       "school_name_std_data1", "school_name_std_data2",
+                       "school_level_data1", "school_level_data2",
+                       "school_type", "city", "state", "zip", "lat", "lon",
+                       "street1", "data1_id", "data2_id",
+                       "osa", "lv", "dl", "lcs", "qgram", "cosine",
+                       "jaccard", "jw", "soundex", "score_sums")
+    extra_match_cols <- match_cols1[!(match_cols1 %in% core_out_cols)]
+
+    n1             <- length(row_indices)
+    out_score      <- rep(NA_real_,      n1)
+    out_cat        <- rep(NA_character_, n1)
+    out_county_std <- rep(NA_character_, n1)
+    out_county     <- rep(NA_character_, n1)
+    out_sn_d1      <- rep(NA_character_, n1)
+    out_sn_d2      <- rep(NA_character_, n1)
+    out_sn_std_d1  <- rep(NA_character_, n1)
+    out_sn_std_d2  <- rep(NA_character_, n1)
+    out_sl_d1      <- rep(NA_character_, n1)
+    out_sl_d2      <- rep(NA_character_, n1)
+    out_stype      <- rep(NA_character_, n1)
+    out_city       <- rep(NA_character_, n1)
+    out_state      <- rep(NA_character_, n1)
+    out_zip        <- rep(NA_character_, n1)
+    out_lat        <- rep(NA_real_,      n1)
+    out_lon        <- rep(NA_real_,      n1)
+    out_street1    <- rep(NA_character_, n1)
+    out_data1_id   <- rep(data1$data1_id[NA_integer_], n1)
+    out_data2_id   <- rep(data2$data2_id[NA_integer_], n1)
+    out_osa        <- rep(NA_real_, n1)
+    out_lv         <- rep(NA_real_, n1)
+    out_dl         <- rep(NA_real_, n1)
+    out_lcs        <- rep(NA_real_, n1)
+    out_qgram      <- rep(NA_real_, n1)
+    out_cosine     <- rep(NA_real_, n1)
+    out_jaccard    <- rep(NA_real_, n1)
+    out_jw_sc      <- rep(NA_real_, n1)
+    out_soundex    <- rep(NA_real_, n1)
+    out_score_sums <- rep(NA_real_, n1)
+
+    # Pre-allocate vectors for any extra match_cols1 columns, preserving class
+    extra_out <- setNames(
+      lapply(extra_match_cols, function(.col) {
+        data1[[.col]][rep(NA_integer_, n1)]
+      }),
+      extra_match_cols
+    )
+
+    matched_count   <- 0L
+    unmatched_idxs  <- integer(n1)
+    unmatched_count <- 0L
+    match_options   <- list()
+
+    for (i in row_indices) {
+
+      best_match_scores <- NULL
+      status_i          <- cpp_res$status[i]
+
+      # ---- No group match (0) or unmatched (1) --------------------------------
+      if (status_i == 0L || status_i == 1L) {
+        unmatched_count <- unmatched_count + 1L
+        unmatched_idxs[unmatched_count] <- i
+        next
+      }
+
+      # Shared setup for exact (2) and candidate (3) paths
+      cand_idx  <- cpp_res$candidates_idx[[i]]   # 1-based indices into data2
+      jw_dists  <- cpp_res$candidates_jw[[i]]
+      data2_sub <- data2[cand_idx, ]
+
+      # ---- Exact match path (status 2) ----------------------------------------
+      if (status_i == 2L) {
+
+        if (length(cand_idx) == 1L) {
+          best_idx <- 1L
+        } else {
+          # Tie-break: narrowest JW first, then school_level
+          min_jw      <- min(jw_dists)
+          min_jw_idxs <- which(jw_dists == min_jw)
+
+          if (length(min_jw_idxs) > 1L &&
+              has_school_level_d1 &&
+              !is.na(data1$school_level[i])) {
+            level_match <- data2_sub$school_level[min_jw_idxs] == data1$school_level[i]
+            if (any(level_match, na.rm = TRUE)) {
+              best_idx <- min_jw_idxs[which(level_match)[1L]]
+            } else {
+              best_idx <- min_jw_idxs[1L]
+            }
+          } else {
+            best_idx <- min_jw_idxs[1L]
+          }
+        }
+
+      # ---- Candidate (non-exact) path (status 3) ------------------------------
+      } else {
+
+        # data2_sub is already filtered and trimmed to top-10 by the C++ function.
+        # Call match_locations() for detailed multi-metric scoring.
+        dists_gtbl <- match_locations(
+          a                   = data1$school_name_std[i],
+          names               = data2_sub$school_name_std,
+          return_score        = TRUE,
+          return_score_matrix = TRUE
+        )
+
+        # match_locations() returns a single row when the match is unambiguous
+        if (nrow(dists_gtbl) == 1L) {
+          best_idx <- match(dists_gtbl$name, data2_sub$school_name_std)
+
+        } else {
+          dists_gtbl <- dists_gtbl %>%
+            dplyr::mutate(prob_osa = osa / nchar(data2_sub$school_name_std))
+
+          # Use pre-computed lowercased filter values for this row
+          filter_vals_i <- filter_vals_all[i, , drop = FALSE]
+
+          mo <- dists_gtbl %>%
+            dplyr::as_tibble() %>%
+            dplyr::mutate(
+              name         = data1$school_name_std[i],
+              name_options = data2_sub$school_name_std
+            ) %>%
+            dplyr::bind_cols(filter_vals_i[rep(1L, nrow(.)), ]) %>%
+            dplyr::select(name, name_options, dplyr::any_of(match_cols1),
+                          dplyr::everything()) %>%
+            dplyr::filter(jw < .5, jaccard < .5) %>%
+            dplyr::mutate(match_level = dplyr::case_when(
+              (jaccard <= 0.05 & cosine <= 0.05)                           ~ 1L,
+              (jw <= 0.15)                                                  ~ 1L,
+              (soundex == 0 & jw <= 0.3)                                    ~ 1L,
+              (soundex == 0 & cosine <= 0.25)                               ~ 2L,
+              (jaccard <= 0.15 & cosine <= 0.15 & prob_osa <= 0.4)          ~ 2L,
+              (jw <= 0.21)                                                   ~ 2L,
+              TRUE                                                           ~ 1000L
+            ))
+
+          match_options[[length(match_options) + 1L]] <- mo
+          names(match_options)[length(match_options)]  <- data1$school_name_std[i]
+
+          if (any(mo$match_level <= 3L)) {
+            best_local        <- which.min(mo$match_level)
+            best_match_scores <- mo[best_local, ]
+            best_idx          <- match(mo$name_options[best_local],
+                                       data2_sub$school_name_std)
+          } else {
+            unmatched_count <- unmatched_count + 1L
+            unmatched_idxs[unmatched_count] <- i
+            next
+          }
+        }
+      }
+
+      # ---- Fill pre-allocated output vectors ----------------------------------
+      best_distance    <- jw_dists[best_idx]
+      matched_count    <- matched_count + 1L
+      k                <- matched_count
+
+      out_score[k]      <- 1 - best_distance
+      out_cat[k]        <- if      (best_distance <= 0.05) "Exact Match"
+                           else if (best_distance <= 0.10) "High"
+                           else if (best_distance <= 0.25) "Moderate"
+                           else                            "Low"
+      out_county_std[k] <- data1$county_std[i]
+      out_county[k]     <- data1$county[i]
+      out_sn_d1[k]      <- data1$school_name[i]
+      out_sn_d2[k]      <- data2_sub$school_name[best_idx]
+      out_sn_std_d1[k]  <- data1$school_name_std[i]
+      out_sn_std_d2[k]  <- data2_sub$school_name_std[best_idx]
+      out_sl_d1[k]      <- if (has_school_level_d1) data1$school_level[i]              else NA_character_
+      out_sl_d2[k]      <- if (has_school_level_d2) data2_sub$school_level[best_idx]   else NA_character_
+      out_stype[k]      <- if (has_school_type_d2)  data2_sub$school_type[best_idx]    else NA_character_
+      out_city[k]       <- if (has_city_d2)          data2_sub$city[best_idx]           else NA_character_
+      out_state[k]      <- if (has_state_d2)         data2_sub$state[best_idx]          else NA_character_
+      out_zip[k]        <- if (has_zip_d2)           as.character(data2_sub$zip[best_idx]) else NA_character_
+      out_lat[k]        <- if (has_lat_d2)           data2_sub$lat[best_idx]            else NA_real_
+      out_lon[k]        <- if (has_lon_d2)           data2_sub$lon[best_idx]            else NA_real_
+      out_street1[k]    <- if (has_street1_d2)       data2_sub$street1[best_idx]        else NA_character_
+      out_data1_id[k]   <- data1$data1_id[i]
+      out_data2_id[k]   <- data2_sub$data2_id[best_idx]
+
+      if (!is.null(best_match_scores)) {
+        out_osa[k]        <- best_match_scores$osa
+        out_lv[k]         <- best_match_scores$lv
+        out_dl[k]         <- best_match_scores$dl
+        out_lcs[k]        <- best_match_scores$lcs
+        out_qgram[k]      <- best_match_scores$qgram
+        out_cosine[k]     <- best_match_scores$cosine
+        out_jaccard[k]    <- best_match_scores$jaccard
+        out_jw_sc[k]      <- best_match_scores$jw
+        out_soundex[k]    <- best_match_scores$soundex
+        out_score_sums[k] <- best_match_scores$score_sums
+      }
+      # score columns for exact / unambiguous paths remain NA (pre-initialised above)
+
+      for (.col in extra_match_cols) {
+        extra_out[[.col]][k] <- data1[[.col]][i]
+      }
+    }
+
+    # ---- Assemble result tables from pre-allocated vectors ------------------
+    idx        <- seq_len(matched_count)
+    matched_df <- data.frame(
+      match_score           = out_score[idx],
+      match_category        = out_cat[idx],
+      county_std            = out_county_std[idx],
+      county                = out_county[idx],
+      data_1_source         = rep(data_1_source, matched_count),
+      data_2_source         = rep(data_2_source, matched_count),
+      school_name_data1     = out_sn_d1[idx],
+      school_name_data2     = out_sn_d2[idx],
+      school_name_std_data1 = out_sn_std_d1[idx],
+      school_name_std_data2 = out_sn_std_d2[idx],
+      school_level_data1    = out_sl_d1[idx],
+      school_level_data2    = out_sl_d2[idx],
+      school_type           = out_stype[idx],
+      city                  = out_city[idx],
+      state                 = out_state[idx],
+      zip                   = out_zip[idx],
+      lat                   = out_lat[idx],
+      lon                   = out_lon[idx],
+      street1               = out_street1[idx],
+      data1_id              = out_data1_id[idx],
+      data2_id              = out_data2_id[idx],
+      osa                   = out_osa[idx],
+      lv                    = out_lv[idx],
+      dl                    = out_dl[idx],
+      lcs                   = out_lcs[idx],
+      qgram                 = out_qgram[idx],
+      cosine                = out_cosine[idx],
+      jaccard               = out_jaccard[idx],
+      jw                    = out_jw_sc[idx],
+      soundex               = out_soundex[idx],
+      score_sums            = out_score_sums[idx],
+      stringsAsFactors      = FALSE
+    )
+    if (length(extra_match_cols) > 0L) {
+      matched_df <- cbind(matched_df,
+                          as.data.frame(lapply(extra_out, `[`, idx),
+                                        stringsAsFactors = FALSE))
+    }
+    matched_df <- tibble::as_tibble(matched_df)
+
+    unmatched_dat1 <- data1[unmatched_idxs[seq_len(unmatched_count)], , drop = FALSE]
   }
-
-  # ---- Collect results from per-row list ------------------------------------
-  matched_rows   <- lapply(row_results, `[[`, "matched")
-  unmatched_rows <- lapply(row_results, `[[`, "unmatched")
-  match_options  <- unlist(lapply(row_results, `[[`, "match_opts"), recursive = FALSE)
-
-  # ---- Combine matched + unmatched into result tables -----------------------
-  matched_df     <- dplyr::bind_rows(matched_rows)
-  unmatched_dat1 <- dplyr::bind_rows(unmatched_rows)
   unmatched_dat2 <- data2 %>%
     dplyr::filter(!(school_name_std %in% matched_df$school_name_std_data2))
 
