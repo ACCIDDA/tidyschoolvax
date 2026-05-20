@@ -451,7 +451,7 @@ DataFrame score_candidates_cpp(std::string name1, CharacterVector names2) {
         sums_v[i]    = (double)osa + (double)qg + cd + jac + jw + sd;
     }
 
-    return DataFrame::create(
+    DataFrame out = DataFrame::create(
         Named("name")       = name_col,
         Named("osa")        = osa_v,
         Named("qgram")      = qgram_v,
@@ -459,7 +459,8 @@ DataFrame score_candidates_cpp(std::string name1, CharacterVector names2) {
         Named("jaccard")    = jaccard_v,
         Named("jw")         = jw_v,
         Named("soundex")    = soundex_v,
-        Named("score_sums") = sums_v,
-        Named("stringsAsFactors") = false
+        Named("score_sums") = sums_v
     );
+    out.attr("stringsAsFactors") = false;
+    return out;
 }
