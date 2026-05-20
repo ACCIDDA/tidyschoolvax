@@ -669,6 +669,13 @@ fuzzy_match_unmatched_schools <- function(unmatched_data,
                                           use_globaltoolbox = TRUE,
                                           jw_preliminary_factor = 2) {
 
+  if (!missing(use_globaltoolbox)) {
+    .Deprecated(msg = "The 'use_globaltoolbox' argument is deprecated and has no effect. Jaro-Winkler distances are now computed by the native C++ routine pairwise_jw_cpp().")
+  }
+  if (!missing(jw_preliminary_factor)) {
+    .Deprecated(msg = "The 'jw_preliminary_factor' argument is deprecated and has no effect.")
+  }
+
 
   # Return early if no unmatched data
   if (nrow(unmatched_data) == 0) {
@@ -726,7 +733,6 @@ fuzzy_match_unmatched_schools <- function(unmatched_data,
     # Compute pairwise JW distances in a single vectorised C++ call,
     # replacing the previous nested for-loop over stringdist::stringdist().
     dist_matrix <- pairwise_jw_cpp(county_schools$school_name_std_data1)
-    diag(dist_matrix) <- 0  # ensure exact self-distance
 
     # Create groups using connected components where distance <= threshold
     # Build an adjacency matrix
