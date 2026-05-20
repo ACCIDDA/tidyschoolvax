@@ -42,22 +42,9 @@ BEGIN_RCPP
 END_RCPP
 }
 
-// pairwise_jw_cpp
-NumericMatrix pairwise_jw_cpp(CharacterVector names);
-RcppExport SEXP _tidyschoolvax_pairwise_jw_cpp(SEXP namesSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< CharacterVector >::type names(namesSEXP);
-    rcpp_result_gen = Rcpp::wrap(pairwise_jw_cpp(names));
-    return rcpp_result_gen;
-END_RCPP
-}
-
 static const R_CallMethodDef CallEntries[] = {
     {"_tidyschoolvax_match_schools_batch_cpp", (DL_FUNC) &_tidyschoolvax_match_schools_batch_cpp, 8},
     {"_tidyschoolvax_score_candidates_cpp",    (DL_FUNC) &_tidyschoolvax_score_candidates_cpp,    2},
-    {"_tidyschoolvax_pairwise_jw_cpp",         (DL_FUNC) &_tidyschoolvax_pairwise_jw_cpp,         1},
     {NULL, NULL, 0}
 };
 

@@ -64,16 +64,3 @@ score_candidates_cpp <- function(name1, names2) {
     .Call('_tidyschoolvax_score_candidates_cpp', PACKAGE = 'tidyschoolvax', name1, names2)
 }
 
-#' Compute pairwise Jaro-Winkler distance matrix
-#'
-#' Returns the full n-by-n symmetric matrix of Jaro-Winkler distances for a
-#' character vector of pre-standardised school names.  Used by
-#' \code{fuzzy_match_unmatched_schools()} to replace a nested R for-loop.
-#'
-#' @param names Character vector of strings.
-#' @return A numeric matrix (n x n, symmetric, zero diagonal) of JW distances.
-#' @keywords internal
-pairwise_jw_cpp <- function(names) {
-    .Call('_tidyschoolvax_pairwise_jw_cpp', PACKAGE = 'tidyschoolvax', names)
-}
-

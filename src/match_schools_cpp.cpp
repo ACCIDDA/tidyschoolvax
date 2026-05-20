@@ -463,31 +463,3 @@ DataFrame score_candidates_cpp(std::string name1, CharacterVector names2) {
         Named("stringsAsFactors") = false
     );
 }
-
-//' Compute pairwise Jaro-Winkler distance matrix
-//'
-//' Returns the full n-by-n symmetric matrix of Jaro-Winkler distances for a
-//' character vector of pre-standardised school names.  Used by
-//' \code{fuzzy_match_unmatched_schools()} to replace a nested R for-loop.
-//'
-//' @param names Character vector of strings.
-//' @return A numeric matrix (n x n, symmetric, zero diagonal) of JW distances.
-//' @keywords internal
-// [[Rcpp::export]]
-NumericMatrix pairwise_jw_cpp(CharacterVector names) {
-    int n = names.size();
-    NumericMatrix mat(n, n);
-
-    for (int i = 0; i < n; ++i) {
-        mat(i, i) = 0.0;
-        for (int j = i + 1; j < n; ++j) {
-            double dist = 1.0;
-            if (!CharacterVector::is_na(names[i]) && !CharacterVector::is_na(names[j])) {
-                dist = jaro_winkler_dist(as<std::string>(names[i]),
-                                         as<std::string>(names[j]));
-            }
-            mat(i, j) = mat(j, i) = dist;
-        }
-    }
-    return mat;
-}
