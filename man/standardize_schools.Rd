@@ -39,10 +39,10 @@ reports written to \code{<state_dir>/01_cleaning/cleaning_temp}).}
 address in the output.  One of \code{"greatschools"} (default),
 \code{"doe"}, \code{"third"}, or \code{"kinder"}.}
 
-\item{parallel}{Logical. If \code{TRUE}, row-level matching inside every
-\code{\link{match_schools_names}} call is dispatched to worker processes
-via \code{\link[furrr:future_map]{furrr::future_map()}}. The caller must
-configure a \code{future} plan (e.g.
+\item{parallel}{Logical. If \code{TRUE}, the per-row R post-processing loop
+inside every \code{\link{match_schools_names}} call is dispatched to worker
+processes via \code{\link[furrr:future_map]{furrr::future_map()}}. The
+caller must configure a \code{future} plan (e.g.
 \code{future::plan(future::multisession)}) before setting this to
 \code{TRUE}; if no non-sequential plan is active a warning is issued and
 execution falls back to sequential. Defaults to \code{FALSE}.}
