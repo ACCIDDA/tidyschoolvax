@@ -29,8 +29,22 @@ BEGIN_RCPP
 END_RCPP
 }
 
+// score_candidates_cpp
+DataFrame score_candidates_cpp(std::string name1, CharacterVector names2);
+RcppExport SEXP _tidyschoolvax_score_candidates_cpp(SEXP name1SEXP, SEXP names2SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< std::string >::type name1(name1SEXP);
+    Rcpp::traits::input_parameter< CharacterVector >::type names2(names2SEXP);
+    rcpp_result_gen = Rcpp::wrap(score_candidates_cpp(name1, names2));
+    return rcpp_result_gen;
+END_RCPP
+}
+
 static const R_CallMethodDef CallEntries[] = {
     {"_tidyschoolvax_match_schools_batch_cpp", (DL_FUNC) &_tidyschoolvax_match_schools_batch_cpp, 8},
+    {"_tidyschoolvax_score_candidates_cpp",    (DL_FUNC) &_tidyschoolvax_score_candidates_cpp,    2},
     {NULL, NULL, 0}
 };
 

@@ -13,9 +13,12 @@ using namespace Rcpp;
 // ============================================================
 // String distance helpers — native C++ implementations that
 // replicate the behaviour of stringdist::stringdist() for
-// method = "jw"  (p = 0.1, matching stringdist default)
+// method = "jw"      (p = 0.1, matching stringdist default)
 //         "soundex"
-//         "cosine" (q = 1, character unigrams)
+//         "cosine"   (q = 1, character unigrams)
+//         "osa"      (restricted Damerau-Levenshtein)
+//         "qgram"    (q = 1, character unigrams)
+//         "jaccard"  (q = 1, character unigrams)
 // ============================================================
 
 // Jaro similarity in [0, 1]
@@ -142,8 +145,75 @@ static double cosine_dist_q1(const std::string& s1, const std::string& s2) {
     return 1.0 - sim;
 }
 
+// Optimal String Alignment (restricted Damerau-Levenshtein): matches stringdist method="osa"
+static int osa_dist_int(const std::string& s1, const std::string& s2) {
+    int n = (int)s1.size();
+    int m = (int)s2.size();
+    if (n == 0) return m;
+    if (m == 0) return n;
+
+    std::vector<std::vector<int>> d(n + 1, std::vector<int>(m + 1, 0));
+    for (int i = 0; i <= n; ++i) d[i][0] = i;
+    for (int j = 0; j <= m; ++j) d[0][j] = j;
+
+    for (int i = 1; i <= n; ++i) {
+        for (int j = 1; j <= m; ++j) {
+            int cost = (s1[i-1] != s2[j-1]) ? 1 : 0;
+            d[i][j] = std::min({ d[i-1][j] + 1, d[i][j-1] + 1, d[i-1][j-1] + cost });
+            // transposition (each substring may only be edited once — OSA restriction)
+            if (i > 1 && j > 1 && s1[i-1] == s2[j-2] && s1[i-2] == s2[j-1]) {
+                d[i][j] = std::min(d[i][j], d[i-2][j-2] + 1);
+            }
+        }
+    }
+    return d[n][m];
+}
+
+// Q-gram distance (q=1, character unigrams): matches stringdist method="qgram"
+// Returns sum of absolute differences between character frequency vectors.
+static int qgram_dist_q1(const std::string& s1, const std::string& s2) {
+    std::unordered_map<unsigned char, int> f1, f2;
+    for (unsigned char c : s1) ++f1[c];
+    for (unsigned char c : s2) ++f2[c];
+
+    int dist = 0;
+    for (const auto& kv : f1) {
+        auto it = f2.find(kv.first);
+        int cnt2 = (it != f2.end()) ? it->second : 0;
+        dist += std::abs(kv.second - cnt2);
+    }
+    for (const auto& kv : f2) {
+        if (f1.find(kv.first) == f1.end()) dist += kv.second;
+    }
+    return dist;
+}
+
+// Jaccard distance (q=1, character unigrams): matches stringdist method="jaccard"
+// Defined as 1 - sum(min(f1,f2)) / sum(max(f1,f2)) over the multiset of unigrams.
+static double jaccard_dist_q1(const std::string& s1, const std::string& s2) {
+    if (s1.empty() && s2.empty()) return 0.0;
+    if (s1.empty() || s2.empty()) return 1.0;
+
+    std::unordered_map<unsigned char, int> f1, f2;
+    for (unsigned char c : s1) ++f1[c];
+    for (unsigned char c : s2) ++f2[c];
+
+    int sum_min = 0, sum_max = 0;
+    for (const auto& kv : f1) {
+        auto it = f2.find(kv.first);
+        int cnt2 = (it != f2.end()) ? it->second : 0;
+        sum_min += std::min(kv.second, cnt2);
+        sum_max += std::max(kv.second, cnt2);
+    }
+    for (const auto& kv : f2) {
+        if (f1.find(kv.first) == f1.end()) sum_max += kv.second;
+    }
+    if (sum_max == 0) return 0.0;
+    return 1.0 - (double)sum_min / sum_max;
+}
+
 // ============================================================
-// Main exported function
+// Main exported functions
 // ============================================================
 
 //' Match school names across two datasets using vectorised C++ distances
@@ -326,4 +396,71 @@ List match_schools_batch_cpp(
         Named("candidates_soundex")= cand_sd,
         Named("candidates_cosine") = cand_cd
     );
+}
+
+//' Compute all string-distance metrics between one query name and multiple candidates
+//'
+//' Computes OSA, Q-gram (q=1), Cosine (q=1), Jaccard (q=1), Jaro-Winkler, and
+//' Soundex distances between \code{name1} and each element of \code{names2},
+//' replicating the metrics computed by
+//' \code{stringdist::stringdist(method = c("osa","qgram","cosine","jaccard","jw","soundex"))}.
+//' Used internally by \code{match_locations()}.
+//'
+//' @param name1  Single query string (pre-standardised, lowercase).
+//' @param names2 Character vector of candidate strings (pre-standardised).
+//'
+//' @return A \code{data.frame} with one row per element of \code{names2} and
+//'   columns \code{name}, \code{osa} (integer), \code{qgram} (integer),
+//'   \code{cosine}, \code{jaccard}, \code{jw}, \code{soundex}, \code{score_sums}.
+//' @keywords internal
+// [[Rcpp::export]]
+DataFrame score_candidates_cpp(std::string name1, CharacterVector names2) {
+    int n = names2.size();
+
+    CharacterVector name_col(n);
+    IntegerVector   osa_v(n),  qgram_v(n);
+    NumericVector   cosine_v(n), jaccard_v(n), jw_v(n), soundex_v(n), sums_v(n);
+
+    for (int i = 0; i < n; ++i) {
+        name_col[i] = names2[i];
+        if (CharacterVector::is_na(names2[i])) {
+            osa_v[i]     = NA_INTEGER;
+            qgram_v[i]   = NA_INTEGER;
+            cosine_v[i]  = NA_REAL;
+            jaccard_v[i] = NA_REAL;
+            jw_v[i]      = NA_REAL;
+            soundex_v[i] = NA_REAL;
+            sums_v[i]    = NA_REAL;
+            continue;
+        }
+        std::string nm2 = as<std::string>(names2[i]);
+
+        int    osa  = osa_dist_int(name1, nm2);
+        int    qg   = qgram_dist_q1(name1, nm2);
+        double cd   = cosine_dist_q1(name1, nm2);
+        double jac  = jaccard_dist_q1(name1, nm2);
+        double jw   = jaro_winkler_dist(name1, nm2);
+        double sd   = soundex_dist(name1, nm2);
+
+        osa_v[i]     = osa;
+        qgram_v[i]   = qg;
+        cosine_v[i]  = cd;
+        jaccard_v[i] = jac;
+        jw_v[i]      = jw;
+        soundex_v[i] = sd;
+        sums_v[i]    = (double)osa + (double)qg + cd + jac + jw + sd;
+    }
+
+    DataFrame out = DataFrame::create(
+        Named("name")       = name_col,
+        Named("osa")        = osa_v,
+        Named("qgram")      = qgram_v,
+        Named("cosine")     = cosine_v,
+        Named("jaccard")    = jaccard_v,
+        Named("jw")         = jw_v,
+        Named("soundex")    = soundex_v,
+        Named("score_sums") = sums_v
+    );
+    out.attr("stringsAsFactors") = false;
+    return out;
 }

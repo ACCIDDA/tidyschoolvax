@@ -45,3 +45,22 @@ match_schools_batch_cpp <- function(names1, groups1, names2, groups2, threshold_
     .Call('_tidyschoolvax_match_schools_batch_cpp', PACKAGE = 'tidyschoolvax', names1, groups1, names2, groups2, threshold_jw_min, threshold_jw, exact_jw, soundex_cosine_thresh)
 }
 
+#' Compute all string-distance metrics between one query name and multiple candidates
+#'
+#' Computes OSA, Q-gram (q=1), Cosine (q=1), Jaccard (q=1), Jaro-Winkler, and
+#' Soundex distances between \code{name1} and each element of \code{names2},
+#' replicating the metrics computed by
+#' \code{stringdist::stringdist(method = c("osa","qgram","cosine","jaccard","jw","soundex"))}.
+#' Used internally by \code{match_locations()}.
+#'
+#' @param name1  Single query string (pre-standardised, lowercase).
+#' @param names2 Character vector of candidate strings (pre-standardised).
+#'
+#' @return A \code{data.frame} with one row per element of \code{names2} and
+#'   columns \code{name}, \code{osa} (integer), \code{qgram} (integer),
+#'   \code{cosine}, \code{jaccard}, \code{jw}, \code{soundex}, \code{score_sums}.
+#' @keywords internal
+score_candidates_cpp <- function(name1, names2) {
+    .Call('_tidyschoolvax_score_candidates_cpp', PACKAGE = 'tidyschoolvax', name1, names2)
+}
+
