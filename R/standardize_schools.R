@@ -480,17 +480,16 @@ build_kinder_unique_schools <- function(kinder_dat, n_years_data) {
   ][, vacc_school_id := .I][]
 
   # ---- Fix NAs in school_level and school_type (existing package functions) --
-  dt_df <- as.data.frame(dt_unique)
-  dt_df <- fix_school_level_na(data = dt_df, n_years_data = n_years_data,
-                               id_col = "vacc_school_id")
-  dt_df <- fix_school_type_na(data  = dt_df, n_years_data = n_years_data,
-                              id_col = "vacc_school_id")
+  dt_unique <- fix_school_level_na(data = dt_unique, n_years_data = n_years_data,
+                                   id_col = "vacc_school_id")
+  dt_unique <- fix_school_type_na(data  = dt_unique, n_years_data = n_years_data,
+                                  id_col = "vacc_school_id")
 
   # ---- Pass 2: re-aggregate after level/type fixes ---------------------------
-  dt_unique <- data.table::as.data.table(
-    dt_df[, c(key_cols, "n_records", "year_sources", "vacc_data_ids")]
+  dt_unique <- .reaggregate_kinder(
+    dt_unique[, c(key_cols, "n_records", "year_sources", "vacc_data_ids"),
+              with = FALSE]
   )
-  dt_unique <- .reaggregate_kinder(dt_unique)
 
   # ---- Majority-vote school_type correction ----------------------------------
   mistype_grp <- c("school_name_std", "county_std", "school_level", "level_code")
