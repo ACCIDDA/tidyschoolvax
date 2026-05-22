@@ -39,6 +39,12 @@
 #'     (0 or 1). \code{NULL} for exact-match rows.}
 #'   \item{candidates_cosine}{List of numeric vectors: Cosine distances.
 #'     \code{NULL} for exact-match rows.}
+#'   \item{candidates_osa}{List of integer vectors: OSA distances.
+#'     \code{NULL} for non-status-3 rows.}
+#'   \item{candidates_qgram}{List of integer vectors: Q-gram distances.
+#'     \code{NULL} for non-status-3 rows.}
+#'   \item{candidates_jaccard}{List of numeric vectors: Jaccard distances.
+#'     \code{NULL} for non-status-3 rows.}
 #' }
 #' @keywords internal
 match_schools_batch_cpp <- function(names1, groups1, names2, groups2, threshold_jw_min, threshold_jw, exact_jw, soundex_cosine_thresh = 0.25) {

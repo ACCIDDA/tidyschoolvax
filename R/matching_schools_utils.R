@@ -460,15 +460,27 @@ match_schools_names <- function(data1, data2,
     } else {
 
       # data2_sub is already filtered and trimmed to top-10 by the C++ function.
-      # Call match_locations() for detailed multi-metric scoring.
-      dists_gtbl <- match_locations(
-        a                   = data1_row$school_name_std,
-        names               = data2_sub$school_name_std,
-        return_score        = TRUE,
-        return_score_matrix = TRUE
+      # Use the pre-computed scores from cpp_res directly instead of recomputing
+      # all 6 metrics via match_locations() / score_candidates_cpp().
+      osa_v    <- cpp_res$candidates_osa[[i]]
+      qgram_v  <- cpp_res$candidates_qgram[[i]]
+      cosine_v <- cpp_res$candidates_cosine[[i]]
+      jac_v    <- cpp_res$candidates_jaccard[[i]]
+      jw_v2    <- cpp_res$candidates_jw[[i]]
+      sd_v     <- cpp_res$candidates_soundex[[i]]
+      dists_gtbl <- data.frame(
+        name       = data2_sub$school_name_std,
+        osa        = osa_v,
+        qgram      = qgram_v,
+        cosine     = cosine_v,
+        jaccard    = jac_v,
+        jw         = jw_v2,
+        soundex    = sd_v,
+        score_sums = osa_v + qgram_v + cosine_v + jac_v + jw_v2 + sd_v,
+        stringsAsFactors = FALSE
       )
 
-      # match_locations() returns a single row when the match is unambiguous
+      # When there is only one candidate, select it directly.
       if (nrow(dists_gtbl) == 1L) {
         best_idx <- match(dists_gtbl$name, data2_sub$school_name_std)
 
