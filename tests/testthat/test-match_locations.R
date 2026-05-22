@@ -126,3 +126,52 @@ test_that("match_locations score_sum is numeric (not character) for a single bes
 
   expect_type(result$score_sum, "double")
 })
+
+# ---- match_locations: pre_standardized flag ----------------------------------
+
+test_that("pre_standardized=FALSE (default) produces the same result as pre_standardized=TRUE on already-standardized inputs", {
+  # "lincoln elementary" with standardization applied externally equals the
+  # result when standardize_location_strings() is called internally.
+  result_default <- match_locations(
+    "lincoln elementary",
+    c("lincoln elementary school"),
+    pre_standardized = FALSE
+  )
+  result_pre <- match_locations(
+    "lincolnelementary",
+    c("lincolnelementary"),
+    pre_standardized = TRUE
+  )
+
+  # Both calls should find a match (not NA)
+  expect_false(is.na(result_default))
+  expect_false(is.na(result_pre))
+})
+
+test_that("pre_standardized=TRUE skips standardization: raw unstandardized inputs differ from standardized ones", {
+  # Passing mixed-case, spaced string with pre_standardized=TRUE means it is NOT
+  # lowercased/stripped, so the C++ scorer sees "Lincoln Elementary" vs
+  # "lincoln elementary" — these are different strings and will have a non-zero
+  # distance, unlike when pre_standardized=FALSE normalises both first.
+  result_pre_raw <- match_locations(
+    "Lincoln Elementary",
+    c("lincoln elementary"),
+    return_name         = TRUE,
+    return_score        = TRUE,
+    pre_standardized    = TRUE
+  )
+
+  result_normalized <- match_locations(
+    "Lincoln Elementary",
+    c("lincoln elementary"),
+    return_name         = TRUE,
+    return_score        = TRUE,
+    pre_standardized    = FALSE
+  )
+
+  # With pre_standardized=FALSE both sides are lowercased, giving a perfect
+  # match (score_sum == 0).  With pre_standardized=TRUE the raw strings are
+  # used and the score will be higher (worse).
+  expect_equal(result_normalized$score_sum, 0)
+  expect_gt(result_pre_raw$score_sum, 0)
+})
