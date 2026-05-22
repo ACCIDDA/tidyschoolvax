@@ -476,7 +476,7 @@ match_schools_names <- function(data1, data2,
         jaccard    = jac_v,
         jw         = jw_v2,
         soundex    = sd_v,
-        score_sums = osa_v + qgram_v + cosine_v + jac_v + jw_v2 + sd_v,
+        score_sums = osa_v + qgram_v + cosine_v + jac_v + jw_v2 + sd_v, # same formula as score_candidates_cpp()
         stringsAsFactors = FALSE
       )
 

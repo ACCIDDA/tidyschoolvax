@@ -351,8 +351,7 @@ List match_schools_batch_cpp(
             // --- Step 4: Filter + top-10 (status 3) -------------------------
             // Keep rows where JW ≤ threshold_jw  OR  (soundex==0 AND cosine≤thresh)
             std::vector<int>    fi;
-            std::vector<double> fj, fs, fc, f_jac;
-            std::vector<int>    f_osa, f_qg;
+            std::vector<double> fj, fs, fc;
 
             for (int k = 0; k < nc; ++k) {
                 if (na_v[k]) continue;
@@ -366,9 +365,6 @@ List match_schools_batch_cpp(
                     fj.push_back(jw_v[k]);
                     fs.push_back(sd);
                     fc.push_back(cd);
-                    f_osa.push_back(osa_dist_int(nm1, nm2));
-                    f_qg.push_back(qgram_dist_q1(nm1, nm2));
-                    f_jac.push_back(jaccard_dist_q1(nm1, nm2));
                 }
             }
 
@@ -382,6 +378,8 @@ List match_schools_batch_cpp(
             std::partial_sort(ord.begin(), ord.begin() + top_n, ord.end(),
                               [&fj](int a, int b) { return fj[a] < fj[b]; });
 
+            // Compute OSA, q-gram, Jaccard only for the top-10 survivors to
+            // avoid wasting cycles on candidates that will be discarded.
             std::vector<int>    oi(top_n);
             std::vector<double> oj(top_n), os(top_n), oc(top_n), o_jac(top_n);
             std::vector<int>    o_osa(top_n), o_qg(top_n);
@@ -391,9 +389,10 @@ List match_schools_batch_cpp(
                 oj[k]    = fj[o];
                 os[k]    = fs[o];
                 oc[k]    = fc[o];
-                o_osa[k] = f_osa[o];
-                o_qg[k]  = f_qg[o];
-                o_jac[k] = f_jac[o];
+                std::string nm2 = as<std::string>(names2[fi[o]]);
+                o_osa[k] = osa_dist_int(nm1, nm2);
+                o_qg[k]  = qgram_dist_q1(nm1, nm2);
+                o_jac[k] = jaccard_dist_q1(nm1, nm2);
             }
 
             status[i]    = 3;
