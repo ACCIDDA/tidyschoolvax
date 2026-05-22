@@ -143,9 +143,9 @@ test_that("pre_standardized=FALSE (default) produces the same result as pre_stan
     pre_standardized = TRUE
   )
 
-  # Both calls should find a match (not NA)
-  expect_false(is.na(result_default))
-  expect_false(is.na(result_pre))
+  # Both calls should find a match (no missing values in returned result)
+  expect_false(anyNA(result_default))
+  expect_false(anyNA(result_pre))
 })
 
 test_that("pre_standardized=TRUE skips standardization: raw unstandardized inputs differ from standardized ones", {
