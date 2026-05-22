@@ -604,18 +604,21 @@ run_full_geocoding <- function(unique_schools, geo_dir, google_api_key,
       processed_chunks <- progress_data$processed_chunks
       if (!is.null(progress_data$results_list)) {
         results_list <- progress_data$results_list
-        # Convert old-style unnamed list (positional) to named list
+        # Convert old-style unnamed list (positional) to named list.
+        # The old sequential loop always appended chunk results in chunk-index
+        # order, so position j in results_list corresponds to
+        # processed_chunks[j].
         if (is.null(names(results_list)) && length(results_list) > 0) {
           names(results_list) <- as.character(
             processed_chunks[seq_along(results_list)]
           )
         }
       } else if (!is.null(progress_data$results)) {
-        # backward compat: old progress files stored a cumulative data frame
-        results_list <- stats::setNames(
-          list(progress_data$results),
-          as.character(processed_chunks[[1]])
-        )
+        # Oldest backward compat: progress file stored one cumulative data
+        # frame containing all previously processed chunks combined.  Store
+        # it under key "1"; missing keys for other processed chunks will be
+        # NULL and silently dropped by dplyr::bind_rows at combine time.
+        results_list <- list("1" = progress_data$results)
       }
       cat(sprintf("Resuming from chunk %d of %d (processed: %d)\n",
                   length(processed_chunks) + 1, n_chunks, length(processed_chunks)))
@@ -643,6 +646,8 @@ run_full_geocoding <- function(unique_schools, geo_dir, google_api_key,
         cache_results <- furrr::future_map(
           cache_indices,
           function(i) process_chunk(chunks[[i]], google_api_key),
+          # globals = TRUE exports all needed variables (chunks, google_api_key,
+          # process_chunk, etc.) automatically to each worker.
           .options = furrr::furrr_options(globals = TRUE)
         )
         for (j in seq_along(cache_indices)) {
