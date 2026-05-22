@@ -141,8 +141,8 @@ match_locations <- function(
   }
 
   if (isTRUE(pre_standardized)) {
-    a_cln <- a
-    b_cln <- names
+    a_cln <- as.character(a)
+    b_cln <- as.character(names)
   } else {
     a_cln <- standardize_location_strings(a)
     b_cln <- standardize_location_strings(names)
