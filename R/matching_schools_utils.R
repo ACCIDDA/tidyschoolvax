@@ -114,6 +114,10 @@ standardize_location_strings <- function(location_name){
 #' @param return_name TRUE/FALSE return standardized name
 #' @param return_score TRUE/FALSE
 #' @param return_score_matrix TRUE/FALSE
+#' @param pre_standardized Logical. If \code{TRUE}, skip the internal call to
+#'   \code{standardize_location_strings()} on both \code{a} and \code{names}
+#'   because the caller has already standardized them. Defaults to \code{FALSE},
+#'   which preserves the original behaviour and is safe for all external callers.
 #' @return ISOs, country names, matching scores, full matching distance matrix
 #' @export
 match_locations <- function(
@@ -121,7 +125,8 @@ match_locations <- function(
     names,
     return_name=TRUE,
     return_score=FALSE,
-    return_score_matrix=FALSE
+    return_score_matrix=FALSE,
+    pre_standardized=FALSE
 ){
 
   if (is.null(names)){
@@ -135,8 +140,13 @@ match_locations <- function(
     return(NA)
   }
 
-  a_cln <- standardize_location_strings(a)
-  b_cln <- standardize_location_strings(names)
+  if (isTRUE(pre_standardized)) {
+    a_cln <- as.character(a)
+    b_cln <- as.character(names)
+  } else {
+    a_cln <- standardize_location_strings(a)
+    b_cln <- standardize_location_strings(names)
+  }
 
   # All six distance metrics computed in a single vectorised C++ pass,
   # replacing the previous for-loop over stringdist::stringdist().
@@ -460,21 +470,25 @@ match_schools_names <- function(data1, data2,
     } else {
 
       # data2_sub is already filtered and trimmed to top-10 by the C++ function.
-      # Call match_locations() for detailed multi-metric scoring.
+      # Precompute standardize_location_strings() so match_locations() receives
+      # fully standardized strings with pre_standardized = TRUE.
+      a_std     <- standardize_location_strings(data1_row$school_name_std)
+      names_std <- standardize_location_strings(data2_sub$school_name_std)
       dists_gtbl <- match_locations(
-        a                   = data1_row$school_name_std,
-        names               = data2_sub$school_name_std,
+        a                   = a_std,
+        names               = names_std,
         return_score        = TRUE,
-        return_score_matrix = TRUE
+        return_score_matrix = TRUE,
+        pre_standardized    = TRUE
       )
 
       # match_locations() returns a single row when the match is unambiguous
       if (nrow(dists_gtbl) == 1L) {
-        best_idx <- match(dists_gtbl$name, data2_sub$school_name_std)
+        best_idx <- match(dists_gtbl$name, names_std)
 
       } else {
         dists_gtbl <- dists_gtbl %>%
-          dplyr::mutate(prob_osa = osa / nchar(data2_sub$school_name_std))
+          dplyr::mutate(prob_osa = osa / nchar(names_std))
 
         # Use pre-computed lowercased filter values for this row
         filter_vals_i <- filter_vals_all[i, , drop = FALSE]
