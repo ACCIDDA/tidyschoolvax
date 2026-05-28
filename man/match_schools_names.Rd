@@ -41,22 +41,20 @@ matching workflow.}
 \item{exact_jw}{Numeric threshold used to identify near-exact
 Jaro-Winkler matches.}
 
-\item{parallel}{Logical. If `TRUE`, the per-row R post-processing loop is
-  dispatched to worker processes via [furrr::future_map()].  The caller must
-  configure a `future` plan (e.g.
-  `future::plan(future::multisession, workers = N)`) **before** setting this
-  to `TRUE`; if no non-sequential plan is active a warning is issued and
-  execution falls back to sequential.  Defaults to `FALSE`.
-
-  Note: the expensive per-group distance computations (Jaro-Winkler, Soundex,
-  Cosine) are already handled by the compiled C++ routine
-  `match_schools_batch_cpp` regardless of this flag.  The parallel flag
-  controls only the subsequent R-level tie-breaking and `match_locations()`
-  scoring loop, which remains the dominant cost for large states.}
+\item{parallel}{Logical. If `TRUE`, the per-row R post-processing is
+dispatched to worker processes via [furrr::future_map()].  The caller must
+configure a `future` plan (e.g.
+`future::plan(future::multisession, workers = N)`) **before** setting this
+to `TRUE`; if no non-sequential plan is active a warning is issued and
+execution falls back to sequential.  Defaults to `FALSE`.}
 }
 \value{
 A named list with elements \code{matched}, \code{unmatched_dat1},
   \code{unmatched_dat2}, \code{match_options}, and \code{match_summary}.
+  The \code{matched} data frame includes distance-metric columns
+  \code{osa}, \code{qgram}, \code{cosine}, \code{jaccard}, \code{jw},
+  \code{soundex}, and \code{score_sums} for ambiguous matches
+  (all \code{NA} for exact and unambiguous matches).
 }
 \description{
 Deduplicates the selected columns from each input dataset and performs
@@ -64,11 +62,12 @@ school-name matching within the provided grouping columns using the supplied
 string-distance thresholds.
 }
 \details{
-The per-group distance computations (Jaro-Winkler, Soundex, Cosine) and
-candidate selection are handled by a compiled C++ routine
-(\code{match_schools_batch_cpp}), eliminating R interpreter overhead for
-the inner loop.  The R layer is responsible only for tie-breaking, the
-optional detailed \code{match_locations()} scoring for ambiguous cases, and
+The per-group distance computations (Jaro-Winkler, Soundex, Cosine, OSA,
+Q-gram, Jaccard) are handled entirely by compiled C++ routines
+(\code{match_schools_batch_cpp} and \code{score_candidates_cpp}), eliminating
+R interpreter overhead for the inner loops.  The R layer is responsible only
+for tie-breaking, the optional detailed scoring for ambiguous cases, and
 assembling the final result tables.  When \code{parallel = TRUE} this R-level
-loop is dispatched across worker processes via \code{furrr::future_map()}.
+work is dispatched across worker processes via \code{furrr::future_map()};
+the sequential path uses \code{lapply()} over the same per-row closure.
 }

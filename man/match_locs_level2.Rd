@@ -10,7 +10,8 @@ match_locations(
   names,
   return_name = TRUE,
   return_score = FALSE,
-  return_score_matrix = FALSE
+  return_score_matrix = FALSE,
+  pre_standardized = FALSE
 )
 }
 \arguments{
@@ -24,11 +25,16 @@ match_locations(
 
 \item{return_score_matrix}{TRUE/FALSE}
 
+\item{pre_standardized}{Logical. If \code{TRUE}, skip the internal call to
+\code{standardize_location_strings()} on both \code{a} and \code{names}
+because the caller has already standardized them. Defaults to \code{FALSE},
+which preserves the original behaviour and is safe for all external callers.}
+
 \item{return_Code}{TRUE/FALSE}
 }
 \value{
 ISOs, country names, matching scores, full matching distance matrix
 }
 \description{
-use stringdist to get best match for country name, if not official country
+use string distance metrics to get best match for a location name
 }
