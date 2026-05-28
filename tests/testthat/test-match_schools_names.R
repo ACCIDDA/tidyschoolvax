@@ -121,6 +121,11 @@ test_that("match_schools_names produces correct result for a status-3 pair", {
   d2 <- make_school_df(c("lincoln elementary", "jefferson middle"),
                        c("alpha county",       "alpha county"), "data2_id")
 
+  # Ensure the standardized-name columns match production behavior, including
+  # whitespace/punctuation handling.
+  d1$school_name_std <- tidyschoolvax:::standardized_school_name(d1$school_name)
+  d2$school_name_std <- tidyschoolvax:::standardized_school_name(d2$school_name)
+
   res <- match_schools_names(d1, d2)
 
   # The near-match should be found and linked to the correct data2 row
