@@ -41,6 +41,14 @@
 #'   \code{future::plan(future::multisession)}) before setting this to
 #'   \code{TRUE}; if no non-sequential plan is active a warning is issued and
 #'   execution falls back to sequential. Defaults to \code{FALSE}.
+#' @param parallel_cache Logical. Passed to \code{\link{run_full_geocoding}}.
+#'   When \code{TRUE} (default), chunks whose schools are all already geocoded
+#'   (no API call required) are processed in parallel using the active
+#'   \pkg{furrr} back-end.  Set to \code{FALSE} for sequential processing
+#'   (useful for reproducibility or debugging).
+#' @param api_qps Positive numeric. Passed to \code{\link{run_full_geocoding}}.
+#'   Maximum Google Geocoding API queries per second used to throttle
+#'   sequential API chunks.  Defaults to \code{50}.
 #'
 #' @return The final cleaned \code{data.frame} (invisibly).  The same object is
 #'   also written to \code{temp_data_dir} as
@@ -72,7 +80,9 @@ standardize_schools <- function(state_id,
                                 state_geo_dir,
                                 state_dir,
                                 addr_source_pref = "greatschools",
-                                parallel = FALSE) {
+                                parallel = FALSE,
+                                parallel_cache = TRUE,
+                                api_qps = 50) {
 
   # ---- PART 1: Load and clean all data sources --------------------------------
   kinder_result   <- clean_kinder_data(readRDS(file.path(kinder_dir, "kinder_dat.rds")))
@@ -135,7 +145,9 @@ standardize_schools <- function(state_id,
   geocoded_schools <- run_full_geocoding(
     unique_schools = unique_schools,
     geo_dir        = state_geo_dir,
-    google_api_key = Sys.getenv("GOOGLEGEO_API_KEY")
+    google_api_key = Sys.getenv("GOOGLEGEO_API_KEY"),
+    parallel_cache = parallel_cache,
+    api_qps        = api_qps
   )
 
   # Keep columns up to and including geo_source
