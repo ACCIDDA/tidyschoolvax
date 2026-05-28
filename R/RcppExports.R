@@ -42,7 +42,7 @@
 #' }
 #' @keywords internal
 match_schools_batch_cpp <- function(names1, groups1, names2, groups2, threshold_jw_min, threshold_jw, exact_jw, soundex_cosine_thresh = 0.25) {
-    .Call('_tidyschoolvax_match_schools_batch_cpp', PACKAGE = 'tidyschoolvax', names1, groups1, names2, groups2, threshold_jw_min, threshold_jw, exact_jw, soundex_cosine_thresh)
+    .Call(`_tidyschoolvax_match_schools_batch_cpp`, names1, groups1, names2, groups2, threshold_jw_min, threshold_jw, exact_jw, soundex_cosine_thresh)
 }
 
 #' Compute all string-distance metrics between one query name and multiple candidates
@@ -61,6 +61,6 @@ match_schools_batch_cpp <- function(names1, groups1, names2, groups2, threshold_
 #'   \code{cosine}, \code{jaccard}, \code{jw}, \code{soundex}, \code{score_sums}.
 #' @keywords internal
 score_candidates_cpp <- function(name1, names2) {
-    .Call('_tidyschoolvax_score_candidates_cpp', PACKAGE = 'tidyschoolvax', name1, names2)
+    .Call(`_tidyschoolvax_score_candidates_cpp`, name1, names2)
 }
 
