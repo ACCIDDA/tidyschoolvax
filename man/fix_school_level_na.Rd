@@ -7,7 +7,7 @@
 fix_school_level_na(data, n_years_data, id_col = "ids_tmp")
 }
 \arguments{
-\item{data}{A data.frame or tibble containing school-level records.}
+\item{data}{A data.frame, tibble, or data.table containing school-level records.}
 
 \item{n_years_data}{Integer. Threshold for checking unusually large group sizes.}
 
@@ -15,7 +15,8 @@ fix_school_level_na(data, n_years_data, id_col = "ids_tmp")
 compatibility with the previous dplyr-based implementation).}
 }
 \value{
-A data.frame with school_level NA values fixed where appropriate.
+A data.table when \code{data} is a data.table; a data.frame otherwise.
+school_level NA values are fixed where appropriate.
 }
 \description{
 This function identifies groups (by school_name_std, county_std, school_type)

@@ -197,13 +197,14 @@ match_locations <- function(
 #' where school_level has NAs but all non-NA values are identical. In these cases,
 #' the function fills in missing school_level values for all rows in the group.
 #'
-#' @param data A data.frame or tibble containing school-level records.
+#' @param data A data.frame, tibble, or data.table containing school-level records.
 #' @param n_years_data Integer. Threshold for checking unusually large group sizes.
 #' @param id_col String. Column name of unique row IDs (unused; kept for backward
 #'   compatibility with the previous dplyr-based implementation).
 #'
-#' @return A data.frame with school_level NA values fixed where appropriate.
-#' @importFrom data.table as.data.table
+#' @return A data.table when \code{data} is a data.table; a data.frame otherwise.
+#'   school_level NA values are fixed where appropriate.
+#' @importFrom data.table as.data.table is.data.table
 #' @importFrom stats na.omit
 #' @export
 #'
@@ -213,7 +214,8 @@ fix_school_level_na <- function(data, n_years_data, id_col = "ids_tmp") {
 
   grp_cols <- c("school_name_std", "county_std", "school_type")
 
-  dt <- data.table::copy(data.table::as.data.table(data))
+  dt <- if (data.table::is.data.table(data)) data.table::copy(data)
+        else data.table::as.data.table(data)
   dt[, school_level_orig := school_level]
 
   # For each group with >1 row and exactly one distinct non-NA school_level,
@@ -239,7 +241,7 @@ fix_school_level_na <- function(data, n_years_data, id_col = "ids_tmp") {
     message("QA warning: Some fixed groups have more rows than n_years_data. Inspect returned 'qa_check' attribute.")
   }
 
-  out <- as.data.frame(dt)
+  out <- if (data.table::is.data.table(data)) dt else as.data.frame(dt)
   attr(out, "qa_check") <- qa_check
   return(out)
 }
@@ -253,13 +255,14 @@ fix_school_level_na <- function(data, n_years_data, id_col = "ids_tmp") {
 #' where school_type has NAs but all non-NA values are identical. In these cases,
 #' the function fills in missing school_type values for all rows in the group.
 #'
-#' @param data A data.frame or tibble containing school-level records.
+#' @param data A data.frame, tibble, or data.table containing school-level records.
 #' @param n_years_data Integer. Threshold for checking unusually large group sizes.
 #' @param id_col String. Column name of unique row IDs (unused; kept for backward
 #'   compatibility with the previous dplyr-based implementation).
 #'
-#' @return A data.frame with school_type NA values fixed where appropriate.
-#' @importFrom data.table as.data.table
+#' @return A data.table when \code{data} is a data.table; a data.frame otherwise.
+#'   school_type NA values are fixed where appropriate.
+#' @importFrom data.table as.data.table is.data.table
 #' @importFrom stats na.omit
 #' @export
 #'
@@ -269,7 +272,8 @@ fix_school_type_na <- function(data, n_years_data, id_col = "ids_tmp") {
 
   grp_cols <- c("school_name_std", "county_std", "school_level")
 
-  dt <- data.table::as.data.table(data)
+  dt <- if (data.table::is.data.table(data)) data.table::copy(data)
+        else data.table::as.data.table(data)
   dt[, school_type_orig := school_type]
 
   dt[, c(".n_grp", ".n_unique") := .(
@@ -291,7 +295,7 @@ fix_school_type_na <- function(data, n_years_data, id_col = "ids_tmp") {
     message("QA warning: Some fixed groups have more rows than n_years_data. Inspect returned 'qa_check' attribute.")
   }
 
-  out <- as.data.frame(dt)
+  out <- if (data.table::is.data.table(data)) dt else as.data.frame(dt)
   attr(out, "qa_check") <- qa_check
   return(out)
 }
