@@ -175,3 +175,43 @@ test_that("pre_standardized=TRUE skips standardization: raw unstandardized input
   expect_equal(result_normalized$score_sum, 0)
   expect_gt(result_pre_raw$score_sum, 0)
 })
+
+# ---- fix_school_type_na: input/return classes ---------------------------------
+
+make_fix_school_type_data <- function() {
+  data.frame(
+    school_name_std = c("lincoln", "lincoln", "lincoln", "washington"),
+    county_std      = c("alpha", "alpha", "alpha", "beta"),
+    school_level    = c("elementary", "elementary", "elementary", "middle"),
+    school_type     = c("public", NA, "public", NA),
+    stringsAsFactors = FALSE
+  )
+}
+
+test_that("fix_school_type_na returns a data.table and does not mutate data.table input", {
+  input    <- data.table::as.data.table(make_fix_school_type_data())
+  original <- data.table::copy(input)
+
+  result <- fix_school_type_na(input, n_years_data = 10)
+
+  expect_true(data.table::is.data.table(result))
+  expect_equal(result$school_type[2], "public")
+  expect_identical(input, original)
+})
+
+test_that("fix_school_type_na keeps non-data.table inputs on the data.frame path", {
+  data_frame_input <- make_fix_school_type_data()
+  tibble_input     <- tibble::as_tibble(make_fix_school_type_data())
+
+  data_frame_result <- fix_school_type_na(data_frame_input, n_years_data = 10)
+  tibble_result     <- fix_school_type_na(tibble_input, n_years_data = 10)
+
+  expect_s3_class(data_frame_result, "data.frame")
+  expect_false(data.table::is.data.table(data_frame_result))
+  expect_equal(data_frame_result$school_type[2], "public")
+
+  expect_s3_class(tibble_result, "data.frame")
+  expect_false(data.table::is.data.table(tibble_result))
+  expect_false(inherits(tibble_result, "tbl_df"))
+  expect_equal(tibble_result$school_type[2], "public")
+})
