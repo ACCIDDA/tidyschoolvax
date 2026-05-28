@@ -8,25 +8,11 @@ standardize_string(string)
 }
 \arguments{
 \item{string}{string location name to standardize.}
-
-\item{vax_data}{A data frame of school-level vaccination data.}
-
-\item{school_info}{A data frame of school metadata.}
-
-\item{match_threshold}{Numeric threshold for Jaro-Winkler distance (default = 0.25).}
 }
 \value{
-A list with matched schools, unmatched schools, updated school_info, and match summary.
-
 standardized string of the location names.
 }
 \description{
 Standardize indivual levels of a location of grouped names, separated by "|", for example "DC|Maryland".
 This is used by standardize_location_strings.
-}
-\details{
-Match vaccination data to school metadata using fuzzy string matching
-
-This function deduplicates school metadata, assigns IDs, and matches vaccination records
-to school info using Jaro-Winkler string distance within counties.
 }
