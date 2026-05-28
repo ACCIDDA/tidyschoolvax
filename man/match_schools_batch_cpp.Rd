@@ -46,6 +46,12 @@ A named list with elements:
     (0 or 1). \code{NULL} for exact-match rows.}
   \item{candidates_cosine}{List of numeric vectors: Cosine distances.
     \code{NULL} for exact-match rows.}
+  \item{candidates_osa}{List of integer vectors: OSA distances.
+    \code{NULL} for non-status-3 rows.}
+  \item{candidates_qgram}{List of integer vectors: Q-gram distances.
+    \code{NULL} for non-status-3 rows.}
+  \item{candidates_jaccard}{List of numeric vectors: Jaccard distances.
+    \code{NULL} for non-status-3 rows.}
 }
 }
 \description{

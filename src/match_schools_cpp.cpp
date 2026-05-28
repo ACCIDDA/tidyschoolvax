@@ -254,6 +254,12 @@ static double jaccard_dist_q1(const std::string& s1, const std::string& s2) {
 //'     (0 or 1). \code{NULL} for exact-match rows.}
 //'   \item{candidates_cosine}{List of numeric vectors: Cosine distances.
 //'     \code{NULL} for exact-match rows.}
+//'   \item{candidates_osa}{List of integer vectors: OSA distances.
+//'     \code{NULL} for non-status-3 rows.}
+//'   \item{candidates_qgram}{List of integer vectors: Q-gram distances.
+//'     \code{NULL} for non-status-3 rows.}
+//'   \item{candidates_jaccard}{List of numeric vectors: Jaccard distances.
+//'     \code{NULL} for non-status-3 rows.}
 //' }
 //' @keywords internal
 // [[Rcpp::export]]
@@ -280,6 +286,7 @@ List match_schools_batch_cpp(
 
     IntegerVector status(n1, 0);
     List cand_idx(n1), cand_jw(n1), cand_sd(n1), cand_cd(n1);
+    List cand_osa(n1), cand_qg(n1), cand_jac(n1);
 
     for (int i = 0; i < n1; ++i) {
 
@@ -371,30 +378,43 @@ List match_schools_batch_cpp(
             std::partial_sort(ord.begin(), ord.begin() + top_n, ord.end(),
                               [&fj](int a, int b) { return fj[a] < fj[b]; });
 
+            // Compute OSA, q-gram, Jaccard only for the top-10 survivors to
+            // avoid wasting cycles on candidates that will be discarded.
             std::vector<int>    oi(top_n);
-            std::vector<double> oj(top_n), os(top_n), oc(top_n);
+            std::vector<double> oj(top_n), os(top_n), oc(top_n), o_jac(top_n);
+            std::vector<int>    o_osa(top_n), o_qg(top_n);
             for (int k = 0; k < top_n; ++k) {
-                int o  = ord[k];
-                oi[k]  = fi[o] + 1;   // 1-based R index
-                oj[k]  = fj[o];
-                os[k]  = fs[o];
-                oc[k]  = fc[o];
+                int o    = ord[k];
+                oi[k]    = fi[o] + 1;   // 1-based R index
+                oj[k]    = fj[o];
+                os[k]    = fs[o];
+                oc[k]    = fc[o];
+                std::string nm2 = as<std::string>(names2[fi[o]]);
+                o_osa[k] = osa_dist_int(nm1, nm2);
+                o_qg[k]  = qgram_dist_q1(nm1, nm2);
+                o_jac[k] = jaccard_dist_q1(nm1, nm2);
             }
 
-            status[i]   = 3;
-            cand_idx[i] = wrap(oi);
-            cand_jw[i]  = wrap(oj);
-            cand_sd[i]  = wrap(os);
-            cand_cd[i]  = wrap(oc);
+            status[i]    = 3;
+            cand_idx[i]  = wrap(oi);
+            cand_jw[i]   = wrap(oj);
+            cand_sd[i]   = wrap(os);
+            cand_cd[i]   = wrap(oc);
+            cand_osa[i]  = wrap(o_osa);
+            cand_qg[i]   = wrap(o_qg);
+            cand_jac[i]  = wrap(o_jac);
         }
     }
 
     return List::create(
-        Named("status")            = status,
-        Named("candidates_idx")    = cand_idx,
-        Named("candidates_jw")     = cand_jw,
-        Named("candidates_soundex")= cand_sd,
-        Named("candidates_cosine") = cand_cd
+        Named("status")             = status,
+        Named("candidates_idx")     = cand_idx,
+        Named("candidates_jw")      = cand_jw,
+        Named("candidates_soundex") = cand_sd,
+        Named("candidates_cosine")  = cand_cd,
+        Named("candidates_osa")     = cand_osa,
+        Named("candidates_qgram")   = cand_qg,
+        Named("candidates_jaccard") = cand_jac
     );
 }
 

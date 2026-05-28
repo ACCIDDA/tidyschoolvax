@@ -15,7 +15,8 @@ test_that("match_schools_batch_cpp returns the right structure", {
   )
 
   expect_named(res, c("status", "candidates_idx", "candidates_jw",
-                       "candidates_soundex", "candidates_cosine"))
+                       "candidates_soundex", "candidates_cosine",
+                       "candidates_osa", "candidates_qgram", "candidates_jaccard"))
   expect_length(res$status, 2L)
   expect_length(res$candidates_idx, 2L)
 })
@@ -81,6 +82,56 @@ test_that("non-exact candidates return status 3 with up to 10 rows", {
 
   expect_equal(res$status[1], 3L)
   expect_lte(length(res$candidates_idx[[1]]), 10L)
+})
+
+test_that("status-3 candidates include all six pre-computed metrics", {
+  names2  <- paste0("washington high school ", 1:5)
+  groups2 <- rep("beta county", 5)
+
+  res <- tidyschoolvax:::match_schools_batch_cpp(
+    names1           = "washington highschool",
+    groups1          = "beta county",
+    names2           = names2,
+    groups2          = groups2,
+    threshold_jw_min = 0.6,
+    threshold_jw     = 0.6,
+    exact_jw         = 0.05
+  )
+
+  expect_equal(res$status[1], 3L)
+  n_cand <- length(res$candidates_idx[[1]])
+
+  # All six metric vectors must be present and have the same length
+  expect_length(res$candidates_jw[[1]],      n_cand)
+  expect_length(res$candidates_soundex[[1]], n_cand)
+  expect_length(res$candidates_cosine[[1]],  n_cand)
+  expect_length(res$candidates_osa[[1]],     n_cand)
+  expect_length(res$candidates_qgram[[1]],   n_cand)
+  expect_length(res$candidates_jaccard[[1]], n_cand)
+
+  # Values should be non-negative
+  expect_true(all(res$candidates_osa[[1]]     >= 0L))
+  expect_true(all(res$candidates_qgram[[1]]   >= 0L))
+  expect_true(all(res$candidates_jaccard[[1]] >= 0))
+})
+
+test_that("match_schools_names produces correct result for a status-3 pair", {
+  # "lincoln elem" vs "lincoln elementary" — close but not exact (status 3)
+  d1 <- make_school_df("lincoln elem",        "alpha county", "data1_id")
+  d2 <- make_school_df(c("lincoln elementary", "jefferson middle"),
+                       c("alpha county",       "alpha county"), "data2_id")
+
+  # Ensure the standardized-name columns match production behavior, including
+  # whitespace/punctuation handling.
+  d1$school_name_std <- tidyschoolvax:::standardized_school_name(d1$school_name)
+  d2$school_name_std <- tidyschoolvax:::standardized_school_name(d2$school_name)
+
+  res <- match_schools_names(d1, d2)
+
+  # The near-match should be found and linked to the correct data2 row
+  expect_equal(nrow(res$matched), 1L)
+  expect_equal(nrow(res$unmatched_dat1), 0L)
+  expect_true(grepl("lincoln", res$matched$school_name_std_data2[1]))
 })
 
 test_that("NA name in data1 is treated as unmatched", {
