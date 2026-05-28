@@ -4,7 +4,13 @@
 \alias{run_full_geocoding}
 \title{Geocode a table of unique schools using the Google Geocoding API}
 \usage{
-run_full_geocoding(unique_schools, geo_dir, google_api_key)
+run_full_geocoding(
+  unique_schools,
+  geo_dir,
+  google_api_key,
+  parallel_cache = TRUE,
+  api_qps = 50
+)
 }
 \arguments{
 \item{unique_schools}{A data frame of unique schools.  Must contain
@@ -17,6 +23,17 @@ accuracy.}
 
 \item{google_api_key}{Character scalar.  Google Geocoding API key (typically
 read from \code{Sys.getenv("GOOGLEGEO_API_KEY")}).}
+
+\item{parallel_cache}{Logical scalar.  When \code{TRUE} (default), chunks
+whose schools are all already geocoded (no API call required) are
+processed in parallel using the \pkg{furrr} back-end configured via
+\code{\link[future]{plan}}.  Set to \code{FALSE} for sequential
+processing, which is useful for reproducibility or debugging.}
+
+\item{api_qps}{Positive numeric scalar.  Maximum Google Geocoding API
+queries per second.  Defaults to \code{50} (the standard rate limit).
+A \code{Sys.sleep(nrow(chunk) / api_qps)} pause is inserted between
+consecutive API chunks to stay within this limit.}
 }
 \value{
 A data frame with the same rows as \code{unique_schools} and

@@ -14,7 +14,9 @@ standardize_schools(
   state_geo_dir,
   state_dir,
   addr_source_pref = "greatschools",
-  parallel = FALSE
+  parallel = FALSE,
+  parallel_cache = TRUE,
+  api_qps = 50
 )
 }
 \arguments{
@@ -46,6 +48,16 @@ caller must configure a \code{future} plan (e.g.
 \code{future::plan(future::multisession)}) before setting this to
 \code{TRUE}; if no non-sequential plan is active a warning is issued and
 execution falls back to sequential. Defaults to \code{FALSE}.}
+
+\item{parallel_cache}{Logical. Passed to \code{\link{run_full_geocoding}}.
+When \code{TRUE} (default), chunks whose schools are all already geocoded
+(no API call required) are processed in parallel using the active
+\pkg{furrr} back-end.  Set to \code{FALSE} for sequential processing
+(useful for reproducibility or debugging).}
+
+\item{api_qps}{Positive numeric. Passed to \code{\link{run_full_geocoding}}.
+Maximum Google Geocoding API queries per second used to throttle
+sequential API chunks.  Defaults to \code{50}.}
 }
 \value{
 The final cleaned \code{data.frame} (invisibly).  The same object is

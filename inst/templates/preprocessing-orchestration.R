@@ -124,7 +124,9 @@ school_vax_joined <- tidyschoolvax::standardize_schools(
   state_geo_dir    = state_geo_dir,
   state_dir        = state_dir,
   addr_source_pref = addr_source_pref,
-  parallel         = TRUE
+  parallel         = TRUE,
+  parallel_cache   = TRUE,
+  api_qps          = 50
 )
 
 # Restore the default sequential plan after the parallel step.
