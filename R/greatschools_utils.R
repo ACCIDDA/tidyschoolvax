@@ -139,7 +139,8 @@ extract_gs_schoolsdata <- function(zipcode = 21231) {
 #'   - `found`: rows with valid addresses
 #'   - `not_found`: rows missing address info
 #'   
-#' @importFrom dplyr as_tibble filter select bind_rows left_join rename everything
+#' @importFrom dplyr as_tibble filter select bind_rows left_join
+#' @importFrom dplyr rename everything
 #' @importFrom future plan multisession sequential
 #' @importFrom furrr future_map
 #' @importFrom purrr compact

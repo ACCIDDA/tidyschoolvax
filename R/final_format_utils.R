@@ -1163,6 +1163,11 @@ run_final_formatting <- function(state,
                                  state_dir,
                                  outputs_data_dir) {
 
+  if (!requireNamespace("arrow", quietly = TRUE)) {
+    stop("Package 'arrow' is required for reading Parquet files. ",
+         "Install with: install.packages('arrow')")
+  }
+
   # ---- Load inputs ------------------------------------------------------------
   kinder_dat <- readRDS(file.path(temp_data_dir, "kinder_vaccination_clean_03.rds"))
 
@@ -1408,10 +1413,6 @@ run_final_formatting <- function(state,
   readr::write_csv(obs_populations, file.path(outputs_data_dir, "obs_populations.csv"))
 
   # ---- PART 7: Incorporate VaxView observations -------------------------------
-  if (!requireNamespace("arrow", quietly = TRUE)) {
-    stop("Package 'arrow' is required for reading Parquet files. ",
-         "Install with: install.packages('arrow')")
-  }
   vaxview <- arrow::read_parquet(file.path(vaxview_dir, "vax_view.parquet"))
 
   vaxview <- vaxview %>%
