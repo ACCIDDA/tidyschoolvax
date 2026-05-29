@@ -1031,11 +1031,14 @@ report_missing_geo_status <- function(df, out_dir) {
 #'   two schools to flag them as potential duplicates (default \code{50}).
 #'
 #' @return A data frame of school pairs that are potential duplicates.
-#' @importFrom geosphere distm distHaversine
 #' @importFrom tidyr unpack
 #' @export
 report_potential_duplicate_schools <- function(df, out_dir, distance_meters = 50) {
-  
+  if (!requireNamespace("geosphere", quietly = TRUE)) {
+    stop("Package 'geosphere' is required for duplicate school detection. ",
+         "Install with: install.packages('geosphere')")
+  }
+
   # Prepare data for distance matrix
   geo_df <- df %>%
     dplyr::filter(!is.na(lat), !is.na(lon)) %>%
