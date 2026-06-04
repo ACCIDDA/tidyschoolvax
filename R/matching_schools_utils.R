@@ -311,7 +311,15 @@ match_locations <- function(
 #' @export
 #'
 #' @examples
-#' cleaned <- fix_school_level_na(kinder_dat_unique, n_years_data = 10, id_col = "ids_tmp")
+#' dat <- data.frame(
+#'   ids_tmp = 1:3,
+#'   school_name_std = c("lincoln", "lincoln", "washington"),
+#'   county_std = c("alpha", "alpha", "beta"),
+#'   school_type = c("public", "public", "public"),
+#'   school_level = c("elementary", NA, "middle"),
+#'   stringsAsFactors = FALSE
+#' )
+#' fix_school_level_na(dat, n_years_data = 10)
 fix_school_level_na <- function(data, n_years_data, id_col = "ids_tmp") {
   
   # ensure tidy eval safety
