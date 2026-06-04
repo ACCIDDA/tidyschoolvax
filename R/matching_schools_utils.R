@@ -544,10 +544,10 @@ match_schools_names <- function(data1, data2,
     match_record <- tibble::tibble(
       match_score = 1 - best_distance,
       match_category = dplyr::case_when(
-        best_distance <= 0.05 ~ "Exact Match",
-        best_distance <= 0.10 ~ "High",
-        best_distance <= 0.25 ~ "Moderate",
-        TRUE                  ~ "Low"
+        best_distance <= exact_jw           ~ "Exact Match",
+        best_distance <= exact_jw * 2       ~ "High",
+        best_distance <= exact_jw * 5       ~ "Moderate",
+        TRUE                                ~ "Low"
       ),
       county_std            = data1_row$county_std,
       county                = data1_row$county,
