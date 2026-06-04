@@ -146,7 +146,6 @@ get_zip <- function(lat, lon, data_year = 2020) {
 #' @importFrom tibble tibble
 #' @importFrom tigris counties zctas
 #' @importFrom dplyr filter pull
-#' @importFrom readr read_csv
 #' @export
 get_geo_info <- function(state_abbr = state, lat, lon, data_year = 2020) {
   

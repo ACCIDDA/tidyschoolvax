@@ -13,7 +13,10 @@ standardize_schools(
   temp_data_dir,
   state_geo_dir,
   state_dir,
-  addr_source_pref = "greatschools"
+  addr_source_pref = "greatschools",
+  parallel = FALSE,
+  parallel_cache = TRUE,
+  api_qps = 50
 )
 }
 \arguments{
@@ -37,6 +40,24 @@ reports written to \code{<state_dir>/01_cleaning/cleaning_temp}).}
 \item{addr_source_pref}{Character.  Address source to prefer as the primary
 address in the output.  One of \code{"greatschools"} (default),
 \code{"doe"}, \code{"third"}, or \code{"kinder"}.}
+
+\item{parallel}{Logical. If \code{TRUE}, the per-row R post-processing loop
+inside every \code{\link{match_schools_names}} call is dispatched to worker
+processes via \code{\link[furrr:future_map]{furrr::future_map()}}. The
+caller must configure a \code{future} plan (e.g.
+\code{future::plan(future::multisession)}) before setting this to
+\code{TRUE}; if no non-sequential plan is active a warning is issued and
+execution falls back to sequential. Defaults to \code{FALSE}.}
+
+\item{parallel_cache}{Logical. Passed to \code{\link{run_full_geocoding}}.
+When \code{TRUE} (default), chunks whose schools are all already geocoded
+(no API call required) are processed in parallel using the active
+\pkg{furrr} back-end.  Set to \code{FALSE} for sequential processing
+(useful for reproducibility or debugging).}
+
+\item{api_qps}{Positive numeric. Passed to \code{\link{run_full_geocoding}}.
+Maximum Google Geocoding API queries per second used to throttle
+sequential API chunks.  Defaults to \code{50}.}
 }
 \value{
 The final cleaned \code{data.frame} (invisibly).  The same object is

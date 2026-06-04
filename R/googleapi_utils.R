@@ -531,8 +531,10 @@ process_chunk <- function(chunk_df, google_api_key) {
 #'         coordinates or a Place ID.
 #'   \item Geocodes schools that lack a street address entirely.
 #' }
-#' Results are saved to an \code{.rds} cache after each chunk so that the
-#' function can be resumed after an interruption.
+#' Results are saved to an \code{.rds} cache after each API chunk so that the
+#' function can be resumed after an interruption.  Chunks whose schools are
+#' all fully cached (no API calls needed) are optionally processed in parallel
+#' via \pkg{furrr}.
 #'
 #' @param unique_schools A data frame of unique schools.  Must contain
 #'   \code{school_name} and \code{state} columns; \code{addr_clean},
@@ -542,6 +544,15 @@ process_chunk <- function(chunk_df, google_api_key) {
 #'   (\code{geocoded_cache.rds} and \code{geocoding_progress.rds}).
 #' @param google_api_key Character scalar.  Google Geocoding API key (typically
 #'   read from \code{Sys.getenv("GOOGLEGEO_API_KEY")}).
+#' @param parallel_cache Logical scalar.  When \code{TRUE} (default), chunks
+#'   whose schools are all already geocoded (no API call required) are
+#'   processed in parallel using the \pkg{furrr} back-end configured via
+#'   \code{\link[future]{plan}}.  Set to \code{FALSE} for sequential
+#'   processing, which is useful for reproducibility or debugging.
+#' @param api_qps Positive numeric scalar.  Maximum Google Geocoding API
+#'   queries per second.  Defaults to \code{50} (the standard rate limit).
+#'   A \code{Sys.sleep(nrow(chunk) / api_qps)} pause is inserted between
+#'   consecutive API chunks to stay within this limit.
 #'
 #' @return A data frame with the same rows as \code{unique_schools} and
 #'   additional columns \code{lat}, \code{lon}, \code{place_id},
@@ -549,7 +560,8 @@ process_chunk <- function(chunk_df, google_api_key) {
 #'   written to \code{file.path(geo_dir, "geocoded_cache.rds")}.
 #'
 #' @export
-run_full_geocoding <- function(unique_schools, geo_dir, google_api_key) {
+run_full_geocoding <- function(unique_schools, geo_dir, google_api_key,
+                               parallel_cache = TRUE, api_qps = 50) {
   save_path <- file.path(geo_dir, "geocoded_cache.rds")
   progress_path <- file.path(geo_dir, "geocoding_progress.rds")
   
@@ -573,7 +585,7 @@ run_full_geocoding <- function(unique_schools, geo_dir, google_api_key) {
   cat(sprintf("  - Schools needing Step 3 - no address or coords:            %d\n", needs_step3))
   
   # ============================================================================
-  # STEP 2 & 3: Sequential chunk processing with intermediate saves
+  # STEP 2 & 3: Chunk processing with intermediate saves
   # ============================================================================
   if (needs_step2 > 0 || needs_step3 > 0) {
     cat("\nStep 2 & 3: Geocoding in chunks with progress saves...\n")
@@ -583,24 +595,77 @@ run_full_geocoding <- function(unique_schools, geo_dir, google_api_key) {
     n_chunks <- length(chunks)
     
     # Check for previous progress
+    # results_list is a named list: names are chunk indices (as character strings)
     processed_chunks <- c()
-    results <- NULL
+    results_list <- list()
     
     if (file.exists(progress_path)) {
       progress_data <- readRDS(progress_path)
       processed_chunks <- progress_data$processed_chunks
-      results <- progress_data$results
-      cat(sprintf("Resuming from chunk %d of %d (processed: %d)\n", 
+      if (!is.null(progress_data$results_list)) {
+        results_list <- progress_data$results_list
+        # Convert old-style unnamed list (positional) to named list.
+        # The old sequential loop always appended chunk results in chunk-index
+        # order, so position j in results_list corresponds to
+        # processed_chunks[j].
+        if (is.null(names(results_list)) && length(results_list) > 0) {
+          names(results_list) <- as.character(
+            processed_chunks[seq_along(results_list)]
+          )
+        }
+      } else if (!is.null(progress_data$results)) {
+        # Oldest backward compat: progress file stored one cumulative data
+        # frame containing all previously processed chunks combined.  Store
+        # it under key "1"; missing keys for other processed chunks will be
+        # NULL and silently dropped by dplyr::bind_rows at combine time.
+        results_list <- list("1" = progress_data$results)
+      }
+      cat(sprintf("Resuming from chunk %d of %d (processed: %d)\n",
                   length(processed_chunks) + 1, n_chunks, length(processed_chunks)))
     }
     
-    # Process remaining chunks
-    for (i in seq_along(chunks)) {
-      if (i %in% processed_chunks) {
-        next
+    # Predicate: does a chunk contain any school that still needs an API call?
+    chunk_needs_api_call <- function(chunk_df) {
+      any(
+        is.na(chunk_df$lat) | is.na(chunk_df$lon) |
+          (has_valid_address(chunk_df$addr_clean) & is.na(chunk_df$place_id)),
+        na.rm = TRUE
+      )
+    }
+    
+    # Partition remaining chunks into cache-only vs. those needing API calls
+    remaining <- setdiff(seq_along(chunks), processed_chunks)
+    cache_indices <- Filter(function(i) !chunk_needs_api_call(chunks[[i]]), remaining)
+    api_indices   <- Filter(function(i)  chunk_needs_api_call(chunks[[i]]), remaining)
+    
+    # ---- Cache-only chunks --------------------------------------------------
+    if (length(cache_indices) > 0) {
+      if (parallel_cache) {
+        cat(sprintf("\n  Parallelising %d fully-cached chunk(s) via furrr...\n",
+                    length(cache_indices)))
+        cache_results <- furrr::future_map(
+          cache_indices,
+          function(i) process_chunk(chunks[[i]], google_api_key),
+          # globals = TRUE exports all needed variables (chunks, google_api_key,
+          # process_chunk, etc.) automatically to each worker.
+          .options = furrr::furrr_options(globals = TRUE)
+        )
+        for (j in seq_along(cache_indices)) {
+          results_list[[as.character(cache_indices[[j]])]] <- cache_results[[j]]
+        }
+      } else {
+        for (i in cache_indices) {
+          cat(sprintf("  Processing chunk %d of %d (cache)...", i, n_chunks))
+          results_list[[as.character(i)]] <- process_chunk(chunks[[i]], google_api_key)
+          cat(" Done\n")
+        }
       }
-      
-      cat(sprintf("  Processing chunk %d of %d...", i, n_chunks))
+      processed_chunks <- c(processed_chunks, cache_indices)
+    }
+    
+    # ---- API chunks (sequential, rate-limited) ------------------------------
+    for (i in api_indices) {
+      cat(sprintf("  Processing chunk %d of %d (API)...", i, n_chunks))
       
       chunk_result <- tryCatch({
         process_chunk(chunks[[i]], google_api_key = google_api_key)
@@ -612,7 +677,7 @@ run_full_geocoding <- function(unique_schools, geo_dir, google_api_key) {
         # Save partial results before stopping
         progress_data <- list(
           processed_chunks = processed_chunks,
-          results = results,
+          results_list = results_list,
           error_chunk = i,
           error_message = e$message,
           timestamp = Sys.time()
@@ -624,25 +689,28 @@ run_full_geocoding <- function(unique_schools, geo_dir, google_api_key) {
         stop(e)
       })
       
-      # Consolidate chunk results
-      if (is.null(results)) {
-        results <- chunk_result
-      } else {
-        results <- dplyr::bind_rows(results, chunk_result)
-      }
-      
-      # Save intermediate progress
+      results_list[[as.character(i)]] <- chunk_result
       processed_chunks <- c(processed_chunks, i)
+      
+      # Save progress after each API chunk
       progress_data <- list(
         processed_chunks = processed_chunks,
-        results = results,
-        chunks_remaining = n_chunks - i,
+        results_list = results_list,
+        chunks_remaining = n_chunks - length(processed_chunks),
         timestamp = Sys.time()
       )
       saveRDS(progress_data, progress_path)
       
-      cat(sprintf(" Done (%d/%d chunks)\n", i, n_chunks))
+      cat(sprintf(" Done (%d/%d chunks)\n", length(processed_chunks), n_chunks))
+      
+      # Rate-limit: pause proportional to chunk size to stay within api_qps
+      if (i != api_indices[[length(api_indices)]]) {
+        Sys.sleep(nrow(chunks[[i]]) / api_qps)
+      }
     }
+    
+    # Combine all chunks in original order – O(n) total
+    results <- dplyr::bind_rows(results_list[as.character(seq_along(chunks))])
     
     # All chunks processed - clean up progress file
     if (file.exists(progress_path)) {
@@ -963,11 +1031,14 @@ report_missing_geo_status <- function(df, out_dir) {
 #'   two schools to flag them as potential duplicates (default \code{50}).
 #'
 #' @return A data frame of school pairs that are potential duplicates.
-#' @importFrom geosphere distm distHaversine
 #' @importFrom tidyr unpack
 #' @export
 report_potential_duplicate_schools <- function(df, out_dir, distance_meters = 50) {
-  
+  if (!requireNamespace("geosphere", quietly = TRUE)) {
+    stop("Package 'geosphere' is required for duplicate school detection. ",
+         "Install with: install.packages('geosphere')")
+  }
+
   # Prepare data for distance matrix
   geo_df <- df %>%
     dplyr::filter(!is.na(lat), !is.na(lon)) %>%

@@ -108,6 +108,11 @@ check_expected_files(
 ## Assign unique school and county IDs
 ## Use google API to geocode schools and look for school status 
 
+# Set up parallel workers for fuzzy school-name matching.
+# Adjust `workers` to the number of cores you want to dedicate; a common
+# default is all available cores minus one.
+future::plan(future::multisession, workers = max(1L, parallel::detectCores() - 1L, na.rm = TRUE))
+
 cat("Step 2: Standardize school names, assign unique school and county IDs\n")
 school_vax_joined <- tidyschoolvax::standardize_schools(
   state_id         = state_id,
@@ -118,8 +123,14 @@ school_vax_joined <- tidyschoolvax::standardize_schools(
   temp_data_dir    = temp_data_dir,
   state_geo_dir    = state_geo_dir,
   state_dir        = state_dir,
-  addr_source_pref = addr_source_pref
+  addr_source_pref = addr_source_pref,
+  parallel         = TRUE,
+  parallel_cache   = TRUE,
+  api_qps          = 50
 )
+
+# Restore the default sequential plan after the parallel step.
+future::plan(future::sequential)
 
 # Output
 ## Data with addresses, school level, county, standardized names, lat, lon, operational status

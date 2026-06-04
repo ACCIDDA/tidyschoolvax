@@ -238,9 +238,12 @@ combine_vaxview_data <- function(child_dt, school_dt, teen_dt) {
 #' @param vv_all Combined vaccine coverage data.table
 #' @param path Path to save the Parquet file
 #' @return NULL
-#' @importFrom arrow write_parquet
 #' @export
 save_vaxview_parquet <- function(vv_all, path) {
+  if (!requireNamespace("arrow", quietly = TRUE)) {
+    stop("Package 'arrow' is required for Parquet output. ",
+         "Install with: install.packages('arrow')")
+  }
   dir.create(dirname(path), showWarnings = FALSE, recursive = TRUE)
   arrow::write_parquet(vv_all, path)
 }

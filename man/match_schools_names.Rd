@@ -2,7 +2,7 @@
 % Please edit documentation in R/matching_schools_utils.R
 \name{match_schools_names}
 \alias{match_schools_names}
-\title{Match two school datasets using fuzzy string matching with full outer join}
+\title{Match school records across two datasets by name and location}
 \usage{
 match_schools_names(
   data1,
@@ -13,33 +13,61 @@ match_schools_names(
   data_2_source = "DOE",
   threshold_jw = 0.6,
   threshold_jw_min = 0.6,
-  exact_jw = 0.05
+  exact_jw = 0.05,
+  parallel = FALSE
 )
 }
 \arguments{
-\item{data1}{A data frame of school data (first dataset to match).}
+\item{data1}{A data frame containing the first set of school records.}
 
-\item{data2}{A data frame of school data (second dataset, typically the reference with addresses).}
+\item{data2}{A data frame containing the second set of school records.}
 
-\item{threshold_jw}{Numeric threshold for initial Jaro-Winkler distance (default = 0.35).}
+\item{match_cols1}{Character vector of column names used to group records in
+`data1` before matching. Defaults to `"county_std"`.}
 
-\item{match_col1}{Column name in data1 to use for grouping matches (default = "county_std").}
+\item{match_cols2}{Character vector of column names used to group records in
+`data2` before matching. Defaults to `"county_std"`.}
 
-\item{match_col2}{Column name in data2 to use for grouping matches (default = "county_std").}
+\item{data_1_source}{A label describing the source of `data1`.}
 
-\item{match_threshold}{Numeric threshold for detailed matching (default = 0.20).}
+\item{data_2_source}{A label describing the source of `data2`.}
+
+\item{threshold_jw}{Numeric Jaro-Winkler distance threshold used for
+candidate matching.}
+
+\item{threshold_jw_min}{Numeric minimum Jaro-Winkler threshold used in the
+matching workflow.}
+
+\item{exact_jw}{Numeric threshold used to identify near-exact
+Jaro-Winkler matches.}
+
+\item{parallel}{Logical. If `TRUE`, the per-row R post-processing is
+dispatched to worker processes via [furrr::future_map()].  The caller must
+configure a `future` plan (e.g.
+`future::plan(future::multisession, workers = N)`) **before** setting this
+to `TRUE`; if no non-sequential plan is active a warning is issued and
+execution falls back to sequential.  Defaults to `FALSE`.}
 }
 \value{
-A list with:
-  - matched: Data frame of matched schools with both datasets' information
-  - unmatched: Data frame of unmatched schools from data1
-  - all_rows: Full outer join with all schools from both datasets, includes
-              school_name_final and school_name_std_final (preferring data2)
-  - updated_school_info: Deduplicated data2 with assigned IDs
-  - match_summary: Table of match categories including unmatched from both datasets
+A named list with elements \code{matched}, \code{unmatched_dat1},
+  \code{unmatched_dat2}, \code{match_options}, and \code{match_summary}.
+  The \code{matched} data frame includes distance-metric columns
+  \code{osa}, \code{qgram}, \code{cosine}, \code{jaccard}, \code{jw},
+  \code{soundex}, and \code{score_sums} for ambiguous matches
+  (all \code{NA} for exact and unambiguous matches).
 }
 \description{
-This function deduplicates both datasets, assigns IDs, and performs fuzzy matching
-using Jaro-Winkler string distance within a specified grouping column (e.g., county, zip).
-Returns a full outer join of both datasets, preserving all schools from both sources.
+Deduplicates the selected columns from each input dataset and performs
+school-name matching within the provided grouping columns using the supplied
+string-distance thresholds.
+}
+\details{
+The per-group distance computations (Jaro-Winkler, Soundex, Cosine, OSA,
+Q-gram, Jaccard) are handled entirely by compiled C++ routines
+(\code{match_schools_batch_cpp} and \code{score_candidates_cpp}), eliminating
+R interpreter overhead for the inner loops.  The R layer is responsible only
+for tie-breaking, the optional detailed scoring for ambiguous cases, and
+assembling the final result tables.  When \code{parallel = TRUE} this R-level
+work is dispatched across worker processes via \code{furrr::future_map()};
+the sequential path uses \code{lapply()} over the same per-row closure.
 }

@@ -31,111 +31,12 @@ assign_vaccination_ids <- function(vax_data) {
 
 
 
-# vax_data <- md_dat %>% mutate(state = current_state)
-# school_info <- md_greatschools 
-# match_threshold = 0.25
 
 
 
 
 
 
-
-#' Match vaccination data to school metadata using fuzzy string matching
-#'
-#' This function deduplicates school metadata, assigns IDs, and matches vaccination records
-#' to school info using Jaro-Winkler string distance within counties.
-#'
-#' @param vax_data A data frame of school-level vaccination data.
-#' @param school_info A data frame of school metadata.
-#' @param match_threshold Numeric threshold for Jaro-Winkler distance (default = 0.25).
-#'
-#' @return A list with matched schools, unmatched schools, updated school_info, and match summary.
-# match_vaccination_schools <- function(vax_data, school_info, match_threshold = 0.25) {
-# 
-#   vax_data <- vax_data %>%
-#     dplyr::select(tidyselect::any_of(c("state", "county_std", "city",
-#                                        "school_name", "school_name_std", 
-#                                        "school_level", "school_type"))) %>%
-#     distinct() %>%
-#     mutate(vacc_school_id = row_number())  # Assign IDs to vaccination data
-# 
-#   # Deduplicate school_info
-#   school_info <- school_info %>%
-#     dplyr::select(tidyselect::any_of(c("state", "county_std", "city",
-#                                        "school_name", "school_name_std", 
-#                                        "school_level", "gradeLevels", "school_type","zip"))) %>%
-#     distinct() %>%
-#     mutate(school_info_id = row_number(),
-#            school_id_matched = NA)
-#   
-# 
-#   matched_schools <- list()
-#   unmatched_schools <- list()
-#   
-#   for (i in seq_len(nrow(vax_data))) {
-#     vax_school <- vax_data[i, ]
-#     county_schools <- school_info %>% filter(county_std == vax_school$county_std)
-#     
-#     if (nrow(county_schools) == 0) {
-#       unmatched_schools[[length(unmatched_schools) + 1]] <- vax_school
-#       next
-#     }
-#     
-#     distances <- stringdist(vax_school$school_name_std, county_schools$school_name_std, method = "jw")
-#     if (all(distances > match_threshold)) {
-#       unmatched_schools[[length(unmatched_schools) + 1]] <- vax_school
-#       next
-#     }
-#     
-#     best_idx <- which.min(distances)
-#     best_distance <- distances[best_idx]
-#     if (best_distance > match_threshold) {
-#       unmatched_schools[[length(unmatched_schools) + 1]] <- vax_school
-#       next
-#     }
-#     
-#     match_record <- tibble(
-#       match_score = 1 - best_distance,
-#       match_category = case_when(
-#         best_distance == 0 ~ "Exact Match",
-#         best_distance <= 0.05 ~ "High",
-#         best_distance <= 0.15 ~ "Moderate",
-#         TRUE ~ "Low"
-#       ),
-#       county_std = vax_school$county_std,
-#       county = vax_school$county,
-#       school_name_vax = vax_school$school_name,
-#       school_name_info = county_schools$school_name[best_idx],
-#       school_name_std_vax = vax_school$school_name_std,
-#       school_name_std_info = county_schools$school_name_std[best_idx],
-#       school_level_vax = vax_school$school_level,
-#       school_level_info = county_schools$school_level[best_idx],
-#       school_type_info = county_schools$school_type[best_idx],
-#       street = county_schools$street[best_idx],
-#       city = county_schools$city[best_idx],
-#       state = county_schools$state[best_idx],
-#       zip = county_schools$zip[best_idx],
-#       school_id_vax = vax_school$vacc_school_id,
-#       school_id_info = county_schools$school_info_id[best_idx]
-#     )
-#     
-#     matched_schools[[length(matched_schools) + 1]] <- match_record
-#     school_info$school_id_matched[school_info$school_info_id == county_schools$school_info_id[best_idx]] <- vax_school$vacc_school_id
-#   }
-#   
-#   matched_df <- bind_rows(matched_schools)
-#   unmatched_df <- bind_rows(unmatched_schools)
-#   
-#   match_summary <- table(c(matched_df$match_category, rep("Unmatched", nrow(unmatched_df))))
-#   
-#   return(list(
-#     matched = matched_df,
-#     unmatched = unmatched_df,
-#     updated_school_info = school_info,
-#     match_summary = match_summary
-#   ))
-# }
 
 
 #' @name standardize_string
@@ -206,56 +107,52 @@ standardize_location_strings <- function(location_name){
 
 #' @name match_locs_level2
 #' @title match_locs_level2
-#' @description use stringdist to get best match for country name, if not official country
+#' @description use string distance metrics to get best match for a location name
 #' @param a location name to match
 #' @param names location names to match against
 #' @param return_Code TRUE/FALSE
 #' @param return_name TRUE/FALSE return standardized name
 #' @param return_score TRUE/FALSE
 #' @param return_score_matrix TRUE/FALSE
+#' @param pre_standardized Logical. If \code{TRUE}, skip the internal call to
+#'   \code{standardize_location_strings()} on both \code{a} and \code{names}
+#'   because the caller has already standardized them. Defaults to \code{FALSE},
+#'   which preserves the original behaviour and is safe for all external callers.
 #' @return ISOs, country names, matching scores, full matching distance matrix
-#' @importFrom stringdist stringdist
 #' @export
 match_locations <- function(
     a,
     names,
     return_name=TRUE,
     return_score=FALSE,
-    return_score_matrix=FALSE
+    return_score_matrix=FALSE,
+    pre_standardized=FALSE
 ){
-  
+
   if (is.null(names)){
     stop("Need to supply vector to 'names_standard' to match against.")
   }
-  
+
   if(length(a) > 1 | length(a) == 0){
     stop("ERROR: 'a' can only be of length 1")
   }
   if(is.na(a)){
     return(NA)
   }
-  
-  a_cln <- standardize_location_strings(a)
-  b_cln <- standardize_location_strings(names)
-  
-  methods <- c(
-    "osa",
-    "qgram",
-    "cosine",
-    "jaccard",
-    "jw",
-    "soundex"
-  )
-  dists <- as.data.frame(matrix(NA, nrow = length(b_cln), ncol = length(methods)+1,
-                                dimnames = list(b_cln, c("name", methods))))
-  for (j in 1:length(methods)){
-    dists[, j+1]  <-
-      suppressWarnings(stringdist::stringdist(a_cln, b_cln, method = methods[j]))
+
+  if (isTRUE(pre_standardized)) {
+    a_cln <- as.character(a)
+    b_cln <- as.character(names)
+  } else {
+    a_cln <- standardize_location_strings(a)
+    b_cln <- standardize_location_strings(names)
   }
-  dists$score_sums <- rowSums(dists, na.rm = TRUE)
-  dists$osa <- as.integer(dists$osa)
-  dists$name <- names
-  
+
+  # All six distance metrics computed in a single vectorised C++ pass,
+  # replacing the previous for-loop over stringdist::stringdist().
+  dists <- score_candidates_cpp(a_cln, b_cln)
+  dists$name <- names   # restore original (unstandardised) names
+
   best_ <- NULL
   # get best from results
   if (any(dists$osa <= 1)){
@@ -265,20 +162,20 @@ match_locations <- function(
   } else if (any(dists$osa <= 3 & dists$jw <= 0.31 & dists$soundex == 0)){
     best_ <- which(dists$osa <= 3 & dists$jw <= 0.31 & dists$soundex == 0)
   }
-  
+
   if (length(best_) == 0 & !return_score_matrix){
     return(NA)
   } else if (length(best_) == 0 & return_score_matrix){
     return(dists)
   }
-  if (length(best_ > 1)){
+  if (length(best_) > 1){
     name <- paste(names[best_], collapse = ", ")
     score_sum <- paste(dists$score_sums[best_], collapse = ", ")
   } else {
     name <- names[best_]
     score_sum <- dists$score_sums[best_]
   }
-  
+
   res <- data.frame(name = name, score_sum = score_sum)
   return(res[, c(return_name, return_score)])
 }
@@ -300,64 +197,54 @@ match_locations <- function(
 #' where school_level has NAs but all non-NA values are identical. In these cases,
 #' the function fills in missing school_level values for all rows in the group.
 #'
-#' @param data A data.frame or tibble containing school-level records.
+#' @param data A data.frame, tibble, or data.table containing school-level records.
 #' @param n_years_data Integer. Threshold for checking unusually large group sizes.
-#' @param id_col String. Column name of unique row IDs (used to merge corrected rows back).
+#' @param id_col String. Column name of unique row IDs (unused; kept for backward
+#'   compatibility with the previous dplyr-based implementation).
 #'
-#' @return A tibble with school_level NA values fixed where appropriate.
-#' @importFrom dplyr mutate group_by filter n summarise distinct ungroup arrange desc bind_rows
-#' @importFrom rlang sym
+#' @return A data.table when \code{data} is a data.table; a data.frame otherwise.
+#'   school_level NA values are fixed where appropriate.
+#' @importFrom data.table as.data.table is.data.table
 #' @importFrom stats na.omit
 #' @export
 #'
 #' @examples
 #' cleaned <- fix_school_level_na(kinder_dat_unique, n_years_data = 10, id_col = "ids_tmp")
 fix_school_level_na <- function(data, n_years_data, id_col = "ids_tmp") {
-  
-  # ensure tidy eval safety
-  id_col_sym <- rlang::sym(id_col)
-  
-  # add original value for matching later
-  data <- data %>%
-    dplyr::mutate(school_level_orig = school_level)
-  
-  # Step 1: identify groups where school_level can be reliably filled
-  fix_groups <- data %>%
-    dplyr::group_by(school_name_std, county_std, school_type) %>%
-    dplyr::filter(
-      dplyr::n() > 1,
-      length(stats::na.omit(unique(school_level[!is.na(school_level)]))) == 1
-    ) %>%
-    dplyr::mutate(
-      school_level = stats::na.omit(unique(school_level[!is.na(school_level)])),
-      n_group = dplyr::n()
-    ) %>%
-    dplyr::ungroup() %>%
-    dplyr::arrange(school_name_std, county_std, dplyr::desc(n_group))
-  
-  # Step 2: Optional QA check (printed but not stopping processing)
-  qa_check <- fix_groups %>%
-    dplyr::select(-school_level_orig) %>%
-    dplyr::group_by(school_name_std, county_std, school_type, school_level) %>%
-    dplyr::summarise(n = dplyr::n(), .groups = "drop") %>%
-    dplyr::distinct() %>%
-    dplyr::filter(n > n_years_data)
-  
-  if (nrow(qa_check) > 0) {
+
+  grp_cols <- c("school_name_std", "county_std", "school_type")
+
+  dt <- if (data.table::is.data.table(data)) data.table::copy(data)
+        else data.table::as.data.table(data)
+  dt[, school_level_orig := school_level]
+
+  # For each group with >1 row and exactly one distinct non-NA school_level,
+  # fill every row in that group with that value (NAs are updated; non-NA rows
+  # are a no-op since they already hold the only non-NA value).
+  dt[, c(".n_grp", ".n_unique") := .(
+    .N,
+    length(stats::na.omit(unique(school_level)))
+  ), by = grp_cols]
+
+  dt[.n_grp > 1L & .n_unique == 1L, `:=`(
+    school_level = stats::na.omit(unique(school_level))[1L],
+    n_group      = .N
+  ), by = grp_cols]
+
+  dt[, c(".n_grp", ".n_unique") := NULL]
+
+  # QA: flag groups where the filled size exceeds n_years_data
+  qa_dt    <- dt[!is.na(n_group), .N, by = c(grp_cols, "school_level")][N > n_years_data]
+  qa_check <- as.data.frame(qa_dt)
+
+  if (nrow(qa_check) > 0L) {
     message("QA warning: Some fixed groups have more rows than n_years_data. Inspect returned 'qa_check' attribute.")
   }
-  
-  # Step 3: integrate back into full dataset
-  out <- data %>%
-    dplyr::filter(!(!!id_col_sym %in% fix_groups[[id_col]])) %>%
-    dplyr::bind_rows(fix_groups)
-  
-  # attach QA check as attribute
+
+  out <- if (data.table::is.data.table(data)) dt else as.data.frame(dt)
   attr(out, "qa_check") <- qa_check
-  
   return(out)
 }
-
 
 
 
@@ -368,324 +255,387 @@ fix_school_level_na <- function(data, n_years_data, id_col = "ids_tmp") {
 #' where school_type has NAs but all non-NA values are identical. In these cases,
 #' the function fills in missing school_type values for all rows in the group.
 #'
-#' @param data A data.frame or tibble containing school-level records.
+#' @param data A data.frame, tibble, or data.table containing school-level records.
 #' @param n_years_data Integer. Threshold for checking unusually large group sizes.
-#' @param id_col String. Column name of unique row IDs (used to merge corrected rows back).
+#' @param id_col String. Column name of unique row IDs (unused; kept for backward
+#'   compatibility with the previous dplyr-based implementation).
 #'
-#' @return A tibble with school_type NA values fixed where appropriate.
-#' @importFrom dplyr mutate group_by filter n summarise distinct ungroup arrange desc bind_rows
-#' @importFrom rlang sym
+#' @return A data.table when \code{data} is a data.table; a data.frame otherwise.
+#'   school_type NA values are fixed where appropriate.
+#' @importFrom data.table as.data.table is.data.table
 #' @importFrom stats na.omit
 #' @export
 #'
 #' @examples
 #' cleaned <- fix_school_type_na(kinder_dat_unique, n_years_data = 10, id_col = "ids_tmp")
 fix_school_type_na <- function(data, n_years_data, id_col = "ids_tmp") {
-  
-  id_col_sym <- rlang::sym(id_col)
-  
-  # add original value for matching later
-  data <- data %>%
-    dplyr::mutate(school_type_orig = school_type)
-  
-  # Step 1: identify groups where school_type can be reliably filled
-  fix_groups <- data %>%
-    dplyr::group_by(school_name_std, county_std, school_level) %>%
-    dplyr::filter(
-      dplyr::n() > 1,
-      length(stats::na.omit(unique(school_type[!is.na(school_type)]))) == 1
-    ) %>%
-    dplyr::mutate(
-      school_type = stats::na.omit(unique(school_type[!is.na(school_type)])),
-      n_group = dplyr::n()
-    ) %>%
-    dplyr::ungroup() %>%
-    dplyr::arrange(school_name_std, county_std, dplyr::desc(n_group))
-  
-  # Step 2: QA check
-  qa_check <- fix_groups %>%
-    dplyr::group_by(school_name_std, county_std, school_level, school_type) %>%
-    dplyr::summarise(n = dplyr::n(), .groups = "drop") %>%
-    dplyr::distinct() %>%
-    dplyr::filter(n > n_years_data)
-  
-  if (nrow(qa_check) > 0) {
+
+  grp_cols <- c("school_name_std", "county_std", "school_level")
+
+  dt <- if (data.table::is.data.table(data)) data.table::copy(data)
+        else data.table::as.data.table(data)
+  dt[, school_type_orig := school_type]
+
+  dt[, c(".n_grp", ".n_unique") := .(
+    .N,
+    length(stats::na.omit(unique(school_type)))
+  ), by = grp_cols]
+
+  dt[.n_grp > 1L & .n_unique == 1L, `:=`(
+    school_type = stats::na.omit(unique(school_type))[1L],
+    n_group     = .N
+  ), by = grp_cols]
+
+  dt[, c(".n_grp", ".n_unique") := NULL]
+
+  qa_dt    <- dt[!is.na(n_group), .N, by = c(grp_cols, "school_type")][N > n_years_data]
+  qa_check <- as.data.frame(qa_dt)
+
+  if (nrow(qa_check) > 0L) {
     message("QA warning: Some fixed groups have more rows than n_years_data. Inspect returned 'qa_check' attribute.")
   }
-  
-  # Step 3: integrate fixed records back into full dataset
-  out <- data %>%
-    dplyr::filter(!(!!id_col_sym %in% fix_groups[[id_col]])) %>%
-    dplyr::bind_rows(fix_groups)
-  
+
+  out <- if (data.table::is.data.table(data)) dt else as.data.frame(dt)
   attr(out, "qa_check") <- qa_check
-  
   return(out)
 }
 
 
 
 
-
-
-
-
-
-
-
-
-
-#' Match two school datasets using fuzzy string matching with full outer join
+#' Match school records across two datasets by name and location
 #'
-#' This function deduplicates both datasets, assigns IDs, and performs fuzzy matching
-#' using Jaro-Winkler string distance within a specified grouping column (e.g., county, zip).
-#' Returns a full outer join of both datasets, preserving all schools from both sources.
+#' Deduplicates the selected columns from each input dataset and performs
+#' school-name matching within the provided grouping columns using the supplied
+#' string-distance thresholds.
 #'
-#' @param data1 A data frame of school data (first dataset to match).
-#' @param data2 A data frame of school data (second dataset, typically the reference with addresses).
-#' @param match_col1 Column name in data1 to use for grouping matches (default = "county_std").
-#' @param match_col2 Column name in data2 to use for grouping matches (default = "county_std").
-#' @param match_threshold Numeric threshold for detailed matching (default = 0.20).
-#' @param threshold_jw Numeric threshold for initial Jaro-Winkler distance (default = 0.35).
+#' The per-group distance computations (Jaro-Winkler, Soundex, Cosine, OSA,
+#' Q-gram, Jaccard) are handled entirely by compiled C++ routines
+#' (\code{match_schools_batch_cpp} and \code{score_candidates_cpp}), eliminating
+#' R interpreter overhead for the inner loops.  The R layer is responsible only
+#' for tie-breaking, the optional detailed scoring for ambiguous cases, and
+#' assembling the final result tables.  When \code{parallel = TRUE} this R-level
+#' work is dispatched across worker processes via \code{furrr::future_map()};
+#' the sequential path uses \code{lapply()} over the same per-row closure.
 #'
-#' @return A list with:
-#'   - matched: Data frame of matched schools with both datasets' information
-#'   - unmatched: Data frame of unmatched schools from data1
-#'   - all_rows: Full outer join with all schools from both datasets, includes
-#'               school_name_final and school_name_std_final (preferring data2)
-#'   - updated_school_info: Deduplicated data2 with assigned IDs
-#'   - match_summary: Table of match categories including unmatched from both datasets
-match_schools_names <- function(data1, data2, 
+#' @param data1 A data frame containing the first set of school records.
+#' @param data2 A data frame containing the second set of school records.
+#' @param match_cols1 Character vector of column names used to group records in
+#'   `data1` before matching. Defaults to `"county_std"`.
+#' @param match_cols2 Character vector of column names used to group records in
+#'   `data2` before matching. Defaults to `"county_std"`.
+#' @param data_1_source A label describing the source of `data1`.
+#' @param data_2_source A label describing the source of `data2`.
+#' @param threshold_jw Numeric Jaro-Winkler distance threshold used for
+#'   candidate matching.
+#' @param threshold_jw_min Numeric minimum Jaro-Winkler threshold used in the
+#'   matching workflow.
+#' @param exact_jw Numeric threshold used to identify near-exact
+#'   Jaro-Winkler matches.
+#' @param parallel Logical. If `TRUE`, the per-row R post-processing is
+#'   dispatched to worker processes via [furrr::future_map()].  The caller must
+#'   configure a `future` plan (e.g.
+#'   `future::plan(future::multisession, workers = N)`) **before** setting this
+#'   to `TRUE`; if no non-sequential plan is active a warning is issued and
+#'   execution falls back to sequential.  Defaults to `FALSE`.
+#'
+#' @return A named list with elements \code{matched}, \code{unmatched_dat1},
+#'   \code{unmatched_dat2}, \code{match_options}, and \code{match_summary}.
+#'   The \code{matched} data frame includes distance-metric columns
+#'   \code{osa}, \code{qgram}, \code{cosine}, \code{jaccard}, \code{jw},
+#'   \code{soundex}, and \code{score_sums} for ambiguous matches
+#'   (all \code{NA} for exact and unambiguous matches).
+#'
+#' @importFrom furrr future_map furrr_options
+#' @importFrom future plan
+#' @export
+match_schools_names <- function(data1, data2,
                                 match_cols1 = "county_std",
                                 match_cols2 = "county_std",
                                 data_1_source = "GreatSchools",
                                 data_2_source = "DOE",
-                                # match_threshold = 0.30,
                                 threshold_jw = 0.6,
                                 threshold_jw_min = 0.6,
-                                exact_jw = 0.05){
-  
-  data1 <- data1 %>%
-    dplyr::select(tidyselect::any_of(unique(c("data1_id", "state","county", "county_std", "city", match_cols1,
-                                       "school_name", "school_name_std", 
-                                       "school_level", "school_type")))) %>%
-    distinct()
-  
-  # Deduplicate data2
-  data2_cols <- unique(c("data2_id","state","county", "county_std", "city", match_cols2,
-                  "school_name", "school_name_std", 
-                  "school_level", "school_type"))
-  
-  data2 <- data2 %>%
-    dplyr::select(tidyselect::any_of(data2_cols)) %>%
-    distinct()
-  
-  # Track which data2 rows have been matched (use list for efficiency)
-  matched_data2_ids <- list()
-  matched_rows <- list()
-  unmatched_rows <- list()
-  match_options <- list()
-  best_match_scores <- list()
-  
-  for (i in seq_len(nrow(data1))) {
-  
-    data1_row <- data1[i, ]
-    best_match_scores <- NULL
-    
-    # subset data2 to only rows with the same value for match_col2
-    filter_vals <- data1_row %>% dplyr::select(all_of(match_cols1)) %>%
-      mutate(across(everything(), tolower))
-    
-    data2_sub <- data2 %>% 
-      mutate(across(all_of(match_cols2), tolower)) %>%
-      dplyr::inner_join(filter_vals, by = setNames(match_cols2, match_cols1))
+                                exact_jw = 0.05,
+                                parallel = FALSE) {
 
-    # add rows from data1 that have a value for match_col1 that is not present in data2
-    if (nrow(data2_sub) == 0) {
-      unmatched_rows[[length(unmatched_rows) + 1]] <- data1_row
-      next
+  # If parallel requested, verify that a non-sequential future plan is active.
+  # Fall back to sequential with a warning when none is configured.
+  if (isTRUE(parallel)) {
+    plan_cls <- class(future::plan())
+    if ("sequential" %in% plan_cls) {
+      warning(
+        "`parallel = TRUE` was requested but no non-sequential `future` plan is ",
+        "active.  Falling back to sequential execution.  Call ",
+        "`future::plan(future::multisession, workers = N)` before ",
+        "`match_schools_names()` to enable parallel processing.",
+        call. = FALSE
+      )
+      parallel <- FALSE
     }
-    
-    # get the distances (quick, can skip if all above threshold)
-    dists_jw <- stringdist::stringdist(data1_row$school_name_std, data2_sub$school_name_std, method = "jw")
-    dists_soundex <- stringdist::stringdist(data1_row$school_name_std, data2_sub$school_name_std, method = "soundex")
-    dists_cosine <- stringdist::stringdist(data1_row$school_name_std, data2_sub$school_name_std, method = "cosine")
-    
-    # ~ NO MATCHES ~
-    if (all(dists_jw > threshold_jw_min)) {
-      unmatched_rows[[length(unmatched_rows) + 1]] <- data1_row
-      next
-    }
-      
-    
-    # ~ GOOD MATCHES ~
-    if (any(dists_jw <= exact_jw)) {
-      # Multiple exact matches - use tie-breaking by school_level, then take first
-      exact_match_idx <- which(dists_jw <= exact_jw)
-      
-      if (length(exact_match_idx) > 1 ){
-        exact_match_idx <- which(dists_jw == min(dists_jw)) 
-      }
-      
-      if (length(exact_match_idx) > 1 && !is.na(data1_row$school_level)) {
-        # Try to match by school_level for tie-breaking
-        level_match <- data2_sub$school_level[exact_match_idx] == data1_row$school_level
-        if (any(level_match, na.rm = TRUE)) {
-          best_idx <- exact_match_idx[level_match][1]
-        } else {
-          best_idx <- exact_match_idx[1]
-        }
-      } else {
-        best_idx <- exact_match_idx[1]
-      }
-      
-    # ~ POTENTIAL OTHER MATCHES ~
-    } else {
-      
-      # filter to only those below initial threshold
-      keep_idx <- dists_jw <= threshold_jw | (dists_soundex == 0 & dists_cosine <= 0.25)
-      data2_sub    <- data2_sub[keep_idx, ]
-      dists_jw     <- dists_jw[keep_idx]
-      dists_soundex <- dists_soundex[keep_idx]
-      dists_cosine  <- dists_cosine[keep_idx]
-      
-      # add rows from data1 that have a value for match_col1 that is not present in data2
-      if (nrow(data2_sub) == 0) {
-        unmatched_rows[[length(unmatched_rows) + 1]] <- data1_row
-        next
-      }      
-      
-      # Select the 10 lowest JW distances for detailed matching
-      candidate_indices <- order(dists_jw)[1:min(10, length(dists_jw))]
-      data2_sub <- data2_sub[candidate_indices, ]
-      dists_jw <- dists_jw[candidate_indices]
-      
-      
-      # compute detailed distances using globaltoolboxlite 
-      # --> functions pulled from globaltoolboxlite to avoid dependency issues 
-      dists_gtbl <- match_locations(a = data1_row$school_name_std,
-                                    names = data2_sub$school_name_std, 
-                                    return_score = TRUE,
-                                    return_score_matrix = TRUE)
-      
-      # for good matches, there should only be one row
-      if (nrow(dists_gtbl) == 1) {
-        
-        best_idx <- match(dists_gtbl$name, data2_sub$school_name_std)
-        
-      } else {
-        
-        dists_gtbl <- dists_gtbl %>%
-          dplyr::mutate(prob_osa = osa / nchar(data2_sub$school_name_std))
-        
-        # for no good matches, save all options below certain thresholds
-        match_options[[length(match_options) + 1]] <- dists_gtbl %>% 
-          dplyr::as_tibble() %>%
-          dplyr::mutate(name = data1_row$school_name_std,
-                        name_options = data2_sub$school_name_std
-                        #assign new column base on match_col2
-                        # !!sym(match_col1) := filter_val
-          ) %>%
-          dplyr::bind_cols(filter_vals[rep(1, nrow(.)), ]) %>% # add columns and values from filter_vals
-          dplyr::select(name, name_options, any_of(match_cols1), dplyr::everything()) %>%
-          dplyr::filter(jw < .5, jaccard < .5)
-        names(match_options)[length(match_options)] <- data1_row$school_name_std
-        
-        match_options[[length(match_options)]] <- match_options[[length(match_options)]] %>%
-          mutate(match_level = case_when(
-            (jaccard <= 0.05 & cosine <= 0.05) ~ 1,
-            (jw <= 0.15) ~ 1,
-            (soundex == 0 & jw <= 0.3) ~ 1,   
-            (soundex == 0 & cosine <= 0.25) ~ 2,   
-            (jaccard <= 0.15 & cosine <= 0.15 & prob_osa <= 0.4) ~ 2,
-            (jw <= 0.21) ~ 2,
-            TRUE ~ 1000
-          ))
-        
-        if (any(match_options[[length(match_options)]]$match_level <= 3)) {
-          
-          best_idx <- which.min(match_options[[length(match_options)]]$match_level)
-          best_match_scores <- match_options[[length(match_options)]][best_idx,]
-          best_idx <- match(match_options[[length(match_options)]]$name_options[best_idx],
-                            data2_sub$school_name_std)
-          
-        } else {
-          # No clear best match - mark as unmatched
-          unmatched_rows[[length(unmatched_rows) + 1]] <- data1_row
-          next
-        }
-      }
-    } 
-    
-    # number of characters in data1_row$school_name_std
-    n_chars_data2 <- nchar(data2_sub$school_name_std)
-    
-    best_distance <- dists_jw[best_idx]
-    
-    match_record <- tibble(
-      match_score = 1 - best_distance,
-      match_category = case_when(
-        best_distance <= 0.05 ~ "Exact Match",
-        best_distance <= 0.10 ~ "High",
-        best_distance <= 0.25 ~ "Moderate",
-        TRUE ~ "Low"
-      ),
-      county_std = data1_row$county_std,
-      county = data1_row$county,
-      data_1_source = data_1_source, 
-      data_2_source = data_2_source,
-      school_name_data1 = data1_row$school_name,
-      school_name_data2 = data2_sub$school_name[best_idx],
-      school_name_std_data1 = data1_row$school_name_std,
-      school_name_std_data2 = data2_sub$school_name_std[best_idx],
-      school_level_data1 = if ("school_level" %in% names(data1_row)) data1_row$school_level else NA_character_,
-      school_level_data2 = if ("school_level" %in% names(data2_sub)) data2_sub$school_level[best_idx] else NA_character_,
-      school_type = if ("school_type" %in% names(data2_sub)) data2_sub$school_type[best_idx] else NA_character_,
-      city = if ("city" %in% names(data2_sub)) data2_sub$city[best_idx] else NA_character_,
-      state = if ("state" %in% names(data2_sub)) data2_sub$state[best_idx] else NA_character_,
-      zip = if ("zip" %in% names(data2_sub)) as.character(data2_sub$zip[best_idx]) else NA_character_,
-      lat = if ("lat" %in% names(data2_sub)) data2_sub$lat[best_idx] else NA_real_,
-      lon = if ("lon" %in% names(data2_sub)) data2_sub$lon[best_idx] else NA_real_,
-      street1 = if ("street1" %in% names(data2_sub)) data2_sub$street1[best_idx] else NA_character_,
-      data1_id = data1_row$data1_id,
-      data2_id = data2_sub$data2_id[best_idx],
-      # add best match scores if available
-      {if(!is.null(best_match_scores)) {
-        best_match_scores %>% dplyr::select(-c(name, name_options, any_of(match_cols1)))
-      } else {
-        tibble(osa = NA, lv = NA, dl = NA, lcs = NA, qgram = NA, cosine = NA, 
-               jaccard = NA, jw = NA, soundex = NA, score_sums = NA)
-      }}
-    )
-    
-    match_record <- match_record %>% 
-      bind_cols(data1_row %>% dplyr::select(match_cols1[!(match_cols1 %in% colnames(match_record))]))
-    
-    matched_rows[[length(matched_rows) + 1]] <- match_record
-    best_match_scores[[length(best_match_scores) + 1]] <- best_match_scores
   }
 
-  # --- Combine matched + unmatched into one table with consistent columns ---
-  
-  # Ensure these exist even if no matches/unmatches
-  matched_df <- dplyr::bind_rows(matched_rows)
+  data1 <- data1 %>%
+    dplyr::select(tidyselect::any_of(unique(c(
+      "data1_id", "state", "county", "county_std", "city", match_cols1,
+      "school_name", "school_name_std", "school_level", "school_type"
+    )))) %>%
+    distinct()
+
+  data2 <- data2 %>%
+    dplyr::select(tidyselect::any_of(unique(c(
+      "data2_id", "state", "county", "county_std", "city", match_cols2,
+      "school_name", "school_name_std", "school_level", "school_type"
+    )))) %>%
+    distinct()
+
+  # Build composite group keys (lowercase; "|||" separator is unlikely in county/school names)
+  make_group_key <- function(data, cols) {
+    if (length(cols) == 1L) {
+      tolower(as.character(data[[cols]]))
+    } else {
+      apply(data[, cols, drop = FALSE], 1L, function(row) {
+        paste(tolower(as.character(row)), collapse = "|||")
+      })
+    }
+  }
+
+  groups1 <- make_group_key(data1, match_cols1)
+  groups2 <- make_group_key(data2, match_cols2)
+
+  # Pre-compute lowercased match-column values for every data1 row so we don't
+  # reconstruct them inside the loop for each ambiguous (status 3) match.
+  filter_vals_all <- data1[, match_cols1, drop = FALSE] %>%
+    dplyr::mutate(dplyr::across(dplyr::everything(), tolower))
+
+  # C++ handles: per-group filtering, JW/Soundex/Cosine computation, candidate
+  # selection (exact vs non-exact), and top-10 trimming for ambiguous cases.
+  cpp_res <- match_schools_batch_cpp(
+    names1           = data1$school_name_std,
+    groups1          = groups1,
+    names2           = data2$school_name_std,
+    groups2          = groups2,
+    threshold_jw_min = threshold_jw_min,
+    threshold_jw     = threshold_jw,
+    exact_jw         = exact_jw
+  )
+
+  # ---------------------------------------------------------------------------
+  # Per-row closure: used by the parallel dispatch path (parallel = TRUE).
+  # Returns a list with three slots:
+  #   matched    – a one-row tibble (match record), or NULL if no match
+  #   unmatched  – the data1 row if unmatched, or NULL
+  #   match_opts – a named list (length 0 or 1) of the match-options data frame
+  #                produced for ambiguous (status 3) rows
+  #
+  # All objects referenced from the enclosing scope (data1, data2, cpp_res,
+  # filter_vals_all, match_cols1, data_1_source, data_2_source) are plain R
+  # data structures and are safely serialisable for furrr workers.
+  .process_one_row <- function(i) {
+    data1_row         <- data1[i, ]
+    best_match_scores <- NULL
+    status_i          <- cpp_res$status[i]
+
+    # ---- No group match (0) or unmatched (1) --------------------------------
+    if (status_i == 0L || status_i == 1L) {
+      return(list(matched = NULL, unmatched = data1_row, match_opts = list()))
+    }
+
+    # Shared setup for exact (2) and candidate (3) paths
+    cand_idx  <- cpp_res$candidates_idx[[i]]   # 1-based indices into data2
+    jw_dists  <- cpp_res$candidates_jw[[i]]
+    data2_sub <- data2[cand_idx, ]
+
+    # ---- Exact match path (status 2) ----------------------------------------
+    if (status_i == 2L) {
+
+      if (length(cand_idx) == 1L) {
+        best_idx <- 1L
+      } else {
+        # Tie-break: narrowest JW first, then school_level
+        min_jw      <- min(jw_dists)
+        min_jw_idxs <- which(jw_dists == min_jw)
+
+        if (length(min_jw_idxs) > 1L &&
+            "school_level" %in% names(data1_row) &&
+            !is.na(data1_row$school_level)) {
+          level_match <- data2_sub$school_level[min_jw_idxs] == data1_row$school_level
+          if (any(level_match, na.rm = TRUE)) {
+            best_idx <- min_jw_idxs[which(level_match)[1L]]
+          } else {
+            best_idx <- min_jw_idxs[1L]
+          }
+        } else {
+          best_idx <- min_jw_idxs[1L]
+        }
+      }
+
+    # ---- Candidate (non-exact) path (status 3) ------------------------------
+    } else {
+
+      # data2_sub is already filtered and trimmed to top-10 by the C++ function.
+      # Use the pre-computed scores from cpp_res directly instead of recomputing
+      # all 6 metrics via match_locations() / score_candidates_cpp().
+      osa_v    <- cpp_res$candidates_osa[[i]]
+      qgram_v  <- cpp_res$candidates_qgram[[i]]
+      cosine_v <- cpp_res$candidates_cosine[[i]]
+      jac_v    <- cpp_res$candidates_jaccard[[i]]
+      jw_v2    <- cpp_res$candidates_jw[[i]]
+      sd_v     <- cpp_res$candidates_soundex[[i]]
+      dists_gtbl <- data.frame(
+        name       = data2_sub$school_name_std,
+        osa        = osa_v,
+        qgram      = qgram_v,
+        cosine     = cosine_v,
+        jaccard    = jac_v,
+        jw         = jw_v2,
+        soundex    = sd_v,
+        score_sums = osa_v + qgram_v + cosine_v + jac_v + jw_v2 + sd_v, # same formula as score_candidates_cpp()
+        stringsAsFactors = FALSE
+      )
+
+      # When there is only one candidate, select it directly.
+      if (nrow(dists_gtbl) == 1L) {
+        best_idx <- match(dists_gtbl$name, data2_sub$school_name_std)
+
+      } else {
+        dists_gtbl <- dists_gtbl %>%
+          dplyr::mutate(prob_osa = osa / nchar(data2_sub$school_name_std))
+
+        # Use pre-computed lowercased filter values for this row
+        filter_vals_i <- filter_vals_all[i, , drop = FALSE]
+
+        mo <- dists_gtbl %>%
+          dplyr::as_tibble() %>%
+          dplyr::mutate(
+            name         = data1_row$school_name_std,
+            name_options = data2_sub$school_name_std
+          ) %>%
+          dplyr::bind_cols(filter_vals_i[rep(1L, nrow(.)), ]) %>%
+          dplyr::select(name, name_options, dplyr::any_of(match_cols1),
+                        dplyr::everything()) %>%
+          dplyr::filter(jw < .5, jaccard < .5) %>%
+          dplyr::mutate(match_level = dplyr::case_when(
+            (jaccard <= 0.05 & cosine <= 0.05)                           ~ 1L,
+            (jw <= 0.15)                                                  ~ 1L,
+            (soundex == 0 & jw <= 0.3)                                    ~ 1L,
+            (soundex == 0 & cosine <= 0.25)                               ~ 2L,
+            (jaccard <= 0.15 & cosine <= 0.15 & prob_osa <= 0.4)          ~ 2L,
+            (jw <= 0.21)                                                   ~ 2L,
+            TRUE                                                           ~ 1000L
+          ))
+
+        if (any(mo$match_level <= 3L)) {
+          best_local        <- which.min(mo$match_level)
+          best_match_scores <- mo[best_local, ]
+          best_idx          <- match(mo$name_options[best_local],
+                                     data2_sub$school_name_std)
+        } else {
+          return(list(matched    = NULL,
+                      unmatched  = data1_row,
+                      match_opts = setNames(list(mo), data1_row$school_name_std)))
+        }
+      }
+    }
+
+    # ---- Build match record -------------------------------------------------
+    best_distance <- jw_dists[best_idx]
+
+    match_record <- tibble::tibble(
+      match_score = 1 - best_distance,
+      match_category = dplyr::case_when(
+        best_distance <= exact_jw           ~ "Exact Match",
+        best_distance <= exact_jw * 2       ~ "High",
+        best_distance <= exact_jw * 5       ~ "Moderate",
+        TRUE                                ~ "Low"
+      ),
+      county_std            = data1_row$county_std,
+      county                = data1_row$county,
+      data_1_source         = data_1_source,
+      data_2_source         = data_2_source,
+      school_name_data1     = data1_row$school_name,
+      school_name_data2     = data2_sub$school_name[best_idx],
+      school_name_std_data1 = data1_row$school_name_std,
+      school_name_std_data2 = data2_sub$school_name_std[best_idx],
+      school_level_data1    = if ("school_level" %in% names(data1_row)) data1_row$school_level else NA_character_,
+      school_level_data2    = if ("school_level" %in% names(data2_sub)) data2_sub$school_level[best_idx] else NA_character_,
+      school_type           = if ("school_type"  %in% names(data2_sub)) data2_sub$school_type[best_idx]  else NA_character_,
+      city                  = if ("city"         %in% names(data2_sub)) data2_sub$city[best_idx]         else NA_character_,
+      state                 = if ("state"        %in% names(data2_sub)) data2_sub$state[best_idx]        else NA_character_,
+      zip                   = if ("zip"          %in% names(data2_sub)) as.character(data2_sub$zip[best_idx]) else NA_character_,
+      lat                   = if ("lat"          %in% names(data2_sub)) data2_sub$lat[best_idx]          else NA_real_,
+      lon                   = if ("lon"          %in% names(data2_sub)) data2_sub$lon[best_idx]          else NA_real_,
+      street1               = if ("street1"      %in% names(data2_sub)) data2_sub$street1[best_idx]      else NA_character_,
+      data1_id              = data1_row$data1_id,
+      data2_id              = data2_sub$data2_id[best_idx],
+      {if (!is.null(best_match_scores)) {
+        best_match_scores %>%
+          dplyr::select(-c(name, name_options,
+                           dplyr::any_of(match_cols1),
+                           dplyr::any_of(c("prob_osa", "match_level"))))
+      } else {
+        tibble::tibble(osa = NA_integer_, qgram = NA_integer_,
+                       cosine = NA_real_, jaccard = NA_real_,
+                       jw = NA_real_, soundex = NA_real_,
+                       score_sums = NA_real_)
+      }}
+    )
+
+    match_record <- match_record %>%
+      dplyr::bind_cols(
+        data1_row %>%
+          dplyr::select(match_cols1[!(match_cols1 %in% colnames(match_record))])
+      )
+
+    # Carry forward match_options entry for status-3 matches.
+    # `mo` is the full candidate-scoring data frame already assembled above;
+    # reuse it directly rather than re-transforming best_match_scores.
+    row_opts <- if (!is.null(best_match_scores)) {
+      setNames(list(mo), data1_row$school_name_std)
+    } else {
+      list()
+    }
+
+    list(matched = match_record, unmatched = NULL, match_opts = row_opts)
+  }
+
+  # ---------------------------------------------------------------------------
+  # Dispatch: both paths use the same .process_one_row() closure.
+  # The parallel path distributes rows across workers via furrr::future_map();
+  # the sequential path uses lapply().  The expensive distance computations are
+  # already done by the C++ routine above regardless of this flag.
+  row_indices <- seq_len(nrow(data1))
+
+  if (isTRUE(parallel)) {
+    row_results <- furrr::future_map(row_indices, .process_one_row,
+                                     .options = furrr::furrr_options(globals = TRUE))
+  } else {
+    row_results <- lapply(row_indices, .process_one_row)
+  }
+
+  matched_rows   <- lapply(row_results, `[[`, "matched")
+  unmatched_rows <- lapply(row_results, `[[`, "unmatched")
+  match_options  <- unlist(lapply(row_results, `[[`, "match_opts"), recursive = FALSE)
+  matched_df     <- dplyr::bind_rows(matched_rows)
   unmatched_dat1 <- dplyr::bind_rows(unmatched_rows)
+
   unmatched_dat2 <- data2 %>%
-    filter(!(school_name_std %in% matched_df$school_name_std_data2))
-  
+    dplyr::filter(!(school_name_std %in% matched_df$school_name_std_data2))
+
   match_options <- dplyr::bind_rows(match_options)
-  
-  # Update match summary to include unmatched data2
-  match_summary <- table(c(matched_df$match_category,
-                           rep("Unmatched_data1", nrow(unmatched_dat1)),
-                           rep("Unmatched_data2", nrow(unmatched_dat2))))
-  
+
+  match_summary <- table(c(
+    matched_df$match_category,
+    rep("Unmatched_data1", nrow(unmatched_dat1)),
+    rep("Unmatched_data2", nrow(unmatched_dat2))
+  ))
+
   return(list(
-    matched = matched_df,
+    matched        = matched_df,
     unmatched_dat1 = unmatched_dat1,
     unmatched_dat2 = unmatched_dat2,
-    match_options = match_options,
-    match_summary = match_summary
+    match_options  = match_options,
+    match_summary  = match_summary
   ))
 }
 
@@ -704,208 +654,3 @@ match_schools_names <- function(data1, data2,
 
 
 
-
-
-
-
-#' Fuzzy match unmatched kindergarten records within same county across years
-#'
-#' This function takes records that were unmatched in the initial matching process
-#' and performs fuzzy matching within the same county to identify schools that may
-#' have slight misspellings across different years. It groups similar school names
-#' together and creates a standardized name for each group.
-#'
-#' @param unmatched_data A data frame containing unmatched records. Required columns:
-#'   - school_name_data1: Original school name from first dataset
-#'   - school_name_std_data1: Standardized school name from first dataset
-#'   - county_std: Standardized county name
-#'   - match_category: Match category (should be "Unmatched_data1")
-#'   All other columns in the data frame will be preserved in the output.
-#' @param match_threshold Numeric threshold for Jaro-Winkler distance (default = 0.15).
-#'   Lower values require closer matches. Typical range: 0.10 (strict) to 0.20 (lenient).
-#' @param use_globaltoolbox Logical, whether to use globaltoolboxlite for detailed matching (default = TRUE).
-#' @param jw_preliminary_factor Numeric factor applied to match_threshold for preliminary filtering (default = 2).
-#'   Only used when use_globaltoolbox = TRUE. Higher values allow more candidates for detailed matching.
-#'
-#' @return A data frame with original data plus new columns:
-#'   - fuzzy_match_group: Integer ID for each group of matched schools
-#'   - fuzzy_match_canonical_name: Standardized name chosen for each group (most common or first)
-#'   - fuzzy_match_count: Number of schools in each group
-#'   - fuzzy_match_names: List of all school names in the group
-#'
-#' @examples
-#' # Extract unmatched data1 records
-#' unmatched_kinder <- kinder_match$all_rows %>%
-#'   filter(match_category == "Unmatched_data1")
-#' 
-#' # Perform fuzzy matching
-#' fuzzy_matched <- fuzzy_match_unmatched_schools(unmatched_kinder)
-fuzzy_match_unmatched_schools <- function(unmatched_data, 
-                                          match_threshold = 0.15,
-                                          use_globaltoolbox = TRUE,
-                                          jw_preliminary_factor = 2) {
-  
-  # Return early if no unmatched data
-  if (nrow(unmatched_data) == 0) {
-    return(unmatched_data %>%
-             mutate(
-               fuzzy_match_group = NA_integer_,
-               fuzzy_match_canonical_name = NA_character_,
-               fuzzy_match_count = NA_integer_,
-               fuzzy_match_names = NA_character_
-             ))
-  }
-  
-  # Initialize result columns
-  unmatched_data <- unmatched_data %>%
-    mutate(
-      fuzzy_match_group = NA_integer_,
-      fuzzy_match_canonical_name = NA_character_,
-      fuzzy_match_count = NA_integer_,
-      fuzzy_match_names = NA_character_
-    )
-  
-  # Get unique counties
-  counties <- unique(unmatched_data$county_std)
-  
-  # Track which group we're on
-  current_group <- 1
-  
-  # Process each county separately
-  for (county in counties) {
-    if (is.na(county)) next
-    
-    # Get all schools in this county that haven't been assigned to a group yet
-    county_schools_idx <- which(unmatched_data$county_std == county & 
-                                  is.na(unmatched_data$fuzzy_match_group))
-    
-    if (length(county_schools_idx) == 0) next
-    
-    county_schools <- unmatched_data[county_schools_idx, ]
-    
-    # Build a distance matrix for all pairs in this county
-    n_schools <- nrow(county_schools)
-    
-    if (n_schools == 1) {
-      # Single school - assign it to its own group
-      unmatched_data$fuzzy_match_group[county_schools_idx[1]] <- current_group
-      unmatched_data$fuzzy_match_canonical_name[county_schools_idx[1]] <- 
-        county_schools$school_name_std_data1[1]
-      unmatched_data$fuzzy_match_count[county_schools_idx[1]] <- 1
-      unmatched_data$fuzzy_match_names[county_schools_idx[1]] <- 
-        county_schools$school_name_std_data1[1]
-      current_group <- current_group + 1
-      next
-    }
-    
-    # Calculate distance matrix
-    # Note: This is O(n²) but acceptable since:
-    # 1. Processing is done per county (typically small n)
-    # 2. Only unmatched schools are processed (subset of total data)
-    # 3. Readability and correctness prioritized over micro-optimization
-    # Alternative: Could use combn() or vectorized distance matrix calculation
-    # but current approach is clear and sufficient for typical use cases
-    # Note: n_schools > 1 at this point (single school case handled above)
-    dist_matrix <- matrix(1, nrow = n_schools, ncol = n_schools)
-    
-    for (i in 1:(n_schools - 1)) {
-      for (j in (i + 1):n_schools) {
-        name_i <- county_schools$school_name_std_data1[i]
-        name_j <- county_schools$school_name_std_data1[j]
-        
-        # Skip if either name is NA
-        if (is.na(name_i) || is.na(name_j)) {
-          dist_matrix[i, j] <- dist_matrix[j, i] <- 1
-          next
-        }
-        
-        # Calculate Jaro-Winkler distance
-        jw_dist <- stringdist(name_i, name_j, method = "jw")
-        
-        # If using globaltoolbox and distance is promising, get detailed score
-        jw_preliminary_threshold <- match_threshold * jw_preliminary_factor
-        if (use_globaltoolbox && jw_dist <= jw_preliminary_threshold) {
-          tryCatch({
-            detailed <- globaltoolboxlite::match_locations(
-              a = name_i,
-              names = name_j,
-              return_score = TRUE,
-              return_score_matrix = TRUE
-            )
-            if (nrow(detailed) > 0 && !is.na(detailed$jw[1])) {
-              # Use the more detailed distance if available
-              jw_dist <- detailed$jw[1]
-            }
-          }, error = function(e) {
-            # Log warning if detailed matching fails, but continue with simple JW distance
-            warning("globaltoolboxlite matching failed for '", name_i, "' vs '", name_j, 
-                    "': ", e$message, ". Using simple Jaro-Winkler distance.")
-          })
-        }
-        
-        dist_matrix[i, j] <- dist_matrix[j, i] <- jw_dist
-      }
-    }
-    
-    # Create groups using connected components where distance <= threshold
-    # Build an adjacency matrix
-    adj_matrix <- dist_matrix <= match_threshold
-    diag(adj_matrix) <- TRUE  # Each school is connected to itself
-    
-    # Use igraph to find connected components
-    g <- igraph::graph_from_adjacency_matrix(adj_matrix, mode = "undirected")
-    components <- igraph::components(g)
-    
-    # Assign group IDs
-    if (components$no > 0) {
-      for (comp_id in seq_len(components$no)) {
-        # Get indices in this component
-        comp_idx <- which(components$membership == comp_id)
-        
-        # Validate indices are in bounds (should be 1:n_schools)
-        if (length(comp_idx) == 0 || any(comp_idx < 1) || any(comp_idx > n_schools)) {
-          warning("Invalid component indices detected (outside 1:", n_schools, 
-                  "), skipping component ", comp_id)
-          next
-        }
-        
-        global_idx <- county_schools_idx[comp_idx]
-        
-        # Get all school names in this group
-        group_names <- county_schools$school_name_std_data1[comp_idx]
-        
-        # Choose canonical name (most frequent, or first if tie)
-        # Filter out NA values when selecting canonical name
-        non_na_names <- group_names[!is.na(group_names)]
-        if (length(non_na_names) > 0) {
-          name_counts <- table(non_na_names)
-          if (length(name_counts) > 0) {
-            canonical_name <- names(name_counts)[which.max(name_counts)]
-          } else {
-            # Safety fallback (should not reach here)
-            canonical_name <- NA_character_
-          }
-        } else {
-          # If all names are NA, use NA as canonical
-          canonical_name <- NA_character_
-        }
-        
-        # Assign to all members of this group
-        unmatched_data$fuzzy_match_group[global_idx] <- current_group
-        unmatched_data$fuzzy_match_canonical_name[global_idx] <- canonical_name
-        unmatched_data$fuzzy_match_count[global_idx] <- length(comp_idx)
-        # Filter out NA values from fuzzy_match_names for cleaner output
-        non_na_unique_names <- unique(group_names[!is.na(group_names)])
-        if (length(non_na_unique_names) > 0) {
-          unmatched_data$fuzzy_match_names[global_idx] <- paste(sort(non_na_unique_names), collapse = " | ")
-        } else {
-          unmatched_data$fuzzy_match_names[global_idx] <- NA_character_
-        }
-        
-        current_group <- current_group + 1
-      }
-    }
-  }
-  
-  return(unmatched_data)
-}

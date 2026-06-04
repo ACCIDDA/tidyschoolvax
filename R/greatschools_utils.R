@@ -139,18 +139,11 @@ extract_gs_schoolsdata <- function(zipcode = 21231) {
 #'   - `found`: rows with valid addresses
 #'   - `not_found`: rows missing address info
 #'   
-#' @import readr
-#' @import dplyr
-#' @import stringr
-#' @import httr
-#' @import purrr
-#' @import tibble
+#' @importFrom dplyr as_tibble filter select bind_rows left_join
+#' @importFrom dplyr rename everything
 #' @importFrom future plan multisession sequential
 #' @importFrom furrr future_map
-#' @importFrom jsonlite fromJSON
-#' @importFrom tidyr unnest
-#' 
-#' @importFrom rlang %||%
+#' @importFrom purrr compact
 #' @details
 #' The function reads a CSV file containing school names and cities, constructs search queries,
 #'

@@ -17,21 +17,19 @@ RoxygenNote: 7.3.2
 Depends: 
     R (>= 3.5.0)
 Imports:
-    arrow,
     data.table,
     dplyr,
     furrr,
     future,
-    geosphere,
     httr,
     janitor,
     jsonlite,
     purrr,
+    Rcpp,
     readr,
     readxl,
     rlang,
     sf,
-    stringdist,
     stringi,
     stringr,
     tibble,
@@ -41,7 +39,11 @@ Imports:
     tigris,
     utils,
     tools
+LinkingTo:
+    Rcpp
 Suggests:
+    arrow,
+    geosphere,
     here,
     knitr,
     rmarkdown,
