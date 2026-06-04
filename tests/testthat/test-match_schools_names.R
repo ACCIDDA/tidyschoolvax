@@ -117,10 +117,27 @@ test_that("status-3 candidates include all six pre-computed metrics", {
 
 test_that("match_schools_names produces correct result for a status-3 pair", {
   # "lincoln elem" vs "lincoln elementary" — close but not exact (status 3)
-  d1 <- make_school_df("lincoln elem",        "alpha county", "data1_id")
-  d2 <- make_school_df(c("lincoln elementary", "jefferson middle"),
-                       c("alpha county",       "alpha county"), "data2_id")
+  d1 <- data.frame(
+    school_name       = "lincoln elem",
+    school_name_std   = tolower(gsub("[[:punct:] ]+", "", "lincoln elem")),
+    county            = "alpha county",
+    county_std        = "alpha county",
+    school_level      = "elementary",
+    school_type       = "public",
+    stringsAsFactors  = FALSE
+  )
+  d1$data1_id <- 1L
 
+  d2 <- data.frame(
+    school_name       = c("lincoln elementary", "jefferson middle"),
+    school_name_std   = tolower(gsub("[[:punct:] ]+", "", c("lincoln elementary", "jefferson middle"))),
+    county            = c("alpha county", "alpha county"),
+    county_std        = c("alpha county", "alpha county"),
+    school_level      = rep("elementary", 2L),
+    school_type       = rep("public", 2L),
+    stringsAsFactors  = FALSE
+  )
+  d2$data2_id <- seq_len(nrow(d2))
   # Ensure the standardized-name columns match production behavior, including
   # whitespace/punctuation handling.
   d1$school_name_std <- tidyschoolvax:::standardized_school_name(d1$school_name)
