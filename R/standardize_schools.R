@@ -54,6 +54,11 @@
 #'   also written to \code{temp_data_dir} as
 #'   \code{kinder_vaccination_clean_02.csv} and
 #'   \code{kinder_vaccination_clean_02.rds}.
+#'   Two additional key files are written to \code{temp_data_dir}:
+#'   \code{school_key.csv}/\code{school_key.rds} (one row per unique school
+#'   with \code{school_id} and associated metadata) and
+#'   \code{county_key.csv}/\code{county_key.rds} (one row per county with
+#'   \code{county_id} and name columns).
 #'
 #' @details
 #' All preprocessing utility functions (\code{clean_kinder_data},
@@ -182,9 +187,47 @@ standardize_schools <- function(state_id,
   utils::write.csv(school_vax_joined, final_csv, row.names = FALSE)
   saveRDS(school_vax_joined, final_rds)
 
+  # ---- Save county and school key files --------------------------------------
+  school_key_cols <- c("school_id", "school_name_std", "county_std", "county",
+                       "school_type", "school_level", "level_code",
+                       "addr_clean", "city", "state", "zip", "lat", "lon",
+                       "business_status")
+  school_key <- school_vax_joined %>%
+    dplyr::filter(!is.na(school_id)) %>%
+    dplyr::select(dplyr::any_of(school_key_cols)) %>%
+    dplyr::distinct()
+
+  n_excluded <- dplyr::filter(school_vax_joined, is.na(school_id)) %>%
+    dplyr::distinct(dplyr::across(dplyr::any_of(
+      c("school_name_std", "county_std")))) %>%
+    nrow()
+  if (n_excluded > 0L) {
+    message("Note: ", n_excluded,
+            " unique school record(s) with NA school_id excluded from school_key.")
+  }
+
+  # county_id is assigned after sorting alphabetically by county_std so that
+  # the mapping is stable across runs on the same county set.
+  county_key <- school_vax_joined %>%
+    dplyr::distinct(county_std, county) %>%
+    dplyr::arrange(county_std) %>%
+    dplyr::mutate(county_id = dplyr::row_number()) %>%
+    dplyr::select(county_id, county_std, county)
+
+  utils::write.csv(school_key,
+                   file.path(temp_data_dir, "school_key.csv"),
+                   row.names = FALSE)
+  saveRDS(school_key, file.path(temp_data_dir, "school_key.rds"))
+  utils::write.csv(county_key,
+                   file.path(temp_data_dir, "county_key.csv"),
+                   row.names = FALSE)
+  saveRDS(county_key, file.path(temp_data_dir, "county_key.rds"))
+
   message("Master processing complete for state: ", state_id)
   message("Final CSV: ", final_csv)
   message("Final RDS: ", final_rds)
+  message("School key: ", file.path(temp_data_dir, "school_key.csv"))
+  message("County key: ", file.path(temp_data_dir, "county_key.csv"))
 
   invisible(school_vax_joined)
 }

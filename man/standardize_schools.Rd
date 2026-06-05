@@ -64,6 +64,11 @@ The final cleaned \code{data.frame} (invisibly).  The same object is
   also written to \code{temp_data_dir} as
   \code{kinder_vaccination_clean_02.csv} and
   \code{kinder_vaccination_clean_02.rds}.
+  Two additional key files are written to \code{temp_data_dir}:
+  \code{school_key.csv}/\code{school_key.rds} (one row per unique school
+  with \code{school_id} and associated metadata) and
+  \code{county_key.csv}/\code{county_key.rds} (one row per county with
+  \code{county_id} and name columns).
 }
 \description{
 Orchestrates all steps of school name standardization for a given state:

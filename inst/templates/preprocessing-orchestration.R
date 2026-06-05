@@ -141,7 +141,9 @@ future::plan(future::sequential)
 check_expected_files(
   paths = c(
     file.path(temp_data_dir, "kinder_vaccination_clean_02.csv"),
-    file.path(temp_data_dir, "kinder_vaccination_clean_02.rds")
+    file.path(temp_data_dir, "kinder_vaccination_clean_02.rds"),
+    file.path(temp_data_dir, "school_key.csv"),
+    file.path(temp_data_dir, "county_key.csv")
     
   ),
   step_name = "02_standardize_school"
