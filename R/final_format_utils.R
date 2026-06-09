@@ -79,7 +79,7 @@ standardize_kinder_format <- function(
   if (length(missing) > 0) {
     stop("Missing columns in df: ", paste(missing, collapse = ", "), call. = FALSE)
   }
-
+  
   to_int <- function(x) {
     x <- as.character(x)
     x <- gsub(",", "", x)
@@ -88,7 +88,7 @@ standardize_kinder_format <- function(
     x[x == ""] <- NA_character_
     suppressWarnings(as.integer(as.numeric(x)))
   }
-
+  
   to_year <- function(x) {
     x <- as.character(x)
     y <- suppressWarnings(as.integer(x))
@@ -98,7 +98,7 @@ standardize_kinder_format <- function(
     }
     y
   }
-
+  
   to_id <- function(x) {
     x_chr <- as.character(x)
     numeric_like <- grepl("^\\s*-?\\d+\\s*$", x_chr) & !is.na(x_chr)
@@ -112,7 +112,7 @@ standardize_kinder_format <- function(
       return(out)
     }
   }
-
+  
   cleaned_data <- data.table::data.table(
     school_id  = to_id(df[[school_id_col]]),
     year       = to_year(df[[year_col]]),
@@ -121,17 +121,17 @@ standardize_kinder_format <- function(
     med_exempt = to_int(df[[med_exempt_col]]),
     rel_exempt = to_int(df[[rel_exempt_col]])
   )
-
+  
   if (!is.null(cnty_id_col) && cnty_id_col %in% names(df)) {
     cleaned_data[, cnty_id := to_id(df[[cnty_id_col]])]
   }
-
+  
   add_char_col <- function(dt, out_name, col_arg) {
     if (!is.null(col_arg) && col_arg %in% names(df)) {
       dt[, (out_name) := as.character(df[[col_arg]])]
     }
   }
-
+  
   add_char_col(cleaned_data, "school_name",     school_name_col)
   add_char_col(cleaned_data, "county_name",     county_name_col)
   add_char_col(cleaned_data, "vaccine_type",    vaccine_type_col)
@@ -144,14 +144,14 @@ standardize_kinder_format <- function(
   add_char_col(cleaned_data, "zip",             zip_col)
   add_char_col(cleaned_data, "state",           state_col)
   add_char_col(cleaned_data, "business_status", business_status_col)
-
+  
   if (!is.null(lat_col) && lat_col %in% names(df)) {
     cleaned_data[, lat := suppressWarnings(as.numeric(df[[lat_col]]))]
   }
   if (!is.null(lon_col) && lon_col %in% names(df)) {
     cleaned_data[, lon := suppressWarnings(as.numeric(df[[lon_col]]))]
   }
-
+  
   base_cols  <- c("school_id", "year", "enrollment", "current",
                   "med_exempt", "rel_exempt")
   extra_cols <- intersect(
@@ -162,7 +162,7 @@ standardize_kinder_format <- function(
     names(cleaned_data)
   )
   data.table::setcolorder(cleaned_data, c(base_cols, extra_cols))
-
+  
   cleaned_data
 }
 
@@ -193,22 +193,22 @@ dqa_remove_zero_enrollment <- function(df,
                                        dqa_report = NULL,
                                        temp_data_dir,
                                        state = "state") {
-
+  
   flag <- df %>%
     dplyr::filter(is.na(enrollment) | enrollment <= 0)
-
+  
   if (nrow(flag) > 0) {
     readr::write_csv(
       flag,
       file.path(temp_data_dir, paste0(state, "_zero_or_missing_enrollment_removed.csv"))
     )
   }
-
+  
   before_n <- nrow(df)
   df <- df %>%
     dplyr::filter(!is.na(enrollment) & enrollment > 0)
   after_n <- nrow(df)
-
+  
   if (!is.null(dqa_report)) {
     dqa_report$enrollment_zero_or_missing <- list(
       removed = before_n - after_n,
@@ -216,10 +216,10 @@ dqa_remove_zero_enrollment <- function(df,
       description = "Rows with zero or missing enrollment"
     )
   }
-
+  
   message("DQA Check: Removed ", before_n - after_n,
           " rows with zero or missing enrollment.")
-
+  
   list(data = df, report = dqa_report)
 }
 
@@ -243,7 +243,7 @@ dqa_remove_zero_current <- function(df, dqa_report = NULL) {
     dplyr::filter(!is.na(current) & current != 0)
   after_n <- nrow(df)
   removed_n <- before_n - after_n
-
+  
   if (!is.null(dqa_report)) {
     dqa_report$current_vacc_zero <- list(
       removed = removed_n,
@@ -251,10 +251,10 @@ dqa_remove_zero_current <- function(df, dqa_report = NULL) {
       description = "Rows with zero or NA current vaccinations"
     )
   }
-
+  
   message("DQA Check: Removed ", removed_n,
           " rows with zero current vaccinations. Remaining: ", after_n)
-
+  
   list(data = df, report = dqa_report)
 }
 
@@ -316,9 +316,9 @@ dqa_fix_invalid_values <- function(
     stop("temp_data_dir must be provided (non-empty) to export changed rows.", call. = FALSE)
   }
   if (!dir.exists(temp_data_dir)) dir.create(temp_data_dir, recursive = TRUE)
-
+  
   if (!note_col %in% names(df)) df[[note_col]] <- NA_character_
-
+  
   na_before <- list(
     enrollment = sum(is.na(df[[enrollment_col]])),
     current    = sum(is.na(df[[current_col]])),
@@ -328,42 +328,42 @@ dqa_fix_invalid_values <- function(
   if (delayed_col %in% names(df)) {
     na_before$delayed <- sum(is.na(df[[delayed_col]]))
   }
-
+  
   enroll <- df[[enrollment_col]]
   curr   <- df[[current_col]]
   med    <- df[[med_exempt_col]]
   rel    <- df[[rel_exempt_col]]
-
+  
   neg_current    <- !is.na(curr) & curr < 0
   current_gt_enr <- !is.na(enroll) & !is.na(curr) & curr > enroll
-
+  
   ex_med_gt_enr  <- !is.na(enroll) & !is.na(med) & med > enroll
   ex_rel_gt_enr  <- !is.na(enroll) & !is.na(rel) & rel > enroll
   ex_sum_gt_enr  <- !is.na(enroll) & !is.na(med) & !is.na(rel) & (med + rel) > enroll
-
+  
   invalid_exemptions <- ex_med_gt_enr | ex_rel_gt_enr | ex_sum_gt_enr
-
+  
   rows_changed <- neg_current | current_gt_enr | invalid_exemptions
-
+  
   if (any(rows_changed, na.rm = TRUE)) {
     changed_rows <- df[rows_changed, , drop = FALSE]
-
+    
     out_path <- file.path(
       temp_data_dir,
       paste0(state, "_", export_prefix, ".csv")
     )
-
+    
     readr::write_csv(changed_rows, out_path)
     message("DQA export: wrote ", sum(rows_changed, na.rm = TRUE),
             " changed rows to ", out_path)
   } else {
     message("DQA export: no invalid-value corrections needed (no rows changed).")
   }
-
+  
   n_neg_current        <- sum(neg_current, na.rm = TRUE)
   n_current_gt_enr     <- sum(current_gt_enr, na.rm = TRUE)
   n_invalid_exemptions <- sum(invalid_exemptions, na.rm = TRUE)
-
+  
   if (!is.null(dqa_report)) {
     dqa_report$negative_current <- list(
       count = n_neg_current,
@@ -378,11 +378,11 @@ dqa_fix_invalid_values <- function(
       description = "Rows where exemption counts exceed enrollment (set exemptions to NA)"
     )
   }
-
+  
   append_note <- function(old, add) {
     ifelse(is.na(old) | old == "", add, paste0(old, "; ", add))
   }
-
+  
   df[[note_col]] <- ifelse(neg_current,
                            append_note(df[[note_col]], "current <0"),
                            df[[note_col]])
@@ -392,11 +392,11 @@ dqa_fix_invalid_values <- function(
   df[[note_col]] <- ifelse(invalid_exemptions,
                            append_note(df[[note_col]], "exemptions > enrollment"),
                            df[[note_col]])
-
+  
   df[[current_col]]    <- ifelse(neg_current | current_gt_enr, NA, df[[current_col]])
   df[[med_exempt_col]] <- ifelse(invalid_exemptions, NA, df[[med_exempt_col]])
   df[[rel_exempt_col]] <- ifelse(invalid_exemptions, NA, df[[rel_exempt_col]])
-
+  
   na_after <- list(
     enrollment = sum(is.na(df[[enrollment_col]])),
     current    = sum(is.na(df[[current_col]])),
@@ -406,7 +406,7 @@ dqa_fix_invalid_values <- function(
   if (delayed_col %in% names(df)) {
     na_after$delayed <- sum(is.na(df[[delayed_col]]))
   }
-
+  
   if (!is.null(dqa_report)) {
     dqa_report$na_counts <- list(
       before = na_before,
@@ -414,7 +414,7 @@ dqa_fix_invalid_values <- function(
       description = "NA counts before and after invalid-value corrections (count columns)"
     )
   }
-
+  
   list(data = df, report = dqa_report)
 }
 
@@ -443,15 +443,15 @@ dqa_fix_invalid_values <- function(
 dqa_check_duplicates <- function(df, state_dir = NULL, state = "state") {
   core_cols <- colnames(df)[1:min(10, ncol(df))]
   core_data_cols <- setdiff(core_cols, c("school_id", "year"))
-
+  
   dup_counts <- df %>%
     dplyr::group_by(school_id, year) %>%
     dplyr::summarise(n = dplyr::n(), .groups = "drop") %>%
     dplyr::filter(n > 1)
-
+  
   if (nrow(dup_counts) > 0) {
     message("Found ", nrow(dup_counts), " duplicated school_id-year combinations.")
-
+    
     dupes <- df %>%
       dplyr::semi_join(dup_counts, by = c("school_id", "year")) %>%
       dplyr::group_by(school_id, year) %>%
@@ -460,7 +460,7 @@ dqa_check_duplicates <- function(df, state_dir = NULL, state = "state") {
         all_identical = dplyr::n_distinct(dplyr::pick(dplyr::all_of(core_data_cols))) == 1,
         .groups = "drop"
       )
-
+    
     true_dupes <- dupes %>% dplyr::filter(all_identical)
     if (nrow(true_dupes) > 0) {
       message("Merging ", nrow(true_dupes), " identical duplicates.")
@@ -469,7 +469,7 @@ dqa_check_duplicates <- function(df, state_dir = NULL, state = "state") {
         dplyr::distinct(dplyr::across(dplyr::all_of(core_cols)), .keep_all = TRUE) %>%
         dplyr::ungroup()
     }
-
+    
     diff_dupes <- dupes %>% dplyr::filter(!all_identical)
     if (nrow(diff_dupes) > 0) {
       message("Found ", nrow(diff_dupes), " duplicates with conflicting core data.")
@@ -483,7 +483,7 @@ dqa_check_duplicates <- function(df, state_dir = NULL, state = "state") {
   } else {
     message("No duplicate school_id-year combinations found in core columns.")
   }
-
+  
   list(data = df, n_flagged = nrow(dup_counts))
 }
 
@@ -506,7 +506,7 @@ dqa_check_duplicates <- function(df, state_dir = NULL, state = "state") {
 dqa_check_negatives <- function(df, state_dir = NULL, state = "state") {
   negatives <- df %>%
     dplyr::filter(current < 0 | med_exempt < 0 | rel_exempt < 0 | enrollment < 0)
-
+  
   if (nrow(negatives) > 0) {
     warning("Found negative values in ", nrow(negatives), " rows.")
     print(head(negatives, 5))
@@ -514,7 +514,7 @@ dqa_check_negatives <- function(df, state_dir = NULL, state = "state") {
       readr::write_csv(negatives, file.path(state_dir, "negatives_check.csv"))
     }
   }
-
+  
   list(data = df, n_flagged = nrow(negatives))
 }
 
@@ -537,7 +537,7 @@ dqa_check_negatives <- function(df, state_dir = NULL, state = "state") {
 dqa_check_too_high <- function(df, state_dir = NULL, state = "state") {
   too_high <- df %>%
     dplyr::filter(current > enrollment | med_exempt > enrollment | rel_exempt > enrollment)
-
+  
   if (nrow(too_high) > 0) {
     warning("Found higher-than-enrollment values for current/exempt in ", nrow(too_high), " rows.")
     print(head(too_high, 5))
@@ -545,7 +545,7 @@ dqa_check_too_high <- function(df, state_dir = NULL, state = "state") {
       readr::write_csv(too_high, file.path(state_dir, "too_high_check.csv"))
     }
   }
-
+  
   list(data = df, n_flagged = nrow(too_high))
 }
 
@@ -569,10 +569,10 @@ dqa_check_too_high <- function(df, state_dir = NULL, state = "state") {
 dqa_check_coverage_outliers <- function(df, state_dir = NULL, state = "state") {
   df <- df %>%
     dplyr::mutate(mmr_coverage = current / enrollment)
-
+  
   coverage_outliers <- df %>%
     dplyr::filter(!is.na(mmr_coverage) & (mmr_coverage < 0 | mmr_coverage > 1.05))
-
+  
   if (nrow(coverage_outliers) > 0) {
     warning("Found ", nrow(coverage_outliers), " rows with unrealistic coverage (<0 or >105%).")
     print(head(coverage_outliers, 5))
@@ -580,7 +580,7 @@ dqa_check_coverage_outliers <- function(df, state_dir = NULL, state = "state") {
       readr::write_csv(coverage_outliers, file.path(state_dir, "coverage_outliers.csv"))
     }
   }
-
+  
   list(data = df, n_flagged = nrow(coverage_outliers))
 }
 
@@ -602,7 +602,7 @@ dqa_check_coverage_outliers <- function(df, state_dir = NULL, state = "state") {
 dqa_check_over_coverage <- function(df, state_dir = NULL, state = "state") {
   over_coverage <- df %>%
     dplyr::filter(!is.na(enrollment) & (current + med_exempt + rel_exempt) > enrollment)
-
+  
   if (nrow(over_coverage) > 0) {
     warning("Found ", nrow(over_coverage), " rows where current + exempt exceed enrollment.")
     print(head(over_coverage, 5))
@@ -610,7 +610,7 @@ dqa_check_over_coverage <- function(df, state_dir = NULL, state = "state") {
       readr::write_csv(over_coverage, file.path(state_dir, "over_coverage_check.csv"))
     }
   }
-
+  
   list(data = df, n_flagged = nrow(over_coverage))
 }
 
@@ -639,7 +639,7 @@ dqa_check_enrollment_deviation <- function(df,
                                            state_dir = NULL,
                                            state = "state",
                                            threshold = 0.5) {
-
+  
   req <- c("school_id", "year", "enrollment")
   missing <- setdiff(req, names(df))
   if (length(missing) > 0) {
@@ -647,9 +647,9 @@ dqa_check_enrollment_deviation <- function(df,
             paste(missing, collapse = ", "))
     return(list(data = df, n_flagged = NA_integer_))
   }
-
+  
   info_cols <- intersect(c("school_name", "county_name"), names(df))
-
+  
   enrollment_deviation <- df %>%
     dplyr::group_by(school_id) %>%
     dplyr::mutate(
@@ -662,33 +662,33 @@ dqa_check_enrollment_deviation <- function(df,
     ) %>%
     dplyr::ungroup() %>%
     dplyr::filter(!is.na(pct_diff_from_mean) & abs(pct_diff_from_mean) > threshold)
-
+  
   if (nrow(enrollment_deviation) > 0) {
     warning(
       "Found ", nrow(enrollment_deviation),
       " rows with enrollment differing >", threshold * 100,
       "% from that school's mean across years."
     )
-
+    
     preview_cols <- c("school_id", "cnty_id", info_cols, "year",
                       "enrollment", "mean_enrollment", "pct_diff_from_mean")
     preview_cols <- intersect(preview_cols, names(enrollment_deviation))
-
+    
     print(
       enrollment_deviation %>%
         dplyr::arrange(dplyr::desc(abs(pct_diff_from_mean))) %>%
         dplyr::select(dplyr::all_of(preview_cols)) %>%
         head(5)
     )
-
+    
     if (!is.null(state_dir)) {
       if (!dir.exists(state_dir)) dir.create(state_dir, recursive = TRUE)
-
+      
       readr::write_csv(
         enrollment_deviation,
         file.path(state_dir, "enrollment_deviation_check.csv")
       )
-
+      
       flagged_school_ids <- unique(enrollment_deviation$school_id)
       school_history <- df %>%
         dplyr::filter(school_id %in% flagged_school_ids) %>%
@@ -706,7 +706,7 @@ dqa_check_enrollment_deviation <- function(df,
   } else {
     message("No enrollment deviations >", threshold * 100, "% from school mean found.")
   }
-
+  
   list(data = df, n_flagged = nrow(enrollment_deviation))
 }
 
@@ -733,7 +733,7 @@ dqa_check_current_deviation <- function(df,
                                         temp_data_dir,
                                         state = "state",
                                         threshold = 0.5) {
-
+  
   req <- c("school_id", "year", "current")
   missing <- setdiff(req, names(df))
   if (length(missing) > 0) {
@@ -741,14 +741,14 @@ dqa_check_current_deviation <- function(df,
             paste(missing, collapse = ", "))
     return(list(data = df, n_flagged = NA_integer_))
   }
-
+  
   if (missing(temp_data_dir) || is.null(temp_data_dir) || !nzchar(temp_data_dir)) {
     stop("temp_data_dir must be provided (non-empty) to save deviation CSV.", call. = FALSE)
   }
   if (!dir.exists(temp_data_dir)) dir.create(temp_data_dir, recursive = TRUE)
-
+  
   info_cols <- intersect(c("school_name", "county_name"), names(df))
-
+  
   current_deviation <- df %>%
     dplyr::group_by(school_id) %>%
     dplyr::mutate(
@@ -761,27 +761,27 @@ dqa_check_current_deviation <- function(df,
     ) %>%
     dplyr::ungroup() %>%
     dplyr::filter(!is.na(pct_diff_from_mean) & abs(pct_diff_from_mean) > threshold)
-
+  
   if (nrow(current_deviation) > 0) {
     warning("Found ", nrow(current_deviation),
             " rows with 'current' differing >", threshold * 100,
             "% from that school's mean across years.")
-
+    
     preview_cols <- c("school_id", "cnty_id", info_cols, "year",
                       "current", "mean_current", "pct_diff_from_mean")
     preview_cols <- intersect(preview_cols, names(current_deviation))
-
+    
     print(
       current_deviation %>%
         dplyr::arrange(dplyr::desc(abs(pct_diff_from_mean))) %>%
         dplyr::select(dplyr::all_of(preview_cols)) %>%
         head(5)
     )
-
+    
     out_path <- file.path(temp_data_dir, paste0(state, "_current_deviation_check.csv"))
     readr::write_csv(current_deviation, out_path)
     message("Saved current deviation check CSV to: ", out_path)
-
+    
     flagged_school_ids <- unique(current_deviation$school_id)
     school_history <- df %>%
       dplyr::filter(school_id %in% flagged_school_ids) %>%
@@ -794,11 +794,11 @@ dqa_check_current_deviation <- function(df,
     history_path <- file.path(temp_data_dir, paste0(state, "_current_deviation_school_history.csv"))
     readr::write_csv(school_history, history_path)
     message("Saved current deviation school history CSV to: ", history_path)
-
+    
   } else {
     message("No current deviations >", threshold * 100, "% from school mean found.")
   }
-
+  
   list(data = df, n_flagged = nrow(current_deviation))
 }
 
@@ -826,7 +826,7 @@ dqa_check_extreme_outliers <- function(df,
                                        temp_data_dir,
                                        state = "state",
                                        threshold = 10) {
-
+  
   req <- c("school_id", "enrollment")
   missing <- setdiff(req, names(df))
   if (length(missing) > 0) {
@@ -834,19 +834,19 @@ dqa_check_extreme_outliers <- function(df,
             paste(missing, collapse = ", "))
     return(list(data = df, n_flagged = NA_integer_))
   }
-
+  
   if (missing(temp_data_dir) || is.null(temp_data_dir) || !nzchar(temp_data_dir)) {
     stop("temp_data_dir must be provided (non-empty) to save outlier CSV.", call. = FALSE)
   }
   if (!dir.exists(temp_data_dir)) dir.create(temp_data_dir, recursive = TRUE)
-
+  
   median_enrollment <- df %>%
     dplyr::group_by(school_id) %>%
     dplyr::summarise(
       median_enroll = stats::median(enrollment, na.rm = TRUE),
       .groups = "drop"
     )
-
+  
   outliers <- df %>%
     dplyr::left_join(median_enrollment, by = "school_id") %>%
     dplyr::filter(
@@ -862,7 +862,7 @@ dqa_check_extreme_outliers <- function(df,
         enrollment <= median_enroll / threshold ~ "low"
       )
     )
-
+  
   if (nrow(outliers) > 0) {
     warning(
       "Found ", nrow(outliers),
@@ -870,13 +870,13 @@ dqa_check_extreme_outliers <- function(df,
       threshold, "x or \u22641/", threshold,
       "x that school's median across years)."
     )
-
+    
     info_cols <- intersect(c("school_name", "county_name"), names(outliers))
-
+    
     preview_cols <- c("school_id", "cnty_id", info_cols, "year",
                       "enrollment", "median_enroll", "ratio_to_median", "outlier_type")
     preview_cols <- intersect(preview_cols, names(outliers))
-
+    
     print(
       outliers %>%
         dplyr::mutate(extremeness = pmax(ratio_to_median, 1 / ratio_to_median)) %>%
@@ -884,14 +884,14 @@ dqa_check_extreme_outliers <- function(df,
         dplyr::select(dplyr::all_of(preview_cols)) %>%
         head(5)
     )
-
+    
     out_path <- file.path(
       temp_data_dir,
       paste0(state, "_extreme_enrollment_outliers.csv")
     )
     readr::write_csv(outliers, out_path)
     message("Saved extreme enrollment outliers CSV to: ", out_path)
-
+    
   } else {
     message(
       "No extreme enrollment outliers found (\u2265",
@@ -899,7 +899,7 @@ dqa_check_extreme_outliers <- function(df,
       "x median)."
     )
   }
-
+  
   list(data = df, n_flagged = nrow(outliers))
 }
 
@@ -934,12 +934,12 @@ format_select_columns <- function(df,
   } else {
     message("All required columns are present.")
   }
-
+  
   keep_cols <- c(required_cols, intersect(optional_cols, colnames(df)))
   df <- df %>% dplyr::select(dplyr::all_of(keep_cols))
-
+  
   message("Columns in dataset: ", paste(colnames(df), collapse = ", "))
-
+  
   return(df)
 }
 
@@ -961,7 +961,7 @@ format_select_columns <- function(df,
 #'
 #' @export
 format_fix_column_classes <- function(df, warn_on_change = TRUE, warn_on_missing = FALSE) {
-
+  
   expected_classes <- list(
     year             = "integer",
     school_id        = "integer",
@@ -982,16 +982,16 @@ format_fix_column_classes <- function(df, warn_on_change = TRUE, warn_on_missing
     lat              = "numeric",
     lon              = "numeric"
   )
-
+  
   cols_present <- intersect(names(expected_classes), names(df))
-
+  
   if (warn_on_missing) {
     cols_missing <- setdiff(names(expected_classes), names(df))
     if (length(cols_missing) > 0) {
       warning("Missing columns (skipped): ", paste(cols_missing, collapse = ", "))
     }
   }
-
+  
   to_int <- function(x) {
     x <- as.character(x)
     x <- gsub(",", "", x)
@@ -1000,11 +1000,11 @@ format_fix_column_classes <- function(df, warn_on_change = TRUE, warn_on_missing
     x[x == ""] <- NA_character_
     suppressWarnings(as.integer(as.numeric(x)))
   }
-
+  
   for (col in cols_present) {
     expected <- expected_classes[[col]]
     before_class <- class(df[[col]])[1]
-
+    
     if (expected == "integer") {
       df[[col]] <- to_int(df[[col]])
     } else if (expected == "numeric") {
@@ -1012,19 +1012,19 @@ format_fix_column_classes <- function(df, warn_on_change = TRUE, warn_on_missing
     } else if (expected == "character") {
       df[[col]] <- as.character(df[[col]])
     }
-
+    
     after_class <- class(df[[col]])[1]
-
+    
     if (warn_on_change && before_class != expected) {
       warning("Column '", col, "' coerced from '", before_class, "' to expected '", expected, "'.")
     }
-
+    
     if (after_class != expected) {
       warning("Column '", col, "' is class '", after_class,
               "' after coercion, but expected '", expected, "'.")
     }
   }
-
+  
   return(df)
 }
 
@@ -1050,32 +1050,32 @@ print_dqa_summary <- function(dqa_report) {
     }
     cur
   }
-
+  
   fmt <- function(x) {
     if (is.na(x)) "(not recorded)" else as.character(x)
   }
-
+  
   message("\n========================================")
   message("DATA QUALITY ASSESSMENT SUMMARY REPORT")
   message("========================================")
-
+  
   message("Initial records: ", fmt(get_in(dqa_report, c("total_records_start"), NA)))
   message("Final records:   ", fmt(get_in(dqa_report, c("total_records_end"), NA)))
   message("Total removed:   ", fmt(get_in(dqa_report, c("total_records_removed"), NA)))
-
+  
   message("\nISSUES FOUND AND CORRECTED:")
-
+  
   message("  - Zero/missing enrollment: ",
           fmt(get_in(dqa_report, c("enrollment_zero_or_missing", "removed"), NA)), " removed")
   message("  - Zero current vaccinations: ",
           fmt(get_in(dqa_report, c("current_vacc_zero", "removed"), NA)), " removed")
-
+  
   neg_new <- get_in(dqa_report, c("negative_current", "count"), NA)
   ex_new  <- get_in(dqa_report, c("invalid_exemptions_counts", "count"), NA)
   curr_gt <- get_in(dqa_report, c("current_gt_enrollment", "count"), NA)
-
+  
   has_new <- !is.na(neg_new) || !is.na(ex_new) || !is.na(curr_gt)
-
+  
   if (has_new) {
     message("  - Current < 0: ", ifelse(is.na(neg_new), 0, neg_new), " set to NA")
     message("  - Current > enrollment: ", ifelse(is.na(curr_gt), 0, curr_gt), " set to NA")
@@ -1086,14 +1086,14 @@ print_dqa_summary <- function(dqa_report) {
     message("  - Negative coverage: ", ifelse(is.na(neg_old), 0, neg_old), " set to NA")
     message("  - Exemptions >100%: ", ifelse(is.na(ex_old), 0, ex_old), " set to NA")
   }
-
+  
   message("\nNA COUNTS AFTER CORRECTIONS:")
-
+  
   na_after_enrollment <- get_in(dqa_report, c("na_counts", "after", "enrollment"), NA)
   na_after_current    <- get_in(dqa_report, c("na_counts", "after", "current"), NA)
   na_after_med_exempt <- get_in(dqa_report, c("na_counts", "after", "med_exempt"), NA)
   na_after_rel_exempt <- get_in(dqa_report, c("na_counts", "after", "rel_exempt"), NA)
-
+  
   if (!all(is.na(c(na_after_current, na_after_med_exempt, na_after_rel_exempt, na_after_enrollment)))) {
     message("  - enrollment: ", fmt(na_after_enrollment))
     message("  - current:    ", fmt(na_after_current))
@@ -1104,7 +1104,7 @@ print_dqa_summary <- function(dqa_report) {
     message("  - percent_medical_exemption: ", fmt(get_in(dqa_report, c("na_counts", "after", "percent_medical_exemption"), NA)))
     message("  - percent_religious_exemption: ", fmt(get_in(dqa_report, c("na_counts", "after", "percent_religious_exemption"), NA)))
   }
-
+  
   message("========================================\n")
 }
 
@@ -1162,15 +1162,15 @@ run_final_formatting <- function(state,
                                  general_data_dir,
                                  state_dir,
                                  outputs_data_dir) {
-
+  
   if (!requireNamespace("arrow", quietly = TRUE)) {
     stop("Package 'arrow' is required for reading Parquet files. ",
          "Install with: install.packages('arrow')")
   }
-
+  
   # ---- Load inputs ------------------------------------------------------------
   kinder_dat <- readRDS(file.path(temp_data_dir, "kinder_vaccination_clean_03.rds"))
-
+  
   # ---- PART 0: Vaccine type filter --------------------------------------------
   if ("vaccine_type" %in% names(kinder_dat)) {
     kinder_dat <- kinder_dat %>%
@@ -1180,13 +1180,13 @@ run_final_formatting <- function(state,
   } else {
     message("Column 'vaccine_type' not found — skipping filter")
   }
-
+  
   # ---- PART 1: Automatic DQA corrections -------------------------------------
   message("\n=== PART 1: Running data quality checks ===")
-
+  
   dqa_report <- list()
   dqa_report$total_records_start <- nrow(kinder_dat)
-
+  
   result <- dqa_remove_zero_enrollment(
     kinder_dat,
     dqa_report,
@@ -1195,7 +1195,7 @@ run_final_formatting <- function(state,
   )
   kinder_dat <- result$data
   dqa_report <- result$report
-
+  
   result <- dqa_fix_invalid_values(
     kinder_dat,
     dqa_report,
@@ -1204,12 +1204,12 @@ run_final_formatting <- function(state,
   )
   kinder_dat <- result$data
   dqa_report <- result$report
-
+  
   dqa_report$total_records_end     <- nrow(kinder_dat)
   dqa_report$total_records_removed <- dqa_report$total_records_start - dqa_report$total_records_end
-
+  
   print_dqa_summary(dqa_report)
-
+  
   # ---- Remove rows with NAs in key columns ------------------------------------
   na_rows <- dplyr::filter(kinder_dat,
                            dplyr::if_any(c(current, enrollment, med_exempt, rel_exempt), is.na))
@@ -1219,18 +1219,18 @@ run_final_formatting <- function(state,
   kinder_dat <- dplyr::filter(kinder_dat,
                               dplyr::if_all(c(current, enrollment, med_exempt, rel_exempt),
                                             ~!is.na(.)))
-
+  
   # ---- Remove rows with all-zero key values -----------------------------------
   kinder_dat <- kinder_dat %>%
     dplyr::filter(!dplyr::if_all(c(current, enrollment, med_exempt, rel_exempt), ~ . == 0))
-
+  
   # ---- Remove remaining rows with zero current --------------------------------
   kinder_dat <- kinder_dat %>%
     dplyr::filter(current != 0)
-
+  
   # ---- PART 3: Final formatting -----------------------------------------------
   message("\n=== PART 3: Final formatting ===")
-
+  
   kinder_dat <- format_select_columns(
     kinder_dat,
     required_cols = c("school_id", "year", "school_name", "county_name",
@@ -1239,17 +1239,17 @@ run_final_formatting <- function(state,
                       "addr_clean", "city", "zip", "state", "business_status",
                       "lat", "lon")
   )
-
+  
   kinder_dat <- format_fix_column_classes(kinder_dat)
-
+  
   saveRDS(kinder_dat, file.path(clean_data_dir, "cleaned_data.rds"))
   readr::write_csv(kinder_dat, file.path(clean_data_dir, "cleaned_data.csv"))
-
+  
   # ---- PART 4: Additional flagging DQA checks ---------------------------------
   message("\n=== PART 4: Additional data quality checks ===")
-
+  
   dqa_check_duplicates(kinder_dat, state_dir, state)
-
+  
   n_before <- nrow(kinder_dat)
   n_dup_occurrences <- kinder_dat %>%
     dplyr::group_by(school_id, year, school_name) %>%
@@ -1257,7 +1257,7 @@ run_final_formatting <- function(state,
     dplyr::ungroup() %>%
     nrow()
   message("  Duplicate school_id-year-school_name rows (total occurrences): ", n_dup_occurrences)
-
+  
   kinder_dat <- kinder_dat %>%
     dplyr::group_by(school_id, year, school_name) %>%
     dplyr::slice_max(enrollment, n = 1, with_ties = FALSE) %>%
@@ -1266,34 +1266,34 @@ run_final_formatting <- function(state,
   dqa_report$part4$duplicates <- n_dupes_removed
   message("  Duplicate school_id-year-school_name combos removed (kept highest enrollment): ",
           n_dupes_removed)
-
+  
   result <- dqa_check_negatives(kinder_dat, state_dir, state)
   kinder_dat <- result$data
   dqa_report$part4$negatives <- result$n_flagged
   message("  Negative values: ", result$n_flagged, " rows flagged")
-
+  
   result <- dqa_check_too_high(kinder_dat, state_dir, state)
   kinder_dat <- result$data
   dqa_report$part4$too_high <- result$n_flagged
   message("  Values exceeding enrollment: ", result$n_flagged, " rows flagged")
-
+  
   result <- dqa_check_coverage_outliers(kinder_dat, state_dir, state)
   kinder_dat <- result$data
   dqa_report$part4$coverage_outliers <- result$n_flagged
   message("  Coverage outliers (<0 or >105%): ", result$n_flagged, " rows flagged")
-
+  
   result <- dqa_check_over_coverage(kinder_dat, state_dir, state)
   kinder_dat <- result$data
   dqa_report$part4$over_coverage <- result$n_flagged
   message("  Over-coverage (current + exempt > enrollment): ", result$n_flagged, " rows flagged")
-
+  
   kinder_dat <- kinder_dat %>%
     dplyr::mutate(current = dplyr::if_else(
       current + med_exempt + rel_exempt > enrollment,
       enrollment - med_exempt - rel_exempt,
       current
     ))
-
+  
   result <- dqa_check_enrollment_deviation(
     df        = kinder_dat,
     state_dir = state_dir,
@@ -1303,7 +1303,7 @@ run_final_formatting <- function(state,
   kinder_dat <- result$data
   dqa_report$part4$enrollment_deviation <- result$n_flagged
   message("  Enrollment deviation >100% from school mean: ", result$n_flagged, " rows flagged")
-
+  
   result <- dqa_check_current_deviation(
     df            = kinder_dat,
     temp_data_dir = temp_data_dir,
@@ -1313,7 +1313,7 @@ run_final_formatting <- function(state,
   kinder_dat <- result$data
   dqa_report$part4$current_deviation <- result$n_flagged
   message("  Current vaccination deviation >75% from school mean: ", result$n_flagged, " rows flagged")
-
+  
   result <- dqa_check_extreme_outliers(
     df            = kinder_dat,
     temp_data_dir = temp_data_dir,
@@ -1323,7 +1323,7 @@ run_final_formatting <- function(state,
   kinder_dat <- result$data
   dqa_report$part4$extreme_outliers <- result$n_flagged
   message("  Extreme enrollment outliers (10x median): ", result$n_flagged, " rows flagged")
-
+  
   message("\n========================================")
   message("PART 4 DQA SUMMARY (flagged for review, not removed)")
   message("========================================")
@@ -1339,122 +1339,126 @@ run_final_formatting <- function(state,
   message("  Extreme enrollment outliers (10x):     ", fmt_n(p4$extreme_outliers))
   message("========================================")
   message("Check CSVs in ", temp_data_dir, " for detailed results.")
-
+  
   saveRDS(dqa_report, file.path(temp_data_dir, "dqa_report.rds"))
-
+  
   # ---- Build observation tables for modelling pipeline ------------------------
-
+  
   df_na_id <- dplyr::filter(kinder_dat, is.na(school_id))
   message("Schools with NA school_id: ", nrow(df_na_id))
   kinder_dat <- dplyr::filter(kinder_dat, !is.na(school_id))
-
+  
   obs <- data.table::as.data.table(kinder_dat)[, .(
-    obs_id      = .I,
+    row_id      = .I,
     positive    = current,
     sample_n    = enrollment,
     school_name = school_name
   )]
-
+  
   kinder_dat <- data.table::as.data.table(kinder_dat)
   kinder_dat[, county_name := stringr::str_to_sentence(stringr::str_trim(county_name))]
-  kinder_dat[, obs_id := .I]
-
-  state_row <- data.table::data.table(loc_id = 1L, parent_id = NA_integer_)
-
+  kinder_dat[, row_id := .I]
+  
+  state_row <- data.table::data.table(id = 1L, parent_id = NA_integer_)
+  
   county_locs <- data.table::data.table(
     county_name = sort(unique(kinder_dat$county_name))
   )
-  county_locs[, loc_id        := .I + 1L]
+  county_locs[, id        := .I + 1L]
   county_locs[, parent_id := 1L]
-
+  
   school_locs <- unique(kinder_dat[!is.na(school_id), .(school_id, county_name)])
   school_locs <- merge(school_locs,
-                       county_locs[, .(county_name, county_loc_id = loc_id)],
+                       county_locs[, .(county_name, county_loc_id = id)],
                        by = "county_name", all.x = TRUE)
   data.table::setorder(school_locs, county_loc_id, school_id)
-  school_locs[, loc_id        := .I + max(county_locs$loc_id)]
+  school_locs[, id        := .I + max(county_locs$id)]
   school_locs[, parent_id := county_loc_id]
-
+  
   locations <- data.table::rbindlist(list(
     state_row,
-    county_locs[, .(loc_id, parent_id)],
-    school_locs[, .(loc_id, parent_id)]
+    county_locs[, .(id, parent_id)],
+    school_locs[, .(id, parent_id)]
   ))
-
+  
   kinder_dat <- merge(
     kinder_dat,
-    county_locs[, .(county_name, county_loc_id = loc_id)],
+    county_locs[, .(county_name, county_loc_id = id)],
     by = "county_name", all.x = TRUE
   )
   kinder_dat <- merge(
     kinder_dat,
-    school_locs[, .(school_id, school_loc_id = loc_id)],
+    school_locs[, .(school_id, school_loc_id = id)],
     by = "school_id", all.x = TRUE
   )
-
+  
   obs_populations <- kinder_dat[, list(
-    obs_id   = obs_id,
-    loc_id = school_loc_id,
+    obs_id   = row_id,
+    location = school_loc_id,
     cohort   = year,
     age      = 5L,
     dose     = 2L,
     weight   = 1L
   )]
-
+  
   readr::write_csv(kinder_dat,
                    file.path(temp_data_dir, "kinder_vaccination_clean.csv"))
   saveRDS(kinder_dat, file.path(temp_data_dir, "kinder_vaccination_clean.rds"))
-
+  
+  # rename to match expected input names for modelling pipeline
+  locations <- locations %>%
+    rename(loc_id = id) 
+  
   saveRDS(obs, file.path(outputs_data_dir, "obs.rds"))
   saveRDS(locations, file.path(outputs_data_dir, "locations.rds"))
   readr::write_csv(obs,       file.path(outputs_data_dir, "obs.csv"))
   readr::write_csv(locations, file.path(outputs_data_dir, "locations.csv"))
   saveRDS(obs_populations, file.path(outputs_data_dir, "obs_populations.rds"))
   readr::write_csv(obs_populations, file.path(outputs_data_dir, "obs_populations.csv"))
-
+  
   # ---- PART 7: Incorporate VaxView observations -------------------------------
   vaxview <- arrow::read_parquet(file.path(vaxview_dir, "vax_view.parquet"))
-
+  
   vaxview <- vaxview %>%
     dplyr::filter(stringr::str_detect(vaccine, stringr::regex("mmr", ignore_case = TRUE))) %>%
     dplyr::filter(!stringr::str_detect(vaccine, stringr::regex("PAC", ignore_case = TRUE))) %>%
     dplyr::filter(!age_range %in% c("13 Months", "19 Months")) %>%
     dplyr::filter(!is.na(n), !is.na(p))
-
+  
   # ---- Expand rows: child = 2 rows per year, teen = 6 rows per year ----
-  obs_id_start <- if ("obs_id" %in% names(obs) &&
-    nrow(obs) > 0 &&
-    any(!is.na(obs$obs_id))) {
-    max(obs$obs_id, na.rm = TRUE)
+  row_id_start <- if ("row_id" %in% names(obs) &&
+                      nrow(obs) > 0 &&
+                      any(!is.na(obs$row_id))) {
+    max(obs$row_id, na.rm = TRUE)
   } else {
     0L
   }
-
+  
   vaxview_child <- vaxview %>%
     dplyr::filter(pop == "child") %>%
-    dplyr::mutate(obs_id = obs_id_start + dplyr::row_number()) %>%
+    dplyr::mutate(row_id = row_id_start + dplyr::row_number()) %>%
     dplyr::group_by(dplyr::across(dplyr::everything())) %>%
     dplyr::reframe(row_num = 1:2)
-
+  
   n_child <- nrow(vaxview %>% dplyr::filter(pop == "child"))
-
+  
   vaxview_teen <- vaxview %>%
     dplyr::filter(pop == "teen") %>%
-    dplyr::mutate(obs_id = obs_id_start + n_child + dplyr::row_number()) %>%
+    dplyr::mutate(row_id = row_id_start + n_child + dplyr::row_number()) %>%
     dplyr::group_by(dplyr::across(dplyr::everything())) %>%
     dplyr::reframe(row_num = 1:6)
-
+  
   n_teen <- nrow(vaxview %>% dplyr::filter(pop == "teen"))
-
+  
   vaxview_school <- vaxview %>%
     dplyr::filter(pop == "school") %>%
     dplyr::mutate(
-      obs_id  = obs_id_start + n_child + n_teen + dplyr::row_number(),
+      row_id  = row_id_start + n_child + n_teen + dplyr::row_number(),
       row_num = 1L
     )
-
+  
   vaxview_expanded <- dplyr::bind_rows(vaxview_child, vaxview_teen, vaxview_school)
-
+  
   vaxview_expanded <- vaxview_expanded %>%
     dplyr::mutate(cohort = dplyr::case_when(
       pop == "child" & row_num == 1 ~ year,
@@ -1467,7 +1471,7 @@ run_final_formatting <- function(state,
       pop == "teen"  & row_num == 6 ~ year - 14,
       TRUE ~ as.numeric(year)
     ))
-
+  
   vaxview_expanded <- vaxview_expanded %>%
     dplyr::mutate(life_year = dplyr::case_when(
       age_range == "24 Months" ~ 2L,
@@ -1476,7 +1480,7 @@ run_final_formatting <- function(state,
       pop == "teen"            ~ as.integer(year - cohort - 1),
       TRUE                     ~ NA_integer_
     ))
-
+  
   vaxview_expanded <- vaxview_expanded %>%
     dplyr::mutate(
       wts = dplyr::case_when(
@@ -1495,48 +1499,54 @@ run_final_formatting <- function(state,
         pop %in% c("school", "teen") ~ 2L
       )
     )
-
-  # ---- Clean up columns (obs_id already assigned above) ----
+  
+  # ---- Clean up columns (row_id already assigned above) ----
   vaxview_obs <- vaxview_expanded %>%
-    dplyr::select(obs_id, pop, year, cohort, life_year, n, p, x, sd, se, wts, dose) %>%
+    dplyr::select(row_id, pop, year, cohort, life_year, n, p, x, sd, se, wts, dose) %>%
     dplyr::mutate(positive = x, sample_n = n)
-
+  
   # ---- Append to obs (one row per obs_id) ----
   obs <- data.table::rbindlist(list(
     obs,
     data.table::as.data.table(
       vaxview_obs %>%
-        dplyr::group_by(obs_id) %>%
+        dplyr::group_by(row_id) %>%
         dplyr::slice(1) %>%
         dplyr::ungroup() %>%
-        dplyr::select(obs_id, positive, sample_n)
+        dplyr::select(row_id, positive, sample_n)
     )
   ), fill = TRUE) %>%
-    dplyr::select(obs_id, positive, sample_n)
-
+    dplyr::select(row_id, positive, sample_n)
+  
   # ---- Build vaxview obs_populations (multiple rows per obs_id, weights sum to 1) ----
   vaxview_obs_pop <- vaxview_obs %>%
     dplyr::mutate(location = 1L) %>%
     dplyr::select(
-      obs_id   = obs_id,
-      loc_id,
+      obs_id   = row_id,
+      location,
       cohort,
       age      = life_year,
       dose,
       weight   = wts
     )
-
+  
   # ---- Append to obs_populations ----
   obs_populations <- data.table::rbindlist(list(
     obs_populations,
     data.table::as.data.table(vaxview_obs_pop)
   ), fill = TRUE)
+  
+  # ----- Final Formating to match model input specs ----
+  obs <- obs %>%
+    rename(obs_id = row_id) 
+  obs_populations <- obs_populations %>%
+    rename(loc_id = location)
 
   saveRDS(obs, file.path(outputs_data_dir, "obs.rds"))
   saveRDS(obs_populations, file.path(outputs_data_dir, "obs_populations.rds"))
   readr::write_csv(obs, file.path(outputs_data_dir, "obs.csv"))
   readr::write_csv(obs_populations, file.path(outputs_data_dir, "obs_populations.csv"))
-
+  
   invisible(list(
     kinder_dat       = kinder_dat,
     obs              = obs,
