@@ -1405,16 +1405,7 @@ run_final_formatting <- function(state,
                    file.path(temp_data_dir, "kinder_vaccination_clean.csv"))
   saveRDS(kinder_dat, file.path(temp_data_dir, "kinder_vaccination_clean.rds"))
   
-  # rename to match expected input names for modelling pipeline
-  locations <- locations %>%
-    rename(loc_id = id) 
-  
-  saveRDS(obs, file.path(outputs_data_dir, "obs.rds"))
-  saveRDS(locations, file.path(outputs_data_dir, "locations.rds"))
-  readr::write_csv(obs,       file.path(outputs_data_dir, "obs.csv"))
-  readr::write_csv(locations, file.path(outputs_data_dir, "locations.csv"))
-  saveRDS(obs_populations, file.path(outputs_data_dir, "obs_populations.rds"))
-  readr::write_csv(obs_populations, file.path(outputs_data_dir, "obs_populations.csv"))
+
   
   # ---- PART 7: Incorporate VaxView observations -------------------------------
   vaxview <- arrow::read_parquet(file.path(vaxview_dir, "vax_view.parquet"))
@@ -1535,16 +1526,75 @@ run_final_formatting <- function(state,
     obs_populations,
     data.table::as.data.table(vaxview_obs_pop)
   ), fill = TRUE)
+
+  # ---- PART 8: BUILD LINKAGE KEY ---------------------------------------------
+  # Links kinder_dat rows to their obs, obs_populations, and location IDs
   
+  message("\n=== PART 8: Building linkage key ===")
+  
+  # ---- School-level key (one row per kinder_dat row) ----
+  school_key <- kinder_dat[, .(
+    # original identifiers
+    school_id,
+    school_name,
+    county_name,
+    year,
+    # location ids
+    county_loc_id,
+    school_loc_id,
+    # obs id (row_id = obs$row_id for kinder rows)
+    obs_id = row_id
+  )] 
+  
+  # Join obs_populations id back in (obs_id is the link)
+  school_key <- merge(
+    school_key,
+    obs_populations[, .(obs_id, location, cohort, age, dose, weight)],
+    by = "obs_id",
+    all.x = TRUE
+  )
+  
+  # ---- Vaxview key (one row per expanded vaxview obs_populations row) ----
+  vaxview_key <- vaxview_obs_pop %>%
+    mutate(
+      school_id     = NA_character_,
+      school_name   = NA_character_,
+      county_name   = NA_character_,
+      county_loc_id = NA_integer_,
+      school_loc_id = NA_integer_
+    ) %>%
+    rename(obs_id = obs_id)
+  
+  # ---- Combine into full linkage key ----
+  linkage_key <- data.table::rbindlist(list(
+    school_key,
+    data.table::as.data.table(vaxview_key)
+  ), fill = TRUE)
+  
+  # ---- Save ----
+  saveRDS(linkage_key, file.path(outputs_data_dir, "linkage_key.rds"))
+  readr::write_csv(linkage_key, file.path(outputs_data_dir, "linkage_key.csv"))
+  
+  message("Linkage key saved: ", nrow(linkage_key), " rows")
+  message("  School rows: ", sum(!is.na(linkage_key$school_id)))
+  message("  VaxView rows: ", sum(is.na(linkage_key$school_id)))
+  
+  
+  # ---- PART 9: Export --------------------------------------------------------  
   # ----- Final Formating to match model input specs ----
   obs <- obs %>%
     rename(obs_id = row_id) 
   obs_populations <- obs_populations %>%
     rename(loc_id = location)
-
+  locations <- locations %>%
+    rename(loc_id = id) 
+  
+  # ----- Export ----
   saveRDS(obs, file.path(outputs_data_dir, "obs.rds"))
+  saveRDS(locations, file.path(outputs_data_dir, "locations.rds"))
   saveRDS(obs_populations, file.path(outputs_data_dir, "obs_populations.rds"))
   readr::write_csv(obs, file.path(outputs_data_dir, "obs.csv"))
+  readr::write_csv(locations, file.path(outputs_data_dir, "locations.csv"))
   readr::write_csv(obs_populations, file.path(outputs_data_dir, "obs_populations.csv"))
   
   invisible(list(
