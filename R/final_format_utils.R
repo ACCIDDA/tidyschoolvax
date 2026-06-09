@@ -1349,7 +1349,7 @@ run_final_formatting <- function(state,
   kinder_dat <- dplyr::filter(kinder_dat, !is.na(school_id))
 
   obs <- data.table::as.data.table(kinder_dat)[, .(
-    row_id      = .I,
+    obs_id      = .I,
     positive    = current,
     sample_n    = enrollment,
     school_name = school_name
@@ -1357,14 +1357,14 @@ run_final_formatting <- function(state,
 
   kinder_dat <- data.table::as.data.table(kinder_dat)
   kinder_dat[, county_name := stringr::str_to_sentence(stringr::str_trim(county_name))]
-  kinder_dat[, row_id := .I]
+  kinder_dat[, obs_id := .I]
 
   state_row <- data.table::data.table(id = 1L, parent_id = NA_integer_)
 
   county_locs <- data.table::data.table(
     county_name = sort(unique(kinder_dat$county_name))
   )
-  county_locs[, id        := .I + 1L]
+  county_locs[, loc_id        := .I + 1L]
   county_locs[, parent_id := 1L]
 
   school_locs <- unique(kinder_dat[!is.na(school_id), .(school_id, county_name)])
@@ -1372,13 +1372,13 @@ run_final_formatting <- function(state,
                        county_locs[, .(county_name, county_loc_id = id)],
                        by = "county_name", all.x = TRUE)
   data.table::setorder(school_locs, county_loc_id, school_id)
-  school_locs[, id        := .I + max(county_locs$id)]
+  school_locs[, loc_id        := .I + max(county_locs$loc_id)]
   school_locs[, parent_id := county_loc_id]
 
   locations <- data.table::rbindlist(list(
     state_row,
-    county_locs[, .(id, parent_id)],
-    school_locs[, .(id, parent_id)]
+    county_locs[, .(loc_id, parent_id)],
+    school_locs[, .(loc_id, parent_id)]
   ))
 
   kinder_dat <- merge(
@@ -1393,8 +1393,8 @@ run_final_formatting <- function(state,
   )
 
   obs_populations <- kinder_dat[, list(
-    obs_id   = row_id,
-    location = school_loc_id,
+    obs_id   = obs_id,
+    loc_id = school_loc_id,
     cohort   = year,
     age      = 5L,
     dose     = 2L,
@@ -1422,17 +1422,17 @@ run_final_formatting <- function(state,
     dplyr::filter(!is.na(n), !is.na(p))
 
   # ---- Expand rows: child = 2 rows per year, teen = 6 rows per year ----
-  row_id_start <- if ("row_id" %in% names(obs) &&
+  obs_id_start <- if ("obs_id" %in% names(obs) &&
     nrow(obs) > 0 &&
-    any(!is.na(obs$row_id))) {
-    max(obs$row_id, na.rm = TRUE)
+    any(!is.na(obs$obs_id))) {
+    max(obs$obs_id, na.rm = TRUE)
   } else {
     0L
   }
 
   vaxview_child <- vaxview %>%
     dplyr::filter(pop == "child") %>%
-    dplyr::mutate(row_id = row_id_start + dplyr::row_number()) %>%
+    dplyr::mutate(obs_id = obs_id_start + dplyr::row_number()) %>%
     dplyr::group_by(dplyr::across(dplyr::everything())) %>%
     dplyr::reframe(row_num = 1:2)
 
@@ -1440,7 +1440,7 @@ run_final_formatting <- function(state,
 
   vaxview_teen <- vaxview %>%
     dplyr::filter(pop == "teen") %>%
-    dplyr::mutate(row_id = row_id_start + n_child + dplyr::row_number()) %>%
+    dplyr::mutate(obs_id = obs_id_start + n_child + dplyr::row_number()) %>%
     dplyr::group_by(dplyr::across(dplyr::everything())) %>%
     dplyr::reframe(row_num = 1:6)
 
@@ -1449,7 +1449,7 @@ run_final_formatting <- function(state,
   vaxview_school <- vaxview %>%
     dplyr::filter(pop == "school") %>%
     dplyr::mutate(
-      row_id  = row_id_start + n_child + n_teen + dplyr::row_number(),
+      obs_id  = obs_id_start + n_child + n_teen + dplyr::row_number(),
       row_num = 1L
     )
 
@@ -1496,9 +1496,9 @@ run_final_formatting <- function(state,
       )
     )
 
-  # ---- Clean up columns (row_id already assigned above) ----
+  # ---- Clean up columns (obs_id already assigned above) ----
   vaxview_obs <- vaxview_expanded %>%
-    dplyr::select(row_id, pop, year, cohort, life_year, n, p, x, sd, se, wts, dose) %>%
+    dplyr::select(obs_id, pop, year, cohort, life_year, n, p, x, sd, se, wts, dose) %>%
     dplyr::mutate(positive = x, sample_n = n)
 
   # ---- Append to obs (one row per obs_id) ----
@@ -1506,20 +1506,20 @@ run_final_formatting <- function(state,
     obs,
     data.table::as.data.table(
       vaxview_obs %>%
-        dplyr::group_by(row_id) %>%
+        dplyr::group_by(obs_id) %>%
         dplyr::slice(1) %>%
         dplyr::ungroup() %>%
-        dplyr::select(row_id, positive, sample_n)
+        dplyr::select(obs_id, positive, sample_n)
     )
   ), fill = TRUE) %>%
-    dplyr::select(row_id, positive, sample_n)
+    dplyr::select(obs_id, positive, sample_n)
 
   # ---- Build vaxview obs_populations (multiple rows per obs_id, weights sum to 1) ----
   vaxview_obs_pop <- vaxview_obs %>%
     dplyr::mutate(location = 1L) %>%
     dplyr::select(
-      obs_id   = row_id,
-      location,
+      obs_id   = obs_id,
+      loc_id,
       cohort,
       age      = life_year,
       dose,
