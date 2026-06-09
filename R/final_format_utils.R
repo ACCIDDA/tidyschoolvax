@@ -1359,7 +1359,7 @@ run_final_formatting <- function(state,
   kinder_dat[, county_name := stringr::str_to_sentence(stringr::str_trim(county_name))]
   kinder_dat[, obs_id := .I]
 
-  state_row <- data.table::data.table(id = 1L, parent_id = NA_integer_)
+  state_row <- data.table::data.table(loc_id = 1L, parent_id = NA_integer_)
 
   county_locs <- data.table::data.table(
     county_name = sort(unique(kinder_dat$county_name))
@@ -1369,7 +1369,7 @@ run_final_formatting <- function(state,
 
   school_locs <- unique(kinder_dat[!is.na(school_id), .(school_id, county_name)])
   school_locs <- merge(school_locs,
-                       county_locs[, .(county_name, county_loc_id = id)],
+                       county_locs[, .(county_name, county_loc_id = loc_id)],
                        by = "county_name", all.x = TRUE)
   data.table::setorder(school_locs, county_loc_id, school_id)
   school_locs[, loc_id        := .I + max(county_locs$loc_id)]
@@ -1383,12 +1383,12 @@ run_final_formatting <- function(state,
 
   kinder_dat <- merge(
     kinder_dat,
-    county_locs[, .(county_name, county_loc_id = id)],
+    county_locs[, .(county_name, county_loc_id = loc_id)],
     by = "county_name", all.x = TRUE
   )
   kinder_dat <- merge(
     kinder_dat,
-    school_locs[, .(school_id, school_loc_id = id)],
+    school_locs[, .(school_id, school_loc_id = loc_id)],
     by = "school_id", all.x = TRUE
   )
 
