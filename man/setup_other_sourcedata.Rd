@@ -25,6 +25,9 @@ The standardized data frame if a file was found and passed
 Searches for a \code{other_dat.csv} or \code{other_dat.xlsx} file in
 \code{state_school_dir}, reads it, validates required columns, and applies
 the same standardization pipeline as \code{\link{clean_doe_data}}:
-lowercasing, standardized name/county keys, school level, address cleaning,
-row identifier, level code generalization, and charter type correction.
+lowercasing, standardized name/county/district keys, school level, address
+cleaning, row identifier, level code generalization, and charter type
+correction.  A \code{district} column is used when present to create
+\code{district_std}; if absent, \code{district_std} is set to
+\code{NA_character_}.
 }

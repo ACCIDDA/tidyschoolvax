@@ -10,7 +10,8 @@ clean_greatschools_data(gs_dat, state_abbr)
 \item{gs_dat}{A data frame of GreatSchools school data.  Must contain at
 minimum \code{name}, \code{county}, \code{county2}, \code{schoolType},
 \code{levelCode}, \code{street1}, \code{lat}, \code{lon}, and \code{zip}
-columns.}
+columns.  A \code{districtName} column is used when present to populate
+\code{district} and \code{district_std}.}
 
 \item{state_abbr}{Two-letter state abbreviation (e.g., \code{"md"}) used to
 look up geocoded county information via \code{\link{get_geo_info}}.}
@@ -18,6 +19,7 @@ look up geocoded county information via \code{\link{get_geo_info}}.}
 \value{
 The enriched data frame with additional columns:
   \code{school_name_std}, \code{county_std}, \code{county2_std},
+  \code{district}, \code{district_std},
   \code{school_level}, \code{school_type}, \code{school_name},
   \code{level_code}, \code{addr_clean}, \code{addr_clean_no_unit},
   \code{county_geo}, \code{zip_geo}, \code{county_geo_std},
@@ -26,8 +28,8 @@ The enriched data frame with additional columns:
 }
 \description{
 Applies standardization steps to a GreatSchools data frame: creates
-standardized school name and county matching keys, adds school level
-classification, renames selected columns to the package-standard naming
+standardized school name, county, and district matching keys, adds school
+level classification, renames selected columns to the package-standard naming
 convention, cleans address fields for address-based matching, derives
 geocoded county and ZIP via \code{\link{get_geo_info}}, assigns a row
 identifier, generalizes the level code for cross-source matching, and

@@ -9,18 +9,21 @@ clean_doe_data(doe_dat)
 \arguments{
 \item{doe_dat}{A data frame of DOE school data.  Must contain at minimum
 \code{school_name}, \code{county}, \code{grades}, and \code{street}
-columns.}
+columns.  A \code{district} column is used when present to create
+\code{district_std}; if absent, \code{district_std} is set to
+\code{NA_character_}.}
 }
 \value{
 The enriched data frame with additional columns:
-  \code{school_name_std}, \code{county_std}, \code{school_level},
-  \code{level_code}, \code{addr_clean}, \code{addr_clean_no_unit},
-  \code{data2_id}, and \code{level_code_match}.
+  \code{school_name_std}, \code{county_std}, \code{district_std},
+  \code{school_level}, \code{level_code}, \code{addr_clean},
+  \code{addr_clean_no_unit}, \code{data2_id}, and \code{level_code_match}.
 }
 \description{
 Applies standardization steps to a DOE school data frame: lowercases all
-character columns, creates standardized school name and county matching
-keys, adds school level and level code columns, cleans address fields for
-address-based matching, assigns a row identifier, generalizes the level code
-for cross-source matching, and corrects charter school type.
+character columns, creates standardized school name, county, and (if present)
+district matching keys, adds school level and level code columns, cleans
+address fields for address-based matching, assigns a row identifier,
+generalizes the level code for cross-source matching, and corrects charter
+school type.
 }

@@ -587,6 +587,39 @@ standardized_county_name <- function(name) {
 }
 
 
+#' Standardize a school district name string for fuzzy matching
+#'
+#' Normalizes school district names for comparison across data sources:
+#' squishing whitespace, lowercasing, removing common district-specific words
+#' (\code{"school district"}, \code{"unified"}, \code{"independent"},
+#' \code{"public schools"}, \code{"city schools"}, \code{"schools"}),
+#' removing punctuation, and replacing \code{"&"} with \code{"and"}.
+#'
+#' @param name Character vector of school district names.
+#'
+#' @return Character vector of normalized district names, suitable for use as a
+#'   matching key.
+#'
+#' @export
+standardize_district_name <- function(name) {
+
+  name %>%
+    stringr::str_squish() %>%
+    stringr::str_to_lower() %>%
+    stringr::str_replace_all("(?<=\\b[a-z])\\.(?=[a-z]\\b)", "") %>%
+    stringr::str_replace_all(stringr::regex("school district", ignore_case = TRUE), "") %>%
+    stringr::str_replace_all(stringr::regex("\\bunified\\b",     ignore_case = TRUE), "") %>%
+    stringr::str_replace_all(stringr::regex("\\bindependent\\b", ignore_case = TRUE), "") %>%
+    stringr::str_replace_all(stringr::regex("\\bpublic schools\\b", ignore_case = TRUE), "") %>%
+    stringr::str_replace_all(stringr::regex("\\bcity schools\\b",   ignore_case = TRUE), "") %>%
+    stringr::str_replace_all(stringr::regex("\\bschools\\b",        ignore_case = TRUE), "") %>%
+    stringr::str_replace_all("[/.-]", " ") %>%
+    stringr::str_replace_all("[[:punct:]]", "") %>%
+    stringr::str_replace_all("&", "and") %>%
+    stringr::str_squish()
+}
+
+
 #' Add a school-level classification column
 #'
 #' Inspects the school name to classify each school into one of:
@@ -1098,14 +1131,17 @@ clean_address <- function(x,
 #'
 #' Applies standardization and enrichment steps to a kindergarten vaccination
 #' data frame: lowercases all character columns, creates standardized school
-#' name and county columns for fuzzy matching, adds school level and level code
-#' columns, corrects charter school type, and (if an address column is present)
-#' creates cleaned address columns for address-based matching.
+#' name, county, and (if present) district columns for fuzzy matching, adds
+#' school level and level code columns, corrects charter school type, and
+#' (if an address column is present) creates cleaned address columns for
+#' address-based matching.
 #'
 #' @param kinder_dat A data frame of kindergarten vaccination data.  Must
 #'   contain at least \code{school_name} and \code{county} columns.  An address
 #'   column whose name contains \code{"address"} or \code{"street"} is detected
-#'   automatically.
+#'   automatically.  A \code{district} column is used when present to create
+#'   \code{district_std}; if absent, \code{district_std} is set to
+#'   \code{NA_character_}.
 #'
 #' @return A named list with two elements:
 #' \describe{
@@ -1126,6 +1162,14 @@ clean_kinder_data <- function(kinder_dat) {
     add_school_level(name_col = "school_name_std") %>%
     add_school_level_code_fromtype(name_col = "school_level") %>%
     fix_charter_type(name_col = "school_name")
+
+  if ("district" %in% colnames(kinder_dat)) {
+    kinder_dat <- kinder_dat %>%
+      dplyr::mutate(district_std = standardize_district_name(district))
+  } else {
+    kinder_dat <- kinder_dat %>%
+      dplyr::mutate(district_std = NA_character_)
+  }
 
   kinder_street_col <- if (any(grepl("address", colnames(kinder_dat)))) {
     grep("address", colnames(kinder_dat), value = TRUE, ignore.case = TRUE)[1]
@@ -1175,12 +1219,14 @@ clean_kinder_data <- function(kinder_dat) {
 #'
 #' @param doe_dat A data frame of DOE school data.  Must contain at minimum
 #'   \code{school_name}, \code{county}, \code{grades}, and \code{street}
-#'   columns.
+#'   columns.  A \code{district} column is used when present to create
+#'   \code{district_std}; if absent, \code{district_std} is set to
+#'   \code{NA_character_}.
 #'
 #' @return The enriched data frame with additional columns:
-#'   \code{school_name_std}, \code{county_std}, \code{school_level},
-#'   \code{level_code}, \code{addr_clean}, \code{addr_clean_no_unit},
-#'   \code{data2_id}, and \code{level_code_match}.
+#'   \code{school_name_std}, \code{county_std}, \code{district_std},
+#'   \code{school_level}, \code{level_code}, \code{addr_clean},
+#'   \code{addr_clean_no_unit}, \code{data2_id}, and \code{level_code_match}.
 #'
 #' @importFrom dplyr mutate row_number
 #' @export
@@ -1194,6 +1240,14 @@ clean_doe_data <- function(doe_dat) {
     ) %>%
     add_school_level(name_col = "school_name_std") %>%
     add_school_level_code(name_col = "grades")
+
+  if ("district" %in% colnames(doe_dat)) {
+    doe_dat <- doe_dat %>%
+      dplyr::mutate(district_std = standardize_district_name(district))
+  } else {
+    doe_dat <- doe_dat %>%
+      dplyr::mutate(district_std = NA_character_)
+  }
 
   doe_dat <- doe_dat %>%
     dplyr::mutate(
@@ -1219,8 +1273,8 @@ clean_doe_data <- function(doe_dat) {
 #' Clean GreatSchools school reference data
 #'
 #' Applies standardization steps to a GreatSchools data frame: creates
-#' standardized school name and county matching keys, adds school level
-#' classification, renames selected columns to the package-standard naming
+#' standardized school name, county, and district matching keys, adds school
+#' level classification, renames selected columns to the package-standard naming
 #' convention, cleans address fields for address-based matching, derives
 #' geocoded county and ZIP via \code{\link{get_geo_info}}, assigns a row
 #' identifier, generalizes the level code for cross-source matching, and
@@ -1229,12 +1283,14 @@ clean_doe_data <- function(doe_dat) {
 #' @param gs_dat A data frame of GreatSchools school data.  Must contain at
 #'   minimum \code{name}, \code{county}, \code{county2}, \code{schoolType},
 #'   \code{levelCode}, \code{street1}, \code{lat}, \code{lon}, and \code{zip}
-#'   columns.
+#'   columns.  A \code{districtName} column is used when present to populate
+#'   \code{district} and \code{district_std}.
 #' @param state_abbr Two-letter state abbreviation (e.g., \code{"md"}) used to
 #'   look up geocoded county information via \code{\link{get_geo_info}}.
 #'
 #' @return The enriched data frame with additional columns:
 #'   \code{school_name_std}, \code{county_std}, \code{county2_std},
+#'   \code{district}, \code{district_std},
 #'   \code{school_level}, \code{school_type}, \code{school_name},
 #'   \code{level_code}, \code{addr_clean}, \code{addr_clean_no_unit},
 #'   \code{county_geo}, \code{zip_geo}, \code{county_geo_std},
@@ -1264,6 +1320,21 @@ clean_greatschools_data <- function(gs_dat, state_abbr) {
       level_code  = levelCode
     ) %>%
     dplyr::mutate(zip = as.character(zip))
+
+  # Standardize district from districtName when available
+  if ("districtName" %in% colnames(gs_dat)) {
+    gs_dat <- gs_dat %>%
+      dplyr::mutate(
+        district     = districtName,
+        district_std = standardize_district_name(districtName)
+      )
+  } else if ("district" %in% colnames(gs_dat)) {
+    gs_dat <- gs_dat %>%
+      dplyr::mutate(district_std = standardize_district_name(district))
+  } else {
+    gs_dat <- gs_dat %>%
+      dplyr::mutate(district_std = NA_character_)
+  }
 
   gs_dat <- gs_dat %>%
     dplyr::mutate(
@@ -1366,6 +1437,14 @@ setup_other_sourcedata <- function(other_dat_filenames = c("other_dat.csv", "oth
       ) %>%
       add_school_level(name_col = "school_name_std") %>%
       add_school_level_code(name_col = "grades")
+
+    if ("district" %in% colnames(other_dat)) {
+      other_dat <- other_dat %>%
+        dplyr::mutate(district_std = standardize_district_name(district))
+    } else {
+      other_dat <- other_dat %>%
+        dplyr::mutate(district_std = NA_character_)
+    }
 
     other_dat <- other_dat %>%
       dplyr::mutate(

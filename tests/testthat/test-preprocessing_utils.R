@@ -117,3 +117,47 @@ test_that("standardized_county_name() removes '&' punctuation and preserves word
   expect_match(result, "smith")
   expect_match(result, "jones")
 })
+
+# ---- standardize_district_name() --------------------------------------------
+
+test_that("standardize_district_name() lowercases the name", {
+  result <- standardize_district_name("Wake County School District")
+  expect_equal(result, tolower(result))
+})
+
+test_that("standardize_district_name() removes 'school district'", {
+  result <- standardize_district_name("Wake County School District")
+  expect_false(grepl("school district", result, ignore.case = TRUE))
+})
+
+test_that("standardize_district_name() removes 'unified'", {
+  result <- standardize_district_name("Los Angeles Unified School District")
+  expect_false(grepl("unified", result, ignore.case = TRUE))
+})
+
+test_that("standardize_district_name() removes 'independent'", {
+  result <- standardize_district_name("Austin Independent School District")
+  expect_false(grepl("independent", result, ignore.case = TRUE))
+})
+
+test_that("standardize_district_name() removes 'public schools'", {
+  result <- standardize_district_name("Baltimore City Public Schools")
+  expect_false(grepl("public schools", result, ignore.case = TRUE))
+  expect_match(result, "baltimore")
+})
+
+test_that("standardize_district_name() squishes extra whitespace", {
+  result <- standardize_district_name("  Denver   School   District  ")
+  expect_false(grepl("  ", result))
+})
+
+test_that("standardize_district_name() replaces '&' with 'and'", {
+  result <- standardize_district_name("Smith & Jones District")
+  expect_false(grepl("&", result, fixed = TRUE))
+  expect_match(result, "and")
+})
+
+test_that("standardize_district_name() returns NA for NA input", {
+  result <- standardize_district_name(NA_character_)
+  expect_true(is.na(result))
+})
