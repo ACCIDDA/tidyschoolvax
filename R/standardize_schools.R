@@ -301,11 +301,12 @@ build_reference_key <- function(greatschools_dat,
     parallel = parallel
   )
 
+  m_district_matched <- if (!is.null(m_district)) dplyr::mutate(m_district$matched, match_method = "district")
   matched_scores <- dplyr::bind_rows(
     m_addr$matched     %>% dplyr::mutate(match_method = "address"),
     m_zip$matched      %>% dplyr::mutate(match_method = "zip"),
     m_city$matched     %>% dplyr::mutate(match_method = "city"),
-    if (!is.null(m_district)) m_district$matched %>% dplyr::mutate(match_method = "district") else NULL,
+    m_district_matched,
     m_county$matched   %>% dplyr::mutate(match_method = "county")
   ) %>%
     dplyr::arrange(county_std, school_name_data1, match_score)
@@ -450,10 +451,11 @@ build_reference_key <- function(greatschools_dat,
     parallel = parallel
   )
 
+  t_district_matched <- if (!is.null(t_district)) dplyr::mutate(t_district$matched, match_method = "district")
   matched_third <- dplyr::bind_rows(
     t_addr$matched   %>% dplyr::mutate(match_method = "address"),
     t_zip$matched    %>% dplyr::mutate(match_method = "zip"),
-    if (!is.null(t_district)) t_district$matched %>% dplyr::mutate(match_method = "district") else NULL,
+    t_district_matched,
     t_county$matched %>% dplyr::mutate(match_method = "county")
   ) %>%
     dplyr::arrange(county_std, school_name_data1, match_score)
@@ -766,10 +768,11 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
     m_district <- NULL
   }
 
+  m_district_matched <- if (!is.null(m_district)) m_district$matched
   matched_elem <- dplyr::bind_rows(
     m1$matched,
     m2$matched,
-    if (!is.null(m_district)) m_district$matched else NULL
+    m_district_matched
   ) %>%
     dplyr::arrange(county_std, school_name_std_data1, match_score)
 
