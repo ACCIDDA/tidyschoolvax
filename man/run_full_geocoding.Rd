@@ -50,6 +50,8 @@ Orchestrates a three-step geocoding workflow for a table of unique schools:
         coordinates or a Place ID.
   \item Geocodes schools that lack a street address entirely.
 }
-Results are saved to an \code{.rds} cache after each chunk so that the
-function can be resumed after an interruption.
+Results are saved to an \code{.rds} cache after each API chunk so that the
+function can be resumed after an interruption.  Chunks whose schools are
+all fully cached (no API calls needed) are optionally processed in parallel
+via \pkg{furrr}.
 }

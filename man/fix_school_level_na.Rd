@@ -16,7 +16,7 @@ compatibility with the previous dplyr-based implementation).}
 }
 \value{
 A data.table when \code{data} is a data.table; a data.frame otherwise.
-school_level NA values are fixed where appropriate.
+  school_level NA values are fixed where appropriate.
 }
 \description{
 This function identifies groups (by school_name_std, county_std, school_type)
