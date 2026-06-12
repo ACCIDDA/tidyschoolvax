@@ -151,10 +151,10 @@ test_that("standardize_district_name() squishes extra whitespace", {
   expect_false(grepl("  ", result))
 })
 
-test_that("standardize_district_name() replaces '&' with 'and'", {
-  result <- standardize_district_name("Smith & Jones District")
-  expect_false(grepl("&", result, fixed = TRUE))
-  expect_match(result, "and")
+test_that("standardize_district_name() replaces '&' / '&amp;' with 'and'", {
+  result <- standardize_district_name(c("Smith & Jones District", "Smith &amp; Jones District"))
+  expect_false(any(grepl("&", result, fixed = TRUE)))
+  expect_true(all(grepl("and", result)))
 })
 
 test_that("standardize_district_name() returns NA for NA input", {
