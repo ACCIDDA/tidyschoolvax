@@ -612,8 +612,7 @@ standardize_district_name <- function(name) {
     stringr::str_replace_all(stringr::regex("\\bindependent\\b", ignore_case = TRUE), "") %>%
     stringr::str_replace_all(stringr::regex("\\bpublic schools\\b", ignore_case = TRUE), "") %>%
     stringr::str_replace_all(stringr::regex("\\bcity schools\\b",   ignore_case = TRUE), "") %>%
-    stringr::str_replace_all(stringr::regex("\\bschools\\b",        ignore_case = TRUE), "") %>%
-    stringr::str_replace_all("&", "and") %>%
+    stringr::str_replace_all(stringr::regex("&amp;|&"), "and") %>%
     stringr::str_replace_all("[/.-]", " ") %>%
     stringr::str_replace_all("[[:punct:]]", "") %>%
     stringr::str_squish()
