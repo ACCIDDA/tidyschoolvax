@@ -918,7 +918,7 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
       dplyr::mutate(vacc_data_id = as.character(vacc_data_id)) %>%
       dplyr::select(-dplyr::any_of(c("school_name_std", "county_std",
                                      "county", "school_type", "school_level",
-                                     "city", "zip", "district_std")))
+                                     "city", "zip", "district_std", "district")))
   )
   data.table::setkey(dt_kinder_main, vacc_data_id)
   data.table::setkey(dt_all,         vacc_data_id)
