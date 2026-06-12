@@ -722,30 +722,19 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
     parallel = parallel
   )
 
-  # ---- Match pass 2: county only, for remaining unmatched --------------------
+  # ---- Optional district pass: between pass 1 and county-only pass 2, only
+  #      when district_std is available and differs from county_std ----------
   unmatched_ids1 <- m1$unmatched_dat1$data1_id
-  m2 <- match_schools_names(
-    data1 = kinder_elem %>% dplyr::filter(data1_id %in% unmatched_ids1),
-    data2 = ref_elem,
-    match_cols1 = c("county_std"),
-    match_cols2 = c("county_std"),
-    threshold_jw = 0.15, threshold_jw_min = 0.3, exact_jw = 0.10,
-    parallel = parallel
-  )
 
-  # ---- Optional district pass: before self-match, only when district_std
-  #      is available and differs from county_std in both datasets ----------
   kinder_has_district <- "district_std" %in% colnames(kinder_elem) &&
     any(!is.na(kinder_elem$district_std) & kinder_elem$district_std != "")
   ref_has_district    <- "district_std" %in% colnames(ref_elem) &&
     any(!is.na(ref_elem$district_std) & ref_elem$district_std != "")
 
-  unmatched_ids2 <- m2$unmatched_dat1$data1_id
-
   if (kinder_has_district && ref_has_district) {
     kinder_dist <- kinder_elem %>%
       dplyr::filter(
-        data1_id %in% unmatched_ids2,
+        data1_id %in% unmatched_ids1,
         !is.na(district_std) & district_std != "",
         district_std != county_std
       )
@@ -768,11 +757,24 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
     m_district <- NULL
   }
 
-  m_district_matched <- if (!is.null(m_district)) m_district$matched
+  # ---- Match pass 2: county only, for remaining unmatched --------------------
+  district_matched_ids <- if (!is.null(m_district)) m_district$matched$data1_id else integer(0)
+  unmatched_after_district <- setdiff(unmatched_ids1, district_matched_ids)
+
+  m2 <- match_schools_names(
+    data1 = kinder_elem %>% dplyr::filter(data1_id %in% unmatched_after_district),
+    data2 = ref_elem,
+    match_cols1 = c("county_std"),
+    match_cols2 = c("county_std"),
+    threshold_jw = 0.15, threshold_jw_min = 0.3, exact_jw = 0.10,
+    parallel = parallel
+  )
+
+  m_district_matched <- if (!is.null(m_district)) m_district$matched else NULL
   matched_elem <- dplyr::bind_rows(
     m1$matched,
-    m2$matched,
-    m_district_matched
+    m_district_matched,
+    m2$matched
   ) %>%
     dplyr::arrange(county_std, school_name_std_data1, match_score)
 
