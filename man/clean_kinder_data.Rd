@@ -10,7 +10,9 @@ clean_kinder_data(kinder_dat)
 \item{kinder_dat}{A data frame of kindergarten vaccination data.  Must
 contain at least \code{school_name} and \code{county} columns.  An address
 column whose name contains \code{"address"} or \code{"street"} is detected
-automatically.}
+automatically.  A \code{district} column is used when present to create
+\code{district_std}; if absent, \code{district_std} is set to
+\code{NA_character_}.}
 }
 \value{
 A named list with two elements:
@@ -23,7 +25,8 @@ A named list with two elements:
 \description{
 Applies standardization and enrichment steps to a kindergarten vaccination
 data frame: lowercases all character columns, creates standardized school
-name and county columns for fuzzy matching, adds school level and level code
-columns, corrects charter school type, and (if an address column is present)
-creates cleaned address columns for address-based matching.
+name, county, and (if present) district columns for fuzzy matching, adds
+school level and level code columns, corrects charter school type, and
+(if an address column is present) creates cleaned address columns for
+address-based matching.
 }
