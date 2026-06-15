@@ -345,6 +345,12 @@ fix_school_type_na <- function(data, n_years_data, id_col = "ids_tmp") {
 #'   \code{osa}, \code{qgram}, \code{cosine}, \code{jaccard}, \code{jw},
 #'   \code{soundex}, and \code{score_sums} for ambiguous matches
 #'   (all \code{NA} for exact and unambiguous matches).
+#'   When \code{district} or \code{district_std} are present in the input
+#'   datasets they are preserved in all output data frames: \code{district_std}
+#'   and \code{district} (from \code{data1}) and \code{district_std_data2} and
+#'   \code{district_data2} (from \code{data2}) are included in \code{matched};
+#'   \code{unmatched_dat1} and \code{unmatched_dat2} carry through whichever
+#'   district columns exist in \code{data1} and \code{data2} respectively.
 #'
 #' @importFrom furrr future_map furrr_options
 #' @importFrom future plan
@@ -377,14 +383,16 @@ match_schools_names <- function(data1, data2,
 
   data1 <- data1 %>%
     dplyr::select(tidyselect::any_of(unique(c(
-      "data1_id", "state", "county", "county_std", "city", match_cols1,
+      "data1_id", "state", "county", "county_std", "city",
+      "district", "district_std", match_cols1,
       "school_name", "school_name_std", "school_level", "school_type"
     )))) %>%
     distinct()
 
   data2 <- data2 %>%
     dplyr::select(tidyselect::any_of(unique(c(
-      "data2_id", "state", "county", "county_std", "city", match_cols2,
+      "data2_id", "state", "county", "county_std", "city",
+      "district", "district_std", match_cols2,
       "school_name", "school_name_std", "school_level", "school_type"
     )))) %>%
     distinct()
@@ -551,6 +559,10 @@ match_schools_names <- function(data1, data2,
       ),
       county_std            = data1_row$county_std,
       county                = data1_row$county,
+      district_std          = if ("district_std" %in% names(data1_row)) data1_row$district_std else NA_character_,
+      district              = if ("district"     %in% names(data1_row)) data1_row$district     else NA_character_,
+      district_std_data2    = if ("district_std" %in% names(data2_sub)) data2_sub$district_std[best_idx] else NA_character_,
+      district_data2        = if ("district"     %in% names(data2_sub)) data2_sub$district[best_idx]     else NA_character_,
       data_1_source         = data_1_source,
       data_2_source         = data_2_source,
       school_name_data1     = data1_row$school_name,

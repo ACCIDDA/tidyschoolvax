@@ -55,6 +55,12 @@ A named list with elements \code{matched}, \code{unmatched_dat1},
   \code{osa}, \code{qgram}, \code{cosine}, \code{jaccard}, \code{jw},
   \code{soundex}, and \code{score_sums} for ambiguous matches
   (all \code{NA} for exact and unambiguous matches).
+  When \code{district} or \code{district_std} are present in the input
+  datasets they are preserved in all output data frames: \code{district_std}
+  and \code{district} (from \code{data1}) and \code{district_std_data2} and
+  \code{district_data2} (from \code{data2}) are included in \code{matched};
+  \code{unmatched_dat1} and \code{unmatched_dat2} carry through whichever
+  district columns exist in \code{data1} and \code{data2} respectively.
 }
 \description{
 Deduplicates the selected columns from each input dataset and performs

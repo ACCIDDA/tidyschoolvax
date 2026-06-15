@@ -314,6 +314,67 @@ test_that("match_schools_names respects custom match_cols", {
   expect_equal(res$matched$state[1], "CA")
 })
 
+# ---- district variable propagation ------------------------------------------
+
+test_that("district_std and district are preserved in matched output", {
+  d1 <- make_school_df("Lincoln Elementary", "Alpha County", "data1_id")
+  d1$district     <- "Alpha USD"
+  d1$district_std <- "alpha usd"
+
+  d2 <- make_school_df(c("Lincoln Elementary", "Jefferson Middle"),
+                       c("Alpha County",       "Alpha County"), "data2_id")
+  d2$district     <- c("Alpha USD", "Alpha USD")
+  d2$district_std <- c("alpha usd", "alpha usd")
+
+  res <- match_schools_names(d1, d2)
+
+  expect_true("district_std"      %in% names(res$matched))
+  expect_true("district"          %in% names(res$matched))
+  expect_true("district_std_data2" %in% names(res$matched))
+  expect_true("district_data2"    %in% names(res$matched))
+
+  expect_equal(res$matched$district_std[1],       "alpha usd")
+  expect_equal(res$matched$district[1],           "Alpha USD")
+  expect_equal(res$matched$district_std_data2[1], "alpha usd")
+  expect_equal(res$matched$district_data2[1],     "Alpha USD")
+})
+
+test_that("district_std and district are preserved in unmatched_dat1 and unmatched_dat2", {
+  d1 <- make_school_df("Unknown School", "Alpha County", "data1_id")
+  d1$district     <- "Alpha USD"
+  d1$district_std <- "alpha usd"
+
+  d2 <- make_school_df("Lincoln Elementary", "Alpha County", "data2_id")
+  d2$district     <- "Alpha USD"
+  d2$district_std <- "alpha usd"
+
+  res <- match_schools_names(d1, d2)
+
+  expect_true("district_std" %in% names(res$unmatched_dat1))
+  expect_true("district"     %in% names(res$unmatched_dat1))
+  expect_equal(res$unmatched_dat1$district_std[1], "alpha usd")
+
+  expect_true("district_std" %in% names(res$unmatched_dat2))
+  expect_true("district"     %in% names(res$unmatched_dat2))
+  expect_equal(res$unmatched_dat2$district_std[1], "alpha usd")
+})
+
+test_that("match_schools_names works without district columns (NA placeholders)", {
+  d1 <- make_school_df("Lincoln Elementary", "Alpha County", "data1_id")
+  d2 <- make_school_df(c("Lincoln Elementary", "Jefferson Middle"),
+                       c("Alpha County",       "Alpha County"), "data2_id")
+
+  res <- match_schools_names(d1, d2)
+
+  expect_true("district_std"       %in% names(res$matched))
+  expect_true("district"           %in% names(res$matched))
+  expect_true("district_std_data2" %in% names(res$matched))
+  expect_true("district_data2"     %in% names(res$matched))
+
+  expect_true(is.na(res$matched$district_std[1]))
+  expect_true(is.na(res$matched$district[1]))
+})
+
 # ---- parallel = TRUE: sequential-plan fallback warning ----------------------
 
 test_that("parallel = TRUE with sequential plan emits a warning and still matches", {
