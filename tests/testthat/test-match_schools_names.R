@@ -328,10 +328,10 @@ test_that("district_std and district are preserved in matched output", {
 
   res <- match_schools_names(d1, d2)
 
-  expect_true("district_std"      %in% names(res$matched))
-  expect_true("district"          %in% names(res$matched))
+  expect_true("district_std" %in% names(res$matched))
+  expect_true("district" %in% names(res$matched))
   expect_true("district_std_data2" %in% names(res$matched))
-  expect_true("district_data2"    %in% names(res$matched))
+  expect_true("district_data2" %in% names(res$matched))
 
   expect_equal(res$matched$district_std[1],       "alpha usd")
   expect_equal(res$matched$district[1],           "Alpha USD")
@@ -366,10 +366,10 @@ test_that("match_schools_names works without district columns (NA placeholders)"
 
   res <- match_schools_names(d1, d2)
 
-  expect_true("district_std"       %in% names(res$matched))
-  expect_true("district"           %in% names(res$matched))
+  expect_true("district_std" %in% names(res$matched))
+  expect_true("district" %in% names(res$matched))
   expect_true("district_std_data2" %in% names(res$matched))
-  expect_true("district_data2"     %in% names(res$matched))
+  expect_true("district_data2" %in% names(res$matched))
 
   expect_true(is.na(res$matched$district_std[1]))
   expect_true(is.na(res$matched$district[1]))
