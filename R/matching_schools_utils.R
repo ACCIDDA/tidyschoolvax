@@ -345,12 +345,12 @@ fix_school_type_na <- function(data, n_years_data, id_col = "ids_tmp") {
 #'   \code{osa}, \code{qgram}, \code{cosine}, \code{jaccard}, \code{jw},
 #'   \code{soundex}, and \code{score_sums} for ambiguous matches
 #'   (all \code{NA} for exact and unambiguous matches).
-#'   When \code{district} or \code{district_std} are present in the input
-#'   datasets they are preserved in all output data frames: \code{district_std}
-#'   and \code{district} (from \code{data1}) and \code{district_std_data2} and
-#'   \code{district_data2} (from \code{data2}) are included in \code{matched};
-#'   \code{unmatched_dat1} and \code{unmatched_dat2} carry through whichever
-#'   district columns exist in \code{data1} and \code{data2} respectively.
+#'   The \code{matched} data frame always includes \code{district_std},
+#'   \code{district} (from \code{data1}) and \code{district_std_data2},
+#'   \code{district_data2} (from \code{data2}); when the relevant input columns
+#'   are absent they are filled with \code{NA_character_}.  \code{unmatched_dat1}
+#'   and \code{unmatched_dat2} carry through whichever district columns exist in
+#'   \code{data1} and \code{data2} respectively.
 #'
 #' @importFrom furrr future_map furrr_options
 #' @importFrom future plan
