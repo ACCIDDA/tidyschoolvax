@@ -21,9 +21,8 @@ The enriched data frame with additional columns:
 }
 \description{
 Applies standardization steps to a DOE school data frame: lowercases all
-character columns, creates standardized school name, county, and (if present)
-district matching keys, adds school level and level code columns, cleans
-address fields for address-based matching, assigns a row identifier,
-generalizes the level code for cross-source matching, and corrects charter
-school type.
+character columns, creates standardized school name and county matching
+keys, adds school level and level code columns, cleans address fields for
+address-based matching, assigns a row identifier, generalizes the level code
+for cross-source matching, and corrects charter school type.
 }

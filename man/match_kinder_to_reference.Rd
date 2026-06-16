@@ -36,10 +36,13 @@ A long data frame with one row per vaccination record, merged with
   school metadata and (optionally) kinder addresses.
 }
 \description{
-Performs two rounds of fuzzy matching (county+type, then county-only) to
-link kinder unique schools to the GS+DOE reference, self-matches remaining
-unmatched records within the same county, expands packed ID columns using
-\pkg{data.table}, joins back vaccination counts, and optionally applies the
-kinder address preference.
+Performs up to three rounds of fuzzy matching (county+type, county-only,
+optional district+type) to link kinder unique schools to the GS+DOE
+reference, self-matches remaining unmatched records within the same county,
+expands packed ID columns using \pkg{data.table}, joins back vaccination
+counts, and optionally applies the kinder address preference.  The district
+pass is only executed when \code{district_std} is non-\code{NA} in both
+\code{kinder_dat_for_matching} and \code{matched_df}, and differs from
+\code{county_std}.
 }
 \keyword{internal}

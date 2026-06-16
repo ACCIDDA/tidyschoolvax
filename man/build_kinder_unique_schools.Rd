@@ -10,7 +10,9 @@ build_kinder_unique_schools(kinder_dat, n_years_data)
 \item{kinder_dat}{Data frame of cleaned kindergarten records. Must contain
 columns \code{school_name_std}, \code{county_std}, \code{school_type},
 \code{school_level}, \code{level_code}, \code{year_source}, and
-\code{vacc_data_id} (integer).}
+\code{vacc_data_id} (integer).  When a \code{district_std} column is
+present, the modal (most common non-\code{NA}) district per unique school
+is preserved in the output.}
 
 \item{n_years_data}{Integer. Number of distinct year sources; used as the
 threshold in \code{fix_school_level_na} / \code{fix_school_type_na} and
@@ -19,8 +21,8 @@ for the majority-vote mistype fix.}
 \value{
 A data frame with columns \code{school_name_std}, \code{county_std},
   \code{school_type}, \code{school_level}, \code{level_code},
-  \code{n_records}, \code{year_sources}, \code{vacc_data_ids}, and
-  \code{vacc_school_id}.
+  \code{n_records}, \code{year_sources}, \code{vacc_data_ids},
+  \code{vacc_school_id}, and (when available in input) \code{district_std}.
 }
 \description{
 Creates one row per unique (school, county, type, level) combination,

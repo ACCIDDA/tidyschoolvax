@@ -11,7 +11,7 @@ standardize_district_name(name)
 }
 \value{
 Character vector of normalized district names, suitable for use as a
-matching key.
+  matching key.
 }
 \description{
 Normalizes school district names for comparison across data sources:

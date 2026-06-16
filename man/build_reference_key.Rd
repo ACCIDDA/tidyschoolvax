@@ -27,9 +27,11 @@ build_reference_key(
 A data frame: the merged reference key.
 }
 \description{
-Matches GreatSchools data to DOE data using four passes of fuzzy string
-matching (address, ZIP, city, county), optionally integrates a third
-dataset, applies the chosen address source preference, and returns a single
-reference data frame.
+Matches GreatSchools data to DOE data using up to five passes of fuzzy
+string matching (address, ZIP, city, district (conditional), county),
+optionally integrates a third dataset, applies the chosen address source
+preference, and returns a single reference data frame.  The district pass
+is only executed when \code{district_std} is available (non-\code{NA}) in
+both data sources and differs from \code{county_std}.
 }
 \keyword{internal}
