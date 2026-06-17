@@ -561,12 +561,16 @@ build_reference_key <- function(greatschools_dat,
 #'   \code{vacc_school_id}, and (when available in input) \code{district_std}.
 #' @keywords internal
 build_kinder_unique_schools <- function(kinder_dat, n_years_data) {
-
+  
   key_cols <- c("school_name_std", "county_std", "school_type",
                 "school_level", "level_code")
-
+  
   has_district <- "district_std" %in% colnames(kinder_dat)
-
+  
+  if (has_district){
+    key_cols <- c(key_cols, "district_std")
+  }
+  
   # Helper: re-aggregate a data.table that already has packed id/year columns
   .reaggregate_kinder <- function(dt) {
     dt[, .(
@@ -579,11 +583,11 @@ build_kinder_unique_schools <- function(kinder_dat, n_years_data) {
       order(school_name_std, county_std)
     ][, vacc_school_id := .I][]
   }
-
+  
   # ---- Pass 1: initial aggregation from raw records --------------------------
   dt <- data.table::as.data.table(kinder_dat)
   dt[, vacc_data_id := as.character(vacc_data_id)]
-
+  
   dt_unique <- dt[, .(
     n_records     = .N,
     year_sources  = paste(sort(unique(year_source)), collapse = "; "),
@@ -591,32 +595,33 @@ build_kinder_unique_schools <- function(kinder_dat, n_years_data) {
   ), by = key_cols][
     order(school_name_std, county_std)
   ][, vacc_school_id := .I][]
-
+  
   # ---- Fix NAs in school_level and school_type (existing package functions) --
   dt_unique <- fix_school_level_na(data = dt_unique, n_years_data = n_years_data,
                                    id_col = "vacc_school_id")
   dt_unique <- fix_school_type_na(data  = dt_unique, n_years_data = n_years_data,
                                   id_col = "vacc_school_id")
-
+  
   # ---- Pass 2: re-aggregate after level/type fixes ---------------------------
   dt_unique <- .reaggregate_kinder(
     dt_unique[, c(key_cols, "n_records", "year_sources", "vacc_data_ids"),
               with = FALSE]
   )
-
+  
   # ---- Majority-vote school_type correction ----------------------------------
   mistype_grp <- c("school_name_std", "county_std", "school_level", "level_code")
-
+  if (has_district) mistype_grp <- c(mistype_grp, "district_std")
+  
   dt_unique[, total_recs := sum(n_records), by = mistype_grp]
   dt_unique[, type_wt    := n_records / total_recs,  by = mistype_grp]
-
+  
   # Identify rows belonging to fixable groups
   ids_to_fix <- dt_unique[
     total_recs <= n_years_data & type_wt != 1,
     if (any(type_wt > 0.5)) vacc_school_id,
     by = mistype_grp
   ]$vacc_school_id
-
+  
   if (length(ids_to_fix) > 0) {
     # Set school_type to the majority value within each group
     dt_unique[
@@ -634,22 +639,10 @@ build_kinder_unique_schools <- function(kinder_dat, n_years_data) {
   } else {
     dt_unique[, c("total_recs", "type_wt") := NULL]
   }
-
-  # ---- Attach modal district_std per unique school (when available) ----------
-  if (has_district) {
-    dt_district <- dt[
-      !is.na(district_std) & district_std != "",
-      .(district_std = names(sort(table(district_std), decreasing = TRUE))[1L]),
-      by = key_cols
-    ]
-    dt_unique <- merge(dt_unique, dt_district, by = key_cols, all.x = TRUE)
-    if (!"district_std" %in% colnames(dt_unique)) {
-      dt_unique[, district_std := NA_character_]
-    }
-  }
-
+  
   as.data.frame(dt_unique)
 }
+
 
 
 # Internal: expand a "; "-packed column to individual rows using data.table
@@ -697,87 +690,79 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
                                       addr_source_pref = "greatschools",
                                       kinder_has_addr  = FALSE,
                                       parallel         = FALSE) {
-
+  
   matched_df <- matched_df %>%
     dplyr::distinct() %>%
     dplyr::mutate(school_id = dplyr::row_number())
-
+  
   # Filter to elementary (or unknown) level
   kinder_elem <- kinder_dat_for_matching %>%
     dplyr::filter(grepl("e", level_code, fixed = FALSE) | is.na(level_code)) %>%
     dplyr::select(-dplyr::any_of("data1_id")) %>%
     dplyr::rename(data1_id = vacc_school_id)
-
+  
   ref_elem <- matched_df %>%
     dplyr::filter(grepl("e", level_code, fixed = FALSE) | is.na(level_code)) %>%
     dplyr::select(-dplyr::any_of("data2_id")) %>%
     dplyr::rename(data2_id = school_id)
-
-  # ---- Match pass 1: county + school_type ------------------------------------
+  
+  
+  # ---- Match pass 1: district + county + school type ----------
+  kinder_has_district <- "district_std" %in% colnames(kinder_elem) &&
+    any(!is.na(kinder_elem$district_std) & kinder_elem$district_std != "")
+  ref_has_district    <- "district_std" %in% colnames(ref_elem) &&
+    any(!is.na(ref_elem$district_std) & ref_elem$district_std != "")
+  
+  if (kinder_has_district && ref_has_district) {
+    m_district <- match_schools_names(
+      data1 = kinder_elem, 
+      data2 = ref_elem,
+      match_cols1 = c("county_std", "district_std", "school_type"),
+      match_cols2 = c("county_std", "district_std", "school_type"),
+      threshold_jw = 0.169, threshold_jw_min = 0.3, exact_jw = 0.10,
+      parallel = parallel
+    )
+  } else {
+    m_district <- NULL
+  }
+  
+  
+  # ---- Match pass 2: county + school_type ------------------------------------
+  
+  all_ids <- kinder_elem$data1_id
+  district_matched_ids <- if (!is.null(m_district)) m_district$matched$data1_id else integer(0)
+  unmatched_after_district <- setdiff(all_ids, district_matched_ids)
+  
   m1 <- match_schools_names(
-    data1 = kinder_elem, data2 = ref_elem,
+    data1 = kinder_elem %>% dplyr::filter(data1_id %in% unmatched_after_district),
+    data2 = ref_elem,
     match_cols1 = c("county_std", "school_type"),
     match_cols2 = c("county_std", "school_type"),
     threshold_jw = 0.169, threshold_jw_min = 0.3, exact_jw = 0.10,
     parallel = parallel
   )
-
-  # ---- Optional district pass: between pass 1 and county-only pass 2, only
-  #      when district_std is available and differs from county_std ----------
-  unmatched_ids1 <- m1$unmatched_dat1$data1_id
-
-  kinder_has_district <- "district_std" %in% colnames(kinder_elem) &&
-    any(!is.na(kinder_elem$district_std) & kinder_elem$district_std != "")
-  ref_has_district    <- "district_std" %in% colnames(ref_elem) &&
-    any(!is.na(ref_elem$district_std) & ref_elem$district_std != "")
-
-  if (kinder_has_district && ref_has_district) {
-    kinder_dist <- kinder_elem %>%
-      dplyr::filter(
-        data1_id %in% unmatched_ids1,
-        !is.na(district_std) & district_std != "",
-        district_std != county_std
-      )
-    ref_dist <- ref_elem %>%
-      dplyr::filter(!is.na(district_std) & district_std != "",
-                    district_std != county_std)
-
-    if (nrow(kinder_dist) > 0 && nrow(ref_dist) > 0) {
-      m_district <- match_schools_names(
-        data1 = kinder_dist, data2 = ref_dist,
-        match_cols1 = c("district_std", "school_type"),
-        match_cols2 = c("district_std", "school_type"),
-        threshold_jw = 0.169, threshold_jw_min = 0.3, exact_jw = 0.10,
-        parallel = parallel
-      )
-    } else {
-      m_district <- NULL
-    }
-  } else {
-    m_district <- NULL
-  }
-
-  # ---- Match pass 2: county only, for remaining unmatched --------------------
-  district_matched_ids <- if (!is.null(m_district)) m_district$matched$data1_id else integer(0)
-  unmatched_after_district <- setdiff(unmatched_ids1, district_matched_ids)
-
+  
+  
+  # ---- Match pass 3: county only, for remaining unmatched --------------------
+  unmatched_ids2 <- m1$unmatched_dat1$data1_id
+  
   m2 <- match_schools_names(
-    data1 = kinder_elem %>% dplyr::filter(data1_id %in% unmatched_after_district),
+    data1 = kinder_elem %>% dplyr::filter(data1_id %in% unmatched_ids2),
     data2 = ref_elem,
     match_cols1 = c("county_std"),
     match_cols2 = c("county_std"),
     threshold_jw = 0.15, threshold_jw_min = 0.3, exact_jw = 0.10,
     parallel = parallel
   )
-
+  
   m_district_matched <- if (!is.null(m_district)) m_district$matched else NULL
   matched_elem <- dplyr::bind_rows(
     m1$matched,
     m_district_matched,
     m2$matched
   ) %>%
-    dplyr::arrange(county_std, school_name_std_data1, match_score)
-
+    dplyr::arrange(across(any_of(c("county_std", "district_std", "school_name_std_data1", "match_score"))))
+  
   # ---- Build vacc_data_matched (kinder schools matched to reference) ---------
   vacc_matched <- kinder_elem %>%
     dplyr::rename(vacc_school_id = data1_id) %>%
@@ -789,23 +774,34 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
       by = "vacc_school_id"
     ) %>%
     dplyr::filter(grepl("e", level_code, fixed = FALSE) | is.na(level_code)) %>%
-    dplyr::arrange(county_std, school_name_std, match_score)
-
+    dplyr::arrange(across(any_of(c("county_std", "district_std", "school_name_std", "match_score"))))
+  
   # ---- Self-match: match remaining unmatched kinder records to each other ----
   vacc_to_match   <- kinder_elem %>%
     dplyr::filter(!(data1_id %in% vacc_matched$vacc_school_id))
-
+  
   vacc_matchto <- vacc_matched %>%
     dplyr::select(-dplyr::any_of("data2_id")) %>%
     dplyr::rename(data2_id = vacc_school_id)
-
-  self_match <- match_schools_names(
-    data1 = vacc_to_match, data2 = vacc_matchto,
-    match_cols1 = c("county_std"), match_cols2 = c("county_std"),
-    threshold_jw = 0.20, threshold_jw_min = 0.35, exact_jw = 0.10,
-    parallel = parallel
-  )
-
+  
+  
+  if ("district_std" %in% colnames(vacc_to_match)){
+    self_match <- match_schools_names(
+      data1 = vacc_to_match, data2 = vacc_matchto,
+      match_cols1 = c("county_std", "district_std"), match_cols2 = c("county_std", "district_std"),
+      threshold_jw = 0.20, threshold_jw_min = 0.35, exact_jw = 0.10,
+      parallel = parallel
+    )
+  } else {
+    self_match <- match_schools_names(
+      data1 = vacc_to_match, data2 = vacc_matchto,
+      match_cols1 = c("county_std"), match_cols2 = c("county_std"),
+      threshold_jw = 0.20, threshold_jw_min = 0.35, exact_jw = 0.10,
+      parallel = parallel
+    )
+    
+  }
+  
   vacc_matched_self <- kinder_elem %>%
     dplyr::rename(vacc_school_id = data1_id) %>%
     dplyr::inner_join(
@@ -829,7 +825,7 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
                   school_name_std      = school_name_std_match,
                   vacc_school_id_orig  = vacc_school_id,
                   vacc_school_id       = vacc_school_id2)
-
+  
   # Resolve to the school_id of the matched target.
   # We only need school_id from vacc_matched; all other data (vacc_data_ids,
   # n_records, year_sources, school_name_std, etc.) already comes from the
@@ -840,20 +836,20 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
       vacc_matched %>% dplyr::select(vacc_school_id, school_id),
       by = "vacc_school_id"
     )
-
+  
   # Combine all matched elementary records
   vacc_elem_all <- dplyr::bind_rows(vacc_matched, vacc_self_cln) %>%
     dplyr::arrange(county_std, school_name_std, match_score)
-
+  
   # ---- Expand packed IDs and join (data.table replaces separate_rows) --------
-
+  
   # 1. Expand matched records
   dt_exp <- .dt_expand_ids(
     vacc_elem_all[, c("vacc_data_ids", "match_score", "school_id")],
     packed_col = "vacc_data_ids",
     by_cols    = c("match_score", "school_id")
   )
-
+  
   # 2. Expand kinder_elem for name lookup; rename for clarity
   dt_kinder_names <- .dt_expand_ids(
     kinder_elem[, c("vacc_data_ids", "data1_id", "school_name_std")],
@@ -862,16 +858,17 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
   )
   dt_kinder_names[, school_name_std_vacc := school_name_std]
   dt_kinder_names <- dt_kinder_names[, .(school_name_std_vacc, vacc_data_id)]
-
+  
   # 3. Expand unmatched kinder records.
   # all_matched_ids collects both the directly-matched school IDs (vacc_school_id)
   # and the original IDs of self-matched schools (vacc_school_id_orig2, always
   # present as a column in vacc_elem_all because vacc_self_cln introduces it).
   orig2_col <- "vacc_school_id_orig2"
-  orig2_ids <- if (orig2_col %in% names(vacc_elem_all))
+  orig2_ids <- if (orig2_col %in% names(vacc_elem_all)){
     na.omit(vacc_elem_all[[orig2_col]])
-  else
+  } else {
     integer(0)
+  }
   all_matched_ids <- union(vacc_elem_all$vacc_school_id, orig2_ids)
   dt_unmatched_exp <- .dt_expand_ids(
     kinder_elem %>%
@@ -886,12 +883,12 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
   dt_unmatched_exp <- dt_unmatched_exp[
     , .(school_name_std_vacc, vacc_data_id, county_std, school_type, school_level)
   ]
-
+  
   # 4. Merge names onto expanded matched IDs
   data.table::setkey(dt_exp,          vacc_data_id)
   data.table::setkey(dt_kinder_names, vacc_data_id)
   dt_exp <- dt_kinder_names[dt_exp]   # left join: keep all dt_exp rows
-
+  
   # 5. Add reference-key school metadata
   ref_cols <- c("school_id", "school_name_std", "county_std", "county",
                 "school_type", "school_level", "level_code",
@@ -908,12 +905,12 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
   data.table::setkey(dt_ref, school_id)
   data.table::setkey(dt_exp, school_id)
   dt_matched_full <- dt_ref[dt_exp]   # left join on school_id
-
+  
   # 6. Stack matched + unmatched
   dt_all <- data.table::rbindlist(
     list(dt_matched_full, dt_unmatched_exp), fill = TRUE
   )
-
+  
   # 7. Join vaccination counts / year data back
   dt_kinder_main <- data.table::as.data.table(
     kinder_dat %>%
@@ -925,7 +922,7 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
   data.table::setkey(dt_kinder_main, vacc_data_id)
   data.table::setkey(dt_all,         vacc_data_id)
   vacc_data_cln <- dt_kinder_main[dt_all]
-
+  
   # Reorder columns
   priority <- c("year_source", "vacc_data_id", "school_id", "match_score",
                 "match_source", "school_name_std", "school_name_std_vacc",
@@ -936,9 +933,9 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
   col_order <- c(intersect(priority, names(vacc_data_cln)),
                  setdiff(names(vacc_data_cln), priority))
   vacc_data_cln <- vacc_data_cln[, col_order, with = FALSE]
-
+  
   vacc_data_final <- as.data.frame(vacc_data_cln)
-
+  
   # ---- Write unmatched-schools pre-geocode report ----------------------------
   schools_unmatched <- vacc_data_final %>%
     dplyr::filter(is.na(school_id)) %>%
@@ -955,18 +952,18 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
       )) %>% dplyr::rename(vacc_school_id = data1_id),
       by = "vacc_data_id"
     )
-
+  
   if (!dir.exists(temp_data_dir)) dir.create(temp_data_dir, recursive = TRUE)
   utils::write.csv(
     schools_unmatched,
     file.path(temp_data_dir, "schools_unmatched_pregeocode.csv"),
     row.names = FALSE
   )
-
+  
   # ---- Apply kinder address preference (if set) ------------------------------
   if (addr_source_pref == "kinder" && isTRUE(kinder_has_addr)) {
     dt_f <- data.table::as.data.table(vacc_data_final)
-
+    
     # Step 1: use kinder address where available (data.table native fifelse)
     if ("addr_clean_kinder" %in% names(dt_f)) {
       dt_f[, addr_clean := data.table::fifelse(
@@ -976,7 +973,7 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
       dt_f[, zip  := data.table::fifelse(
         is.na(zip_kinder), as.character(zip), as.character(zip_kinder))]
     }
-
+    
     # Step 2: compute modal address/city/zip once per school_id group,
     # then fill remaining NAs
     dt_f[!is.na(school_id), `:=`(
@@ -990,10 +987,10 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
       zip        = data.table::fifelse(is.na(zip),        .zip_modal,  as.character(zip))
     )]
     dt_f[, c(".addr_modal", ".city_modal", ".zip_modal") := NULL]
-
+    
     vacc_data_final <- as.data.frame(dt_f)
   }
-
+  
   vacc_data_final
 }
 
