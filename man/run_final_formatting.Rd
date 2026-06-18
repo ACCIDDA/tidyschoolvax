@@ -19,8 +19,12 @@ run_final_formatting(
 \item{state}{Two-letter state abbreviation (e.g., \code{"md"}).}
 
 \item{vaccine_type_to_keep}{Vaccine type string used to filter the
-\code{vaccine_type} column (e.g., \code{"mmr"}).  The comparison is
-case-insensitive.  If the column is absent the filter is skipped.}
+\code{vaccine_type} column (e.g., \code{"mmr"}); the comparison is
+case-insensitive.  Use \code{NULL} (or \code{"all"} / \code{"both"}) to keep
+every vaccine type — e.g. when a state reports MMR for some school-years and
+only overall coverage for others, and both should pass through with their
+\code{vaccine_type} tag intact.  If the column is absent the filter is
+skipped.}
 
 \item{temp_data_dir}{Path to the directory containing
 \code{kinder_vaccination_clean_03.rds} and used for intermediate outputs.}

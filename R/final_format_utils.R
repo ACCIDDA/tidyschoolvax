@@ -1132,8 +1132,12 @@ print_dqa_summary <- function(dqa_report) {
 #'
 #' @param state Two-letter state abbreviation (e.g., \code{"md"}).
 #' @param vaccine_type_to_keep Vaccine type string used to filter the
-#'   \code{vaccine_type} column (e.g., \code{"mmr"}).  The comparison is
-#'   case-insensitive.  If the column is absent the filter is skipped.
+#'   \code{vaccine_type} column (e.g., \code{"mmr"}); the comparison is
+#'   case-insensitive.  Use \code{NULL} (or \code{"all"} / \code{"both"}) to keep
+#'   every vaccine type — e.g. when a state reports MMR for some school-years and
+#'   only overall coverage for others, and both should pass through with their
+#'   \code{vaccine_type} tag intact.  If the column is absent the filter is
+#'   skipped.
 #' @param temp_data_dir Path to the directory containing
 #'   \code{kinder_vaccination_clean_03.rds} and used for intermediate outputs.
 #' @param clean_data_dir Path to the directory where the final
@@ -1172,13 +1176,20 @@ run_final_formatting <- function(state,
   kinder_dat <- readRDS(file.path(temp_data_dir, "kinder_vaccination_clean_03.rds"))
   
   # ---- PART 0: Vaccine type filter --------------------------------------------
-  if ("vaccine_type" %in% names(kinder_dat)) {
+  # `vaccine_type_to_keep = NULL` (or "all"/"both") keeps every vaccine type, so
+  # a state that mixes types across school-years (e.g. MMR where reported,
+  # overall otherwise) can carry both through with their `vaccine_type` tag.
+  keep_all_vaccine_types <- is.null(vaccine_type_to_keep) ||
+    tolower(vaccine_type_to_keep) %in% c("all", "both")
+  if (!("vaccine_type" %in% names(kinder_dat))) {
+    message("Column 'vaccine_type' not found — skipping filter")
+  } else if (keep_all_vaccine_types) {
+    message("Keeping all vaccine types (n = ", nrow(kinder_dat), ")")
+  } else {
     kinder_dat <- kinder_dat %>%
       dplyr::filter(tolower(vaccine_type) == tolower(vaccine_type_to_keep))
     message("Filtered to vaccine_type == '", vaccine_type_to_keep,
             "' (n = ", nrow(kinder_dat), ")")
-  } else {
-    message("Column 'vaccine_type' not found — skipping filter")
   }
   
   # ---- PART 1: Automatic DQA corrections -------------------------------------
