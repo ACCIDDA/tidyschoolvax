@@ -36,6 +36,34 @@ test_that("matches in the key column's own type", {
   expect_identical(out$val, c(1L, 9L))
 })
 
+test_that("matches on a composite (multi-column) key", {
+  df <- data.frame(
+    county = c("wake", "wake", "guilford"),
+    year = c("2017-18", "2018-19", "2017-18"),
+    school = c("underwood", "underwood", "underwood"),
+    count_up_to_date = c(NA_integer_, 70L, 40L),
+    stringsAsFactors = FALSE
+  )
+  patches <- data.frame(
+    county = "wake", year = "2017-18", school = "underwood",
+    field = "count_up_to_date", value = "67", stringsAsFactors = FALSE
+  )
+  out <- apply_patches(df, patches, key = c("county", "year", "school"))
+  # only the exact (county, year, school) triple is touched
+  expect_identical(out$count_up_to_date, c(67L, 70L, 40L))
+})
+
+test_that("a composite patch that matches no row reports all key parts", {
+  df <- data.frame(county = "wake", year = "2017-18", school = "underwood",
+                   count = 1L, stringsAsFactors = FALSE)
+  patches <- data.frame(county = "wake", year = "2099-00", school = "nowhere",
+                        field = "count", value = "9", stringsAsFactors = FALSE)
+  expect_error(
+    apply_patches(df, patches, key = c("county", "year", "school")),
+    "wake \\| 2099-00 \\| nowhere"
+  )
+})
+
 test_that("the patch key column may be named after the match key", {
   df <- make_df()
   patches <- data.frame(school_id = "A1", field = "addr", value = "new",
@@ -66,7 +94,7 @@ test_that("unknown field or missing key column is an error", {
   expect_error(
     apply_patches(df, data.frame(key = "A1", field = "addr", value = "x"),
                   key = "missing_col"),
-    "not a column in"
+    "match key column"
   )
 })
 

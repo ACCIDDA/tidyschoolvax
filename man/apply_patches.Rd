@@ -9,15 +9,19 @@ apply_patches(data, patches, key = "key", strict = TRUE)
 \arguments{
 \item{data}{A data frame to correct.}
 
-\item{patches}{A patch table (a data frame with columns \code{key},
-\code{field}, \code{value}) or a path to a \code{.csv} or \code{.rds} file
-holding one.  When a data frame is supplied, the key column may be named
-\code{key} or may share the name passed to \code{key}.}
+\item{patches}{A patch table (a data frame with the key column(s) plus
+\code{field} and \code{value}) or a path to a \code{.csv} or \code{.rds}
+file holding one.}
 
-\item{key}{Name of the column used to match patch rows against \code{data}.
-Prefer a stable identifier (for example a school id) over a mutable label
-such as \code{school_name_orig}: matching on a name is brittle and breaks
-silently when the upstream label changes.  Defaults to \code{"key"}.}
+\item{key}{Name(s) of the column(s) used to match patch rows against
+\code{data}.  Pass a character vector for a \emph{composite} key (for
+example \code{c("county", "year", "school_name")}): a patch row then
+matches the \code{data} rows that are equal on \emph{all} of those columns.
+Prefer stable identifiers over a mutable label such as
+\code{school_name_orig}, which is brittle and breaks silently when the
+upstream label changes.  The patch table must contain each key column by
+name; a single-column key may instead be named \code{key}.  Defaults to
+\code{"key"}.}
 
 \item{strict}{If \code{TRUE} (the default), a patch whose key matches no row
 in \code{data} is an error, so a stale correction cannot silently do
@@ -31,7 +35,7 @@ nothing.  If \code{FALSE}, unmatched patches emit a warning and are skipped.}
 Applies a set of manual, per-record corrections to a data frame from a
 separate \emph{patch table}, so that state-specific fixes live in data rather
 than being hard-coded into cleaning scripts.  A patch table is long-form with
-one correction per row: a key that identifies the record(s) to change, the
+one correction per row: the key(s) that identify the record(s) to change, the
 \code{field} (column) to change, and the new \code{value}.
 }
 \details{
@@ -55,5 +59,18 @@ patches <- data.frame(
   stringsAsFactors = FALSE
 )
 apply_patches(df, patches, key = "school_id")
+
+# A composite key (county + year + school) identifies the record:
+enroll <- data.frame(
+  county = c("wake", "wake"),
+  year = c("2017-18", "2018-19"),
+  school = c("underwood", "underwood"),
+  total_enrollment = c(NA, 70L)
+)
+epatch <- data.frame(
+  county = "wake", year = "2017-18", school = "underwood",
+  field = "total_enrollment", value = "67", stringsAsFactors = FALSE
+)
+apply_patches(enroll, epatch, key = c("county", "year", "school"))
 
 }

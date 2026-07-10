@@ -3,7 +3,7 @@
 #' Applies a set of manual, per-record corrections to a data frame from a
 #' separate \emph{patch table}, so that state-specific fixes live in data rather
 #' than being hard-coded into cleaning scripts.  A patch table is long-form with
-#' one correction per row: a key that identifies the record(s) to change, the
+#' one correction per row: the key(s) that identify the record(s) to change, the
 #' \code{field} (column) to change, and the new \code{value}.
 #'
 #' Patch tables typically contain identifiable, unpublished corrections and
@@ -13,14 +13,18 @@
 #' the format.
 #'
 #' @param data A data frame to correct.
-#' @param patches A patch table (a data frame with columns \code{key},
-#'   \code{field}, \code{value}) or a path to a \code{.csv} or \code{.rds} file
-#'   holding one.  When a data frame is supplied, the key column may be named
-#'   \code{key} or may share the name passed to \code{key}.
-#' @param key Name of the column used to match patch rows against \code{data}.
-#'   Prefer a stable identifier (for example a school id) over a mutable label
-#'   such as \code{school_name_orig}: matching on a name is brittle and breaks
-#'   silently when the upstream label changes.  Defaults to \code{"key"}.
+#' @param patches A patch table (a data frame with the key column(s) plus
+#'   \code{field} and \code{value}) or a path to a \code{.csv} or \code{.rds}
+#'   file holding one.
+#' @param key Name(s) of the column(s) used to match patch rows against
+#'   \code{data}.  Pass a character vector for a \emph{composite} key (for
+#'   example \code{c("county", "year", "school_name")}): a patch row then
+#'   matches the \code{data} rows that are equal on \emph{all} of those columns.
+#'   Prefer stable identifiers over a mutable label such as
+#'   \code{school_name_orig}, which is brittle and breaks silently when the
+#'   upstream label changes.  The patch table must contain each key column by
+#'   name; a single-column key may instead be named \code{key}.  Defaults to
+#'   \code{"key"}.
 #' @param strict If \code{TRUE} (the default), a patch whose key matches no row
 #'   in \code{data} is an error, so a stale correction cannot silently do
 #'   nothing.  If \code{FALSE}, unmatched patches emit a warning and are skipped.
@@ -43,6 +47,19 @@
 #' )
 #' apply_patches(df, patches, key = "school_id")
 #'
+#' # A composite key (county + year + school) identifies the record:
+#' enroll <- data.frame(
+#'   county = c("wake", "wake"),
+#'   year = c("2017-18", "2018-19"),
+#'   school = c("underwood", "underwood"),
+#'   total_enrollment = c(NA, 70L)
+#' )
+#' epatch <- data.frame(
+#'   county = "wake", year = "2017-18", school = "underwood",
+#'   field = "total_enrollment", value = "67", stringsAsFactors = FALSE
+#' )
+#' apply_patches(enroll, epatch, key = c("county", "year", "school"))
+#'
 #' @export
 apply_patches <- function(data, patches, key = "key", strict = TRUE) {
   if (is.character(patches) && length(patches) == 1L) {
@@ -56,19 +73,28 @@ apply_patches <- function(data, patches, key = "key", strict = TRUE) {
          call. = FALSE)
   }
 
-  # The patch table may carry its key column under the generic name "key" or
-  # under the same name as the matching column in `data`.
-  patch_key <- if (key %in% names(patches)) key else "key"
-  needed <- c(patch_key, "field", "value")
+  # Resolve the patch table's key column(s). A single-column key may be carried
+  # under the generic name "key" or under the same name as the match column; a
+  # composite key must name every column explicitly.
+  if (length(key) == 1L) {
+    patch_keys <- if (key %in% names(patches)) key else "key"
+  } else {
+    patch_keys <- key
+  }
+
+  needed <- c(patch_keys, "field", "value")
   missing_cols <- setdiff(needed, names(patches))
   if (length(missing_cols)) {
     stop("patch table is missing column(s): ",
          paste(missing_cols, collapse = ", "),
-         ". A patch table must be long-form with columns '", patch_key,
-         "', 'field' and 'value'.", call. = FALSE)
+         ". A patch table must be long-form with column(s) ",
+         paste(sprintf("'%s'", patch_keys), collapse = ", "),
+         " plus 'field' and 'value'.", call. = FALSE)
   }
-  if (!key %in% names(data)) {
-    stop("match key '", key, "' is not a column in `data`.", call. = FALSE)
+  missing_key <- setdiff(key, names(data))
+  if (length(missing_key)) {
+    stop("match key column(s) not present in `data`: ",
+         paste(missing_key, collapse = ", "), ".", call. = FALSE)
   }
 
   patches$field <- as.character(patches$field)
@@ -78,24 +104,35 @@ apply_patches <- function(data, patches, key = "key", strict = TRUE) {
          paste(unknown_fields, collapse = ", "), ".", call. = FALSE)
   }
 
-  # Match in the key column's own type so that, e.g., a CSV-read character key
-  # lines up with a numeric id column.
-  keys <- coerce_like(patches[[patch_key]], data[[key]])
-  unmatched <- character(0L)
+  # Match each key column in the type of its `data` counterpart, so a
+  # CSV-read character key lines up with, e.g., a numeric id column.
+  keys <- Map(
+    function(pcol, dcol) coerce_like(pcol, dcol),
+    patches[patch_keys], data[key]
+  )
 
+  unmatched <- integer(0L)
   for (i in seq_len(nrow(patches))) {
-    field <- patches$field[i]
-    hit <- !is.na(data[[key]]) & data[[key]] == keys[i]
+    hit <- rep_len(TRUE, nrow(data))
+    for (j in seq_along(key)) {
+      col <- data[[key[j]]]
+      hit <- hit & !is.na(col) & col == keys[[j]][i]
+    }
     if (!any(hit)) {
-      unmatched <- c(unmatched, as.character(patches[[patch_key]][i]))
+      unmatched <- c(unmatched, i)
       next
     }
+    field <- patches$field[i]
     data[[field]][hit] <- coerce_like(patches$value[i], data[[field]])
   }
 
   if (length(unmatched)) {
+    labels <- do.call(paste, c(
+      lapply(patch_keys, function(k) as.character(patches[[k]][unmatched])),
+      sep = " | "
+    ))
     msg <- paste0("patch key(s) matched no row in `data`: ",
-                  paste(unique(unmatched), collapse = ", "),
+                  paste(unique(labels), collapse = "; "),
                   " (stale patch?).")
     if (strict) stop(msg, call. = FALSE) else warning(msg, call. = FALSE)
   }

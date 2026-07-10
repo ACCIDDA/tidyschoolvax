@@ -256,6 +256,10 @@ dplyr::left_join(
 #   key     = "school_name_orig"  # CUSTOMIZE: prefer a stable school id if you have one
 # )
 #
+# `key` may be a vector for a COMPOSITE key when no single stable id exists --
+# e.g. key = c("county_std", "year", "school_name_orig"); the patch file then
+# carries one column per key part plus `field` and `value`.
+#
 # GENERIC — ensure addr_clean is consistently lower-case after any edits:
 # kinder_dat <- kinder_dat |>
 #   dplyr::mutate(addr_clean = tolower(addr_clean))
