@@ -69,3 +69,12 @@ tidyschoolvax.Rproj
 **/cleaning_temp/
 
 .positai
+
+# Private data patches (see apply_patches()). These hold identifiable, real
+# corrections and must NEVER be committed -- treat them like raw data. The only
+# patch file in the repo is the synthetic inst/extdata/example_patches.csv,
+# which documents the format and is deliberately NOT ignored below.
+*_patches.csv
+*_patches.rds
+patches/
+!inst/extdata/example_patches.csv

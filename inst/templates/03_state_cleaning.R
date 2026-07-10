@@ -237,34 +237,24 @@ dplyr::left_join(
 #     grepl("^[0-9]", addr_clean)       # keeps only rows where address starts with a number
 #   )
 #
-# --- Option B: Hard-code known addresses for schools that failed geocoding ----
-# Define a helper function and call it once (see MD for a full worked example).
-# The `name` argument should match the pre-standardization school name column
-# (school_name_orig).
+# --- Option B: Patch known corrections for schools that failed geocoding ------
+# Do NOT hard-code the corrections into this (committed) script. Keep them in a
+# PRIVATE patch file -- these are real, identifiable corrections and must never
+# be committed (the package .gitignore ignores *_patches.csv / *_patches.rds /
+# patches/). Apply them with apply_patches(), which reads the patch table and
+# sets the named fields on the matching rows.
 #
-# hardcode_school_addresses <- function(df) {
-#   fix <- function(df, name, addr, city, zip, business_status, lat, lon) {
-#     idx <- df$school_name_orig == name    # match on pre-standardization name
-#     df$addr_clean[idx]      <- addr
-#     df$city[idx]            <- city
-#     df$zip[idx]             <- zip
-#     df$business_status[idx] <- business_status
-#     df$lat[idx]             <- lat
-#     df$lon[idx]             <- lon
-#     df
-#   }
-#   # CUSTOMIZE: add one fix() call per school that needs a manual address:
-#   # df <- fix(df,
-#   #           name            = "<school_name_orig value>",
-#   #           addr            = "<street address>",
-#   #           city            = "<city>",
-#   #           zip             = <zip_code>,
-#   #           business_status = "OPERATIONAL",
-#   #           lat             = <latitude>,
-#   #           lon             = <longitude>)
-#   return(df)
-# }
-# kinder_dat <- hardcode_school_addresses(kinder_dat)
+# The patch file is long-form: one correction per row, with columns
+#   key,field,value
+# where `key` identifies the record. Prefer a STABLE id over a mutable label
+# (school_name_orig is brittle -- it changes when the upstream name changes).
+# See inst/extdata/example_patches.csv for a (synthetic) example of the format.
+#
+# kinder_dat <- apply_patches(
+#   kinder_dat,
+#   patches = "<path to your private *_patches.csv>",  # kept out of git
+#   key     = "school_name_orig"  # CUSTOMIZE: prefer a stable school id if you have one
+# )
 #
 # GENERIC — ensure addr_clean is consistently lower-case after any edits:
 # kinder_dat <- kinder_dat |>

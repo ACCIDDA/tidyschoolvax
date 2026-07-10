@@ -1,0 +1,7 @@
+key,field,value
+SYNTHETIC-001,addr_clean,100 example st
+SYNTHETIC-001,city,exampleville
+SYNTHETIC-001,zip,00000
+SYNTHETIC-001,lat,35.0000
+SYNTHETIC-001,lon,-80.0000
+SYNTHETIC-002,business_status,OPERATIONAL
