@@ -1237,7 +1237,7 @@ run_final_formatting <- function(state,
                       "enrollment", "current", "med_exempt", "rel_exempt"),
     optional_cols = c("school_type", "school_level", "excluded_note",
                       "addr_clean", "city", "zip", "state", "business_status",
-                      "lat", "lon")
+                      "lat", "lon", "district", "district_std")
   )
   
   kinder_dat <- format_fix_column_classes(kinder_dat)
