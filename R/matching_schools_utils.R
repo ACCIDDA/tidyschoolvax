@@ -502,11 +502,13 @@ match_schools_names <- function(data1, data2,
         stringsAsFactors = FALSE
       )
 
-      dists_gtbl <- dists_gtbl %>%
-        dplyr::mutate(prob_osa = osa / nchar(data2_sub$school_name_std))
-
       # Use pre-computed lowercased filter values for this row
       filter_vals_i <- filter_vals_all[i, , drop = FALSE]
+      filter_vals_rep <- filter_vals_i[rep(1L, nrow(dists_gtbl)), , drop = FALSE]
+      candidate_name_length <- pmax(nchar(data2_sub$school_name_std), 1L)
+
+      dists_gtbl <- dists_gtbl %>%
+        dplyr::mutate(prob_osa = osa / candidate_name_length)
 
       mo <- dists_gtbl %>%
         dplyr::as_tibble() %>%
@@ -514,7 +516,7 @@ match_schools_names <- function(data1, data2,
           name         = data1_row$school_name_std,
           name_options = data2_sub$school_name_std
         ) %>%
-        dplyr::bind_cols(filter_vals_i[rep(1L, nrow(.)), ]) %>%
+        dplyr::bind_cols(filter_vals_rep) %>%
         dplyr::select(name, name_options, dplyr::any_of(match_cols1),
                       dplyr::everything()) %>%
         dplyr::filter(jw < .5, jaccard < .5) %>%
@@ -653,7 +655,6 @@ match_schools_names <- function(data1, data2,
     match_summary  = match_summary
   ))
 }
-
 
 
 
