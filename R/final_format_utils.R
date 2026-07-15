@@ -980,7 +980,9 @@ format_fix_column_classes <- function(df, warn_on_change = TRUE, warn_on_missing
     state            = "character",
     business_status  = "character",
     lat              = "numeric",
-    lon              = "numeric"
+    lon              = "numeric",
+    district         = "character",
+    district_std     = "character"
   )
   
   cols_present <- intersect(names(expected_classes), names(df))
