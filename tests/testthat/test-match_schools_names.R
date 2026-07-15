@@ -71,7 +71,7 @@ test_that("non-exact candidates return status 3 with up to 10 rows", {
   groups2 <- rep("beta county", 15)
 
   res <- tidyschoolvax:::match_schools_batch_cpp(
-    names1           = "washington highschool",
+    names1           = "washngton highschool",
     groups1          = "beta county",
     names2           = names2,
     groups2          = groups2,
@@ -89,7 +89,7 @@ test_that("status-3 candidates include all six pre-computed metrics", {
   groups2 <- rep("beta county", 5)
 
   res <- tidyschoolvax:::match_schools_batch_cpp(
-    names1           = "washington highschool",
+    names1           = "washngton highschool",
     groups1          = "beta county",
     names2           = names2,
     groups2          = groups2,
@@ -181,7 +181,7 @@ test_that("NA group in data1 is treated as unmatched", {
 
 test_that("multiple data1 rows with different groups are handled independently", {
   res <- tidyschoolvax:::match_schools_batch_cpp(
-    names1           = c("lincoln elementary", "no match school"),
+    names1           = c("lincoln elementary", "zzz"),
     groups1          = c("alpha county", "alpha county"),
     names2           = c("lincoln elementary", "jefferson middle"),
     groups2          = c("alpha county", "alpha county"),
