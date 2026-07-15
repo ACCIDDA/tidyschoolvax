@@ -505,6 +505,8 @@ match_schools_names <- function(data1, data2,
       # Use pre-computed lowercased filter values for this row
       filter_vals_i <- filter_vals_all[i, , drop = FALSE]
       filter_vals_rep <- filter_vals_i[rep(1L, nrow(dists_gtbl)), , drop = FALSE]
+      # Guard empty candidate names so prob_osa remains finite when dividing by
+      # the standardized candidate-name length.
       candidate_name_length <- pmax(nchar(data2_sub$school_name_std), 1L)
 
       dists_gtbl <- dists_gtbl %>%
@@ -627,11 +629,7 @@ match_schools_names <- function(data1, data2,
   matched_df     <- dplyr::bind_rows(matched_rows)
   unmatched_dat1 <- dplyr::bind_rows(unmatched_rows)
 
-  matched_names <- if ("school_name_std_data2" %in% names(matched_df)) {
-    matched_df$school_name_std_data2
-  } else {
-    character(0)
-  }
+  matched_names <- rlang::`%||%`(matched_df[["school_name_std_data2"]], character(0))
   unmatched_dat2 <- data2 %>%
     dplyr::filter(!(school_name_std %in% matched_names))
 
@@ -655,7 +653,6 @@ match_schools_names <- function(data1, data2,
     match_summary  = match_summary
   ))
 }
-
 
 
 
