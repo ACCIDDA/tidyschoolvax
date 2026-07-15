@@ -209,7 +209,13 @@ match_locations <- function(
 #' @export
 #'
 #' @examples
-#' cleaned <- fix_school_level_na(kinder_dat_unique, n_years_data = 10, id_col = "ids_tmp")
+#' dat <- data.frame(
+#'   school_name_std = c("oak elementary", "oak elementary"),
+#'   county_std      = c("riverside", "riverside"),
+#'   school_type     = c("public", "public"),
+#'   school_level    = c("elementary", NA_character_)
+#' )
+#' cleaned <- fix_school_level_na(dat, n_years_data = 10, id_col = "ids_tmp")
 fix_school_level_na <- function(data, n_years_data, id_col = "ids_tmp") {
 
   grp_cols <- c("school_name_std", "county_std", "school_type")
@@ -267,7 +273,13 @@ fix_school_level_na <- function(data, n_years_data, id_col = "ids_tmp") {
 #' @export
 #'
 #' @examples
-#' cleaned <- fix_school_type_na(kinder_dat_unique, n_years_data = 10, id_col = "ids_tmp")
+#' dat <- data.frame(
+#'   school_name_std = c("oak elementary", "oak elementary"),
+#'   county_std      = c("riverside", "riverside"),
+#'   school_level    = c("elementary", "elementary"),
+#'   school_type     = c("public", NA_character_)
+#' )
+#' cleaned <- fix_school_type_na(dat, n_years_data = 10, id_col = "ids_tmp")
 fix_school_type_na <- function(data, n_years_data, id_col = "ids_tmp") {
 
   grp_cols <- c("school_name_std", "county_std", "school_level")
