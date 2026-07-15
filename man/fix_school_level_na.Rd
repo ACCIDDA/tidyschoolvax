@@ -24,5 +24,11 @@ where school_level has NAs but all non-NA values are identical. In these cases,
 the function fills in missing school_level values for all rows in the group.
 }
 \examples{
-cleaned <- fix_school_level_na(kinder_dat_unique, n_years_data = 10, id_col = "ids_tmp")
+dat <- data.frame(
+  school_name_std = c("oak elementary", "oak elementary"),
+  county_std      = c("riverside", "riverside"),
+  school_type     = c("public", "public"),
+  school_level    = c("elementary", NA_character_)
+)
+cleaned <- fix_school_level_na(dat, n_years_data = 10, id_col = "ids_tmp")
 }
