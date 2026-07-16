@@ -177,7 +177,7 @@ match_locations <- function(
   }
 
   res <- data.frame(name = name, score_sum = score_sum)
-  return(res[, c(return_name, return_score)])
+  return(res[, c(return_name, return_score), drop = FALSE])
 }
 
 
@@ -209,7 +209,13 @@ match_locations <- function(
 #' @export
 #'
 #' @examples
-#' cleaned <- fix_school_level_na(kinder_dat_unique, n_years_data = 10, id_col = "ids_tmp")
+#' dat <- data.frame(
+#'   school_name_std = c("oak elementary", "oak elementary"),
+#'   county_std      = c("riverside", "riverside"),
+#'   school_type     = c("public", "public"),
+#'   school_level    = c("elementary", NA_character_)
+#' )
+#' cleaned <- fix_school_level_na(dat, n_years_data = 10, id_col = "ids_tmp")
 fix_school_level_na <- function(data, n_years_data, id_col = "ids_tmp") {
 
   grp_cols <- c("school_name_std", "county_std", "school_type")
@@ -267,7 +273,13 @@ fix_school_level_na <- function(data, n_years_data, id_col = "ids_tmp") {
 #' @export
 #'
 #' @examples
-#' cleaned <- fix_school_type_na(kinder_dat_unique, n_years_data = 10, id_col = "ids_tmp")
+#' dat <- data.frame(
+#'   school_name_std = c("oak elementary", "oak elementary"),
+#'   county_std      = c("riverside", "riverside"),
+#'   school_level    = c("elementary", "elementary"),
+#'   school_type     = c("public", NA_character_)
+#' )
+#' cleaned <- fix_school_type_na(dat, n_years_data = 10, id_col = "ids_tmp")
 fix_school_type_na <- function(data, n_years_data, id_col = "ids_tmp") {
 
   grp_cols <- c("school_name_std", "county_std", "school_level")
@@ -502,47 +514,45 @@ match_schools_names <- function(data1, data2,
         stringsAsFactors = FALSE
       )
 
-      # When there is only one candidate, select it directly.
-      if (nrow(dists_gtbl) == 1L) {
-        best_idx <- match(dists_gtbl$name, data2_sub$school_name_std)
+      # Use pre-computed lowercased filter values for this row
+      filter_vals_i <- filter_vals_all[i, , drop = FALSE]
+      filter_vals_rep <- filter_vals_i[rep(1L, nrow(dists_gtbl)), , drop = FALSE]
+      # Guard empty candidate names so prob_osa remains finite when dividing by
+      # the standardized candidate-name length.
+      candidate_name_length <- pmax(nchar(data2_sub$school_name_std), 1L)
 
+      dists_gtbl <- dists_gtbl %>%
+        dplyr::mutate(prob_osa = osa / candidate_name_length)
+
+      mo <- dists_gtbl %>%
+        dplyr::as_tibble() %>%
+        dplyr::mutate(
+          name         = data1_row$school_name_std,
+          name_options = data2_sub$school_name_std
+        ) %>%
+        dplyr::bind_cols(filter_vals_rep) %>%
+        dplyr::select(name, name_options, dplyr::any_of(match_cols1),
+                      dplyr::everything()) %>%
+        dplyr::filter(jw < .5, jaccard < .5) %>%
+        dplyr::mutate(match_level = dplyr::case_when(
+          (jaccard <= 0.05 & cosine <= 0.05)                           ~ 1L,
+          (jw <= 0.15)                                                  ~ 1L,
+          (soundex == 0 & jw <= 0.3)                                    ~ 1L,
+          (soundex == 0 & cosine <= 0.25)                               ~ 2L,
+          (jaccard <= 0.15 & cosine <= 0.15 & prob_osa <= 0.4)          ~ 2L,
+          (jw <= 0.21)                                                   ~ 2L,
+          TRUE                                                           ~ 1000L
+        ))
+
+      if (any(mo$match_level <= 3L)) {
+        best_local        <- which.min(mo$match_level)
+        best_match_scores <- mo[best_local, ]
+        best_idx          <- match(mo$name_options[best_local],
+                                   data2_sub$school_name_std)
       } else {
-        dists_gtbl <- dists_gtbl %>%
-          dplyr::mutate(prob_osa = osa / nchar(data2_sub$school_name_std))
-
-        # Use pre-computed lowercased filter values for this row
-        filter_vals_i <- filter_vals_all[i, , drop = FALSE]
-
-        mo <- dists_gtbl %>%
-          dplyr::as_tibble() %>%
-          dplyr::mutate(
-            name         = data1_row$school_name_std,
-            name_options = data2_sub$school_name_std
-          ) %>%
-          dplyr::bind_cols(filter_vals_i[rep(1L, nrow(.)), ]) %>%
-          dplyr::select(name, name_options, dplyr::any_of(match_cols1),
-                        dplyr::everything()) %>%
-          dplyr::filter(jw < .5, jaccard < .5) %>%
-          dplyr::mutate(match_level = dplyr::case_when(
-            (jaccard <= 0.05 & cosine <= 0.05)                           ~ 1L,
-            (jw <= 0.15)                                                  ~ 1L,
-            (soundex == 0 & jw <= 0.3)                                    ~ 1L,
-            (soundex == 0 & cosine <= 0.25)                               ~ 2L,
-            (jaccard <= 0.15 & cosine <= 0.15 & prob_osa <= 0.4)          ~ 2L,
-            (jw <= 0.21)                                                   ~ 2L,
-            TRUE                                                           ~ 1000L
-          ))
-
-        if (any(mo$match_level <= 3L)) {
-          best_local        <- which.min(mo$match_level)
-          best_match_scores <- mo[best_local, ]
-          best_idx          <- match(mo$name_options[best_local],
-                                     data2_sub$school_name_std)
-        } else {
-          return(list(matched    = NULL,
-                      unmatched  = data1_row,
-                      match_opts = setNames(list(mo), data1_row$school_name_std)))
-        }
+        return(list(matched    = NULL,
+                    unmatched  = data1_row,
+                    match_opts = setNames(list(mo), data1_row$school_name_std)))
       }
     }
 
@@ -631,13 +641,18 @@ match_schools_names <- function(data1, data2,
   matched_df     <- dplyr::bind_rows(matched_rows)
   unmatched_dat1 <- dplyr::bind_rows(unmatched_rows)
 
+  matched_names <- rlang::`%||%`(matched_df[["school_name_std_data2"]], character(0))
   unmatched_dat2 <- data2 %>%
-    dplyr::filter(!(school_name_std %in% matched_df$school_name_std_data2))
+    dplyr::filter(!(school_name_std %in% matched_names))
 
-  match_options <- dplyr::bind_rows(match_options)
+  match_options <- if (length(match_options) > 0L) {
+    dplyr::bind_rows(match_options)
+  } else {
+    tibble::tibble()
+  }
 
   match_summary <- table(c(
-    matched_df$match_category,
+    if ("match_category" %in% names(matched_df)) matched_df$match_category else character(0),
     rep("Unmatched_data1", nrow(unmatched_dat1)),
     rep("Unmatched_data2", nrow(unmatched_dat2))
   ))
@@ -650,9 +665,6 @@ match_schools_names <- function(data1, data2,
     match_summary  = match_summary
   ))
 }
-
-
-
 
 
 

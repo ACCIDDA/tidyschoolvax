@@ -10,6 +10,12 @@ get_geo_info(state_abbr = state, lat, lon, data_year = 2020)
 \item{lat}{Numeric vector of latitudes in decimal degrees (WGS84).}
 
 \item{lon}{Numeric vector of longitudes in decimal degrees (WGS84).}
+
+\item{state_abbr}{Character vector of state abbreviations (e.g., \code{"MD"})
+used to filter TIGER/Census geometries and speed up spatial joins.}
+
+\item{data_year}{Integer. The year of Census TIGER/Line shapefiles to use.
+Defaults to \code{2020}.}
 }
 \value{
 A tibble with:
@@ -27,6 +33,8 @@ for each coordinate pair by performing spatial joins against both
 county and ZCTA boundaries.
 }
 \examples{
-get_geo_info(39.2904, -76.6122)
+\dontrun{
+get_geo_info(lat = 39.2904, lon = -76.6122, state_abbr = "MD")
+}
 
 }

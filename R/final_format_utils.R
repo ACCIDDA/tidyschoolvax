@@ -980,7 +980,9 @@ format_fix_column_classes <- function(df, warn_on_change = TRUE, warn_on_missing
     state            = "character",
     business_status  = "character",
     lat              = "numeric",
-    lon              = "numeric"
+    lon              = "numeric",
+    district         = "character",
+    district_std     = "character"
   )
   
   cols_present <- intersect(names(expected_classes), names(df))
@@ -1237,7 +1239,7 @@ run_final_formatting <- function(state,
                       "enrollment", "current", "med_exempt", "rel_exempt"),
     optional_cols = c("school_type", "school_level", "excluded_note",
                       "addr_clean", "city", "zip", "state", "business_status",
-                      "lat", "lon")
+                      "lat", "lon", "district", "district_std")
   )
   
   kinder_dat <- format_fix_column_classes(kinder_dat)

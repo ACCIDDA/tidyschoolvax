@@ -129,6 +129,10 @@ get_zip <- function(lat, lon, data_year = 2020) {
 #'
 #' @param lat Numeric vector of latitudes in decimal degrees (WGS84).
 #' @param lon Numeric vector of longitudes in decimal degrees (WGS84).
+#' @param state_abbr Character vector of state abbreviations (e.g., \code{"MD"})
+#'   used to filter TIGER/Census geometries and speed up spatial joins.
+#' @param data_year Integer. The year of Census TIGER/Line shapefiles to use.
+#'   Defaults to \code{2020}.
 #'
 #' @return A tibble with:
 #' \describe{
@@ -140,7 +144,9 @@ get_zip <- function(lat, lon, data_year = 2020) {
 #' }
 #'
 #' @examples
-#' get_geo_info(39.2904, -76.6122)
+#' \dontrun{
+#' get_geo_info(lat = 39.2904, lon = -76.6122, state_abbr = "MD")
+#' }
 #'
 #' @importFrom sf st_as_sf st_transform st_join st_within
 #' @importFrom tibble tibble
