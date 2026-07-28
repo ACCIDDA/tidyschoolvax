@@ -832,10 +832,18 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
     )
   }
 
-  m_addr_kinder_matched <- if (!is.null(m_addr_kinder)) m_addr_kinder$matched else NULL
-  m_district_matched <- if (!is.null(m_district)) m_district$matched else NULL
-  m1_matched <- if (!is.null(m1)) m1$matched else NULL
-  m2_matched <- if (!is.null(m2)) m2$matched else NULL
+  m_addr_kinder_matched <- if (!is.null(m_addr_kinder)) {
+    m_addr_kinder$matched %>% dplyr::mutate(match_method = "address")
+  } else NULL
+  m_district_matched <- if (!is.null(m_district)) {
+    m_district$matched %>% dplyr::mutate(match_method = "district")
+  } else NULL
+  m1_matched <- if (!is.null(m1)) {
+    m1$matched %>% dplyr::mutate(match_method = "county_type")
+  } else NULL
+  m2_matched <- if (!is.null(m2)) {
+    m2$matched %>% dplyr::mutate(match_method = "county_only")
+  } else NULL
 
   matched_elem <- dplyr::bind_rows(
     m_addr_kinder_matched,
@@ -852,7 +860,8 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
       matched_elem %>%
         dplyr::select(match_score,
                       vacc_school_id = data1_id,
-                      school_id      = data2_id),
+                      school_id      = data2_id,
+                      match_method),
       by = "vacc_school_id"
     ) %>%
     dplyr::filter(grepl("e", level_code, fixed = FALSE) | is.na(level_code)) %>%
@@ -874,9 +883,9 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
   
   # 1. Expand matched records
   dt_exp <- .dt_expand_ids(
-    vacc_elem_all[, c("vacc_data_ids", "match_score", "school_id")],
+    vacc_elem_all[, c("vacc_data_ids", "match_score", "school_id", "match_method")],
     packed_col = "vacc_data_ids",
-    by_cols    = c("match_score", "school_id")
+    by_cols    = c("match_score", "school_id", "match_method")
   )
   
   # 2. Expand kinder_elem for name lookup; rename for clarity
@@ -928,6 +937,22 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
   data.table::setkey(dt_ref, school_id)
   data.table::setkey(dt_exp, school_id)
   dt_matched_full <- dt_ref[dt_exp]   # left join on school_id
+  
+  # For low-context county-only fuzzy matches whose vacc/reference names differ,
+  # clear reference location fields so downstream Google geocoding resolves the
+  # school by vaccination name instead of inheriting a likely stale/wrong address.
+  dt_matched_full[
+    match_method %in% c("county_type", "county_only") &
+      !is.na(school_name_std_vacc) &
+      !is.na(school_name_std) &
+      school_name_std_vacc != school_name_std,
+    `:=`(addr_clean = NA_character_,
+         city = NA_character_,
+         zip = NA_character_,
+         lat = NA_real_,
+         lon = NA_real_)
+  ]
+  dt_matched_full[, match_method := NULL]
   
   # 6. Stack matched + unmatched
   dt_all <- data.table::rbindlist(
