@@ -402,8 +402,8 @@ geocode_chunk_step2 <- function(chunk_df, google_api_key) {
 #' Geocode a chunk of schools that lack a valid street address
 #'
 #' Filters the input chunk to rows that are missing coordinates and do not
-#' have a street-numbered address, builds a query from school name, county,
-#' state, and ZIP, calls the Google Geocoding API via
+#' have a street-numbered address, builds a query from school name, city
+#' (falling back to county), state, and ZIP, calls the Google Geocoding API via
 #' \code{tidygeocoder::geocode}, and returns the full chunk with updated
 #' values.  Address fields are extracted from the returned
 #' \code{formatted_address} where possible.
@@ -428,12 +428,17 @@ geocode_chunk_step3 <- function(chunk_df, google_api_key) {
   
   Sys.setenv(GOOGLEGEOCODE_API_KEY = google_api_key)
   
-  # Build search query: school_name, county_std, state, zip
+  # Build search query: school_name, city (fallback county_std), state, zip
   geocoded <- to_geocode %>%
     dplyr::mutate(
+      city_clean = stringr::str_squish(dplyr::coalesce(city, "")),
+      city_is_valid = city_clean != "" &
+        !toupper(city_clean) %in% c("NA", "N/A", ".", "NULL", "NONE") &
+        stringr::str_detect(city_clean, "[[:alpha:]]"),
+      location_query = dplyr::if_else(city_is_valid, city_clean, dplyr::coalesce(county_std, "")),
       query = stringr::str_squish(paste(
         dplyr::coalesce(school_name, ""),
-        dplyr::coalesce(county_std, ""),
+        location_query,
         dplyr::coalesce(state, ""),
         dplyr::coalesce(zip, "")
       ))
@@ -463,7 +468,7 @@ geocode_chunk_step3 <- function(chunk_df, google_api_key) {
         geo_source
       )
     ) %>%
-    dplyr::select(-lat_temp, -lon_temp, -query)
+    dplyr::select(-lat_temp, -lon_temp, -query, -city_clean, -city_is_valid, -location_query)
   
   # Apply address cleaning ONLY to Step 3 results
   geocoded <- clean_geocoded_addresses_step3(geocoded)
