@@ -137,7 +137,30 @@ standardize_schools <- function(state_id,
   vacc_data_final[["state"]] <- state_id
   vacc_data_final <- normalize_missing_strings(vacc_data_final)
   
-  unique_schools <- vacc_data_final %>%
+  # Preserve GS/DOE location fields as fallback only; default location should
+  # come from Google geocoding.
+  location_fallback <- vacc_data_final %>%
+    dplyr::transmute(
+      vacc_data_id = as.character(vacc_data_id),
+      addr_clean,
+      city,
+      zip,
+      state,
+      lat,
+      lon
+    ) %>%
+    dplyr::distinct(vacc_data_id, .keep_all = TRUE)
+  
+  # Force matched schools through Google geocoding so GS/DOE location fields do
+  # not become the default location source.
+  vacc_data_for_geocode <- vacc_data_final %>%
+    dplyr::mutate(
+      addr_clean = dplyr::if_else(!is.na(school_id), NA_character_, addr_clean),
+      lat        = dplyr::if_else(!is.na(school_id), NA_real_, lat),
+      lon        = dplyr::if_else(!is.na(school_id), NA_real_, lon)
+    )
+  
+  unique_schools <- vacc_data_for_geocode %>%
     dplyr::group_by(school_id, school_name_std_vacc, county_std) %>%
     dplyr::slice(1L) %>%
     dplyr::ungroup()
@@ -164,7 +187,9 @@ standardize_schools <- function(state_id,
   schools_status <- schools_status %>%
     dplyr::mutate(business_status = tolower(business_status))
   
-  school_vax_joined <- merge_geocoding_results(vacc_data_final, schools_status) %>%
+  school_vax_joined <- merge_geocoding_results(vacc_data_for_geocode, schools_status) %>%
+    dplyr::mutate(vacc_data_id = as.character(vacc_data_id)) %>%
+    dplyr::rows_patch(location_fallback, by = "vacc_data_id", unmatched = "ignore") %>%
     dplyr::mutate(year2 = as.numeric(stringr::str_sub(year_source, -2L, -1L)))
   
   # ---- QC reports ------------------------------------------------------------
