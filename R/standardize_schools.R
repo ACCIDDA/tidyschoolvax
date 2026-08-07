@@ -271,7 +271,7 @@ build_reference_key <- function(greatschools_dat,
     data2 = doe_city,
     match_cols1 = c("city_cln", "school_type", "level_code_match"),
     match_cols2 = c("city_cln", "school_type", "level_code_match"),
-    threshold_jw = 0.169, threshold_jw_min = 0.3, exact_jw = 0.10,
+    threshold_jw = 0.15, threshold_jw_min = 0.3, exact_jw = 0.10,
     parallel = parallel
   )
   
@@ -300,7 +300,7 @@ build_reference_key <- function(greatschools_dat,
         data1 = gs_district, data2 = doe_district,
         match_cols1 = c("district_std", "school_type", "level_code_match"),
         match_cols2 = c("district_std", "school_type", "level_code_match"),
-        threshold_jw = 0.169, threshold_jw_min = 0.3, exact_jw = 0.10,
+        threshold_jw = 0.15, threshold_jw_min = 0.3, exact_jw = 0.10,
         parallel = parallel
       )
       unmatched_district <- m_district$unmatched_dat1$school_name
