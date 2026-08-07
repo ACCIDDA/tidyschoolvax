@@ -51,6 +51,25 @@ has_valid_address <- function(addr) {
   !is.na(addr) & stringr::str_detect(addr, "^\\d")
 }
 
+# Build a stable geocoding match key from school name + broad location fields.
+# This avoids collapsing different campuses that share the same school name.
+.geo_match_key <- function(df) {
+  get_chr <- function(col) {
+    if (col %in% names(df)) as.character(df[[col]]) else rep(NA_character_, nrow(df))
+  }
+  key_parts <- list(
+    school_name = get_chr("school_name"),
+    county_std  = get_chr("county_std"),
+    state       = get_chr("state"),
+    zip         = get_chr("zip")
+  )
+  key_parts <- lapply(key_parts, function(x) {
+    x[is.na(x)] <- ""
+    stringr::str_squish(tolower(x))
+  })
+  do.call(paste, c(key_parts, sep = "|"))
+}
+
 #' Validate that a data frame has the columns required for geocoding
 #'
 #' Stops with an informative error if \code{school_name} or \code{state} are
@@ -155,8 +174,10 @@ load_and_merge_cache <- function(unique_schools, save_path) {
     return(result)
   }
   
+  result$.geo_match_key <- .geo_match_key(result)
   cache <- readRDS(save_path) %>%
-    dplyr::distinct(school_name, .keep_all = TRUE)
+    dplyr::mutate(.geo_match_key = .geo_match_key(.)) %>%
+    dplyr::distinct(.geo_match_key, .keep_all = TRUE)
   
   # --------------------------------------------------------------------------
   # Step 1a: Copy place_id (and formatted_address) for ALL schools from cache
@@ -165,16 +186,16 @@ load_and_merge_cache <- function(unique_schools, save_path) {
     
     # Build cache_1a with only columns that actually exist in the cache
     cache_1a <- cache %>%
-      dplyr::select(school_name, place_id_cache = place_id)
+      dplyr::select(.geo_match_key, place_id_cache = place_id)
     
     if ("formatted_address" %in% names(cache)) {
       cache_1a <- cache_1a %>%
         dplyr::mutate(formatted_address_cache = cache$formatted_address[
-          match(school_name, cache$school_name)
+          match(.geo_match_key, cache$.geo_match_key)
         ])
       # Simpler: just select it directly
       cache_1a <- cache %>%
-        dplyr::select(school_name,
+        dplyr::select(.geo_match_key,
                       place_id_cache          = place_id,
                       formatted_address_cache = formatted_address)
     }
@@ -182,7 +203,7 @@ load_and_merge_cache <- function(unique_schools, save_path) {
     has_fmt_1a <- "formatted_address_cache" %in% names(cache_1a)
     
     result <- result %>%
-      dplyr::left_join(cache_1a, by = "school_name") %>%
+      dplyr::left_join(cache_1a, by = ".geo_match_key") %>%
       dplyr::mutate(
         dplyr::across(dplyr::any_of(c("place_id_cache", "formatted_address_cache")),
                       as.character),
@@ -225,11 +246,11 @@ load_and_merge_cache <- function(unique_schools, save_path) {
   
   if (length(available_cache_cols) > 0) {
     cache_subset <- cache %>%
-      dplyr::select(school_name, dplyr::any_of(available_cache_cols))
+      dplyr::select(.geo_match_key, dplyr::any_of(available_cache_cols))
     names(cache_subset)[-1] <- names(available_cache_cols)
     
     result <- result %>%
-      dplyr::left_join(cache_subset, by = "school_name") %>%
+      dplyr::left_join(cache_subset, by = ".geo_match_key") %>%
       dplyr::mutate(
         dplyr::across(dplyr::any_of(c("addr_clean_cache", "city_cache",
                                       "zip_cache", "formatted_address_cache")),
@@ -294,6 +315,8 @@ load_and_merge_cache <- function(unique_schools, save_path) {
   } else {
     result <- result %>% dplyr::select(-needs_cache_data)
   }
+  
+  result <- result %>% dplyr::select(-dplyr::any_of(".geo_match_key"))
   
   return(result)
 }
@@ -379,8 +402,8 @@ geocode_chunk_step2 <- function(chunk_df, google_api_key) {
 #' Geocode a chunk of schools that lack a valid street address
 #'
 #' Filters the input chunk to rows that are missing coordinates and do not
-#' have a street-numbered address, builds a query from school name, county,
-#' state, and ZIP, calls the Google Geocoding API via
+#' have a street-numbered address, builds a query from school name, city
+#' (falling back to county), state, and ZIP, calls the Google Geocoding API via
 #' \code{tidygeocoder::geocode}, and returns the full chunk with updated
 #' values.  Address fields are extracted from the returned
 #' \code{formatted_address} where possible.
@@ -405,12 +428,17 @@ geocode_chunk_step3 <- function(chunk_df, google_api_key) {
   
   Sys.setenv(GOOGLEGEOCODE_API_KEY = google_api_key)
   
-  # Build search query: school_name, county_std, state, zip
+  # Build search query: school_name, city (fallback county_std), state, zip
   geocoded <- to_geocode %>%
     dplyr::mutate(
+      city_clean = stringr::str_squish(dplyr::coalesce(city, "")),
+      city_is_valid = city_clean != "" &
+        !toupper(city_clean) %in% c("NA", "N/A", ".", "NULL", "NONE") &
+        stringr::str_detect(city_clean, "[[:alpha:]]"),
+      location_query = dplyr::if_else(city_is_valid, city_clean, dplyr::coalesce(county_std, "")),
       query = stringr::str_squish(paste(
         dplyr::coalesce(school_name, ""),
-        dplyr::coalesce(county_std, ""),
+        location_query,
         dplyr::coalesce(state, ""),
         dplyr::coalesce(zip, "")
       ))
@@ -440,7 +468,7 @@ geocode_chunk_step3 <- function(chunk_df, google_api_key) {
         geo_source
       )
     ) %>%
-    dplyr::select(-lat_temp, -lon_temp, -query)
+    dplyr::select(-lat_temp, -lon_temp, -query, -city_clean, -city_is_valid, -location_query)
   
   # Apply address cleaning ONLY to Step 3 results
   geocoded <- clean_geocoded_addresses_step3(geocoded)
@@ -1215,14 +1243,19 @@ merge_geocoding_results <- function(school_vax_long, schools_status) {
   result <- school_vax_long %>%
     dplyr::rows_patch(lookup_id, by = "school_id", unmatched = "ignore")
   
-  # 5. Pass 2: Patch by school_name (for rows where school_id was NA)
+  # 5. Pass 2: Patch by school-name/location key (for rows where school_id was NA)
+  result <- result %>%
+    dplyr::mutate(.geo_match_key = .geo_match_key(.))
+  
   lookup_name <- geo_lookup %>% 
     dplyr::filter(is.na(school_id)) %>%
-    dplyr::distinct(school_name, .keep_all = TRUE) %>%
-    dplyr::select(-school_id)
+    dplyr::mutate(.geo_match_key = .geo_match_key(.)) %>%
+    dplyr::distinct(.geo_match_key, .keep_all = TRUE) %>%
+    dplyr::select(.geo_match_key, lat, lon, addr_clean, city, zip, state, business_status)
   
   result <- result %>%
-    dplyr::rows_patch(lookup_name, by = "school_name", unmatched = "ignore")
+    dplyr::rows_patch(lookup_name, by = ".geo_match_key", unmatched = "ignore") %>%
+    dplyr::select(-dplyr::any_of(".geo_match_key"))
   
   return(result)
 }

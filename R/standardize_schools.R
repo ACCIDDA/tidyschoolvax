@@ -137,7 +137,30 @@ standardize_schools <- function(state_id,
   vacc_data_final[["state"]] <- state_id
   vacc_data_final <- normalize_missing_strings(vacc_data_final)
   
-  unique_schools <- vacc_data_final %>%
+  # Preserve GS/DOE location fields as fallback only; default location should
+  # come from Google geocoding.
+  location_fallback <- vacc_data_final %>%
+    dplyr::transmute(
+      vacc_data_id = as.character(vacc_data_id),
+      addr_clean,
+      city,
+      zip,
+      state,
+      lat,
+      lon
+    ) %>%
+    dplyr::distinct(vacc_data_id, .keep_all = TRUE)
+  
+  # Force matched schools through Google geocoding so GS/DOE location fields do
+  # not become the default location source.
+  vacc_data_for_geocode <- vacc_data_final %>%
+    dplyr::mutate(
+      addr_clean = dplyr::if_else(!is.na(school_id), NA_character_, addr_clean),
+      lat        = dplyr::if_else(!is.na(school_id), NA_real_, lat),
+      lon        = dplyr::if_else(!is.na(school_id), NA_real_, lon)
+    )
+  
+  unique_schools <- vacc_data_for_geocode %>%
     dplyr::group_by(school_id, school_name_std_vacc, county_std) %>%
     dplyr::slice(1L) %>%
     dplyr::ungroup()
@@ -164,7 +187,9 @@ standardize_schools <- function(state_id,
   schools_status <- schools_status %>%
     dplyr::mutate(business_status = tolower(business_status))
   
-  school_vax_joined <- merge_geocoding_results(vacc_data_final, schools_status) %>%
+  school_vax_joined <- merge_geocoding_results(vacc_data_for_geocode, schools_status) %>%
+    dplyr::mutate(vacc_data_id = as.character(vacc_data_id)) %>%
+    dplyr::rows_patch(location_fallback, by = "vacc_data_id", unmatched = "ignore") %>%
     dplyr::mutate(year2 = as.numeric(stringr::str_sub(year_source, -2L, -1L)))
   
   # ---- QC reports ------------------------------------------------------------
@@ -246,7 +271,7 @@ build_reference_key <- function(greatschools_dat,
     data2 = doe_city,
     match_cols1 = c("city_cln", "school_type", "level_code_match"),
     match_cols2 = c("city_cln", "school_type", "level_code_match"),
-    threshold_jw = 0.2, threshold_jw_min = 0.5, exact_jw = 0.15,
+    threshold_jw = 0.15, threshold_jw_min = 0.3, exact_jw = 0.10,
     parallel = parallel
   )
   
@@ -275,7 +300,7 @@ build_reference_key <- function(greatschools_dat,
         data1 = gs_district, data2 = doe_district,
         match_cols1 = c("district_std", "school_type", "level_code_match"),
         match_cols2 = c("district_std", "school_type", "level_code_match"),
-        threshold_jw = 0.2, threshold_jw_min = 0.5, exact_jw = 0.15,
+        threshold_jw = 0.15, threshold_jw_min = 0.3, exact_jw = 0.10,
         parallel = parallel
       )
       unmatched_district <- m_district$unmatched_dat1$school_name
@@ -297,7 +322,7 @@ build_reference_key <- function(greatschools_dat,
     data2 = doe_city,
     match_cols1 = c("county_std", "school_type", "level_code_match"),
     match_cols2 = c("county_std", "school_type", "level_code_match"),
-    threshold_jw = 0.2, threshold_jw_min = 0.5, exact_jw = 0.15,
+    threshold_jw = 0.15, threshold_jw_min = 0.3, exact_jw = 0.10,
     parallel = parallel
   )
   
@@ -322,7 +347,7 @@ build_reference_key <- function(greatschools_dat,
         dplyr::select(data1_id, source, county_std, county, school_name,
                       school_name_std, level_code, level_code_match, school_type,
                       city, state, zip, lat, lon, street = street1, addr_clean,
-                      dplyr::any_of(c("district", "district_std"))),
+                      dplyr::any_of(c("addr_clean_no_unit", "district", "district_std"))),
       by = "data1_id"
     ) %>%
     dplyr::left_join(
@@ -349,7 +374,7 @@ build_reference_key <- function(greatschools_dat,
         dplyr::select(data2_id, source, county_std, county, school_name,
                       school_name_std, level_code, level_code_match, school_type,
                       city, state, zip, lat, lon, street, addr_clean,
-                      dplyr::any_of(c("district", "district_std")))
+                      dplyr::any_of(c("addr_clean_no_unit", "district", "district_std")))
     ) %>%
     dplyr::arrange(county_std, school_name_std, match_score) %>%
     fix_charter_type(name_col = "school_name") %>%
@@ -500,7 +525,7 @@ build_reference_key <- function(greatschools_dat,
                     city, dplyr::any_of("state"), zip,
                     dplyr::any_of(c("lat", "lon")),
                     street, addr_clean,
-                    dplyr::any_of(c("district", "district_std")))
+                    dplyr::any_of(c("addr_clean_no_unit", "district", "district_std")))
   ) %>%
     dplyr::arrange(county_std, school_name_std, match_score)
   
@@ -545,6 +570,12 @@ build_reference_key <- function(greatschools_dat,
 #' majority-vote correction for school_type inconsistencies across years.
 #' Uses \pkg{data.table} for all grouped aggregations to maximise speed.
 #'
+#' When \code{kinder_dat} contains a non-empty \code{addr_clean_kinder_no_unit}
+#' column the cleaned address is added to the deduplication key.  This prevents
+#' schools that share a name and county but occupy different physical locations
+#' (e.g. multi-campus private schools where \code{district} is \code{NA}) from
+#' being collapsed into a single record.
+#'
 #' @param kinder_dat Data frame of cleaned kindergarten records. Must contain
 #'   columns \code{school_name_std}, \code{county_std}, \code{school_type},
 #'   \code{school_level}, \code{level_code}, \code{year_source}, and
@@ -558,7 +589,8 @@ build_reference_key <- function(greatschools_dat,
 #' @return A data frame with columns \code{school_name_std}, \code{county_std},
 #'   \code{school_type}, \code{school_level}, \code{level_code},
 #'   \code{n_records}, \code{year_sources}, \code{vacc_data_ids},
-#'   \code{vacc_school_id}, and (when available in input) \code{district_std}.
+#'   \code{vacc_school_id}, and (when available in input) \code{district_std}
+#'   and/or \code{addr_clean_kinder_no_unit}.
 #' @keywords internal
 build_kinder_unique_schools <- function(kinder_dat, n_years_data) {
   
@@ -569,6 +601,18 @@ build_kinder_unique_schools <- function(kinder_dat, n_years_data) {
   
   if (has_district){
     key_cols <- c(key_cols, "district_std")
+  }
+  
+  # When kinder data has address information, include it in the deduplication
+  # key so that schools with the same name in the same county but at different
+  # physical locations (e.g. multi-campus private schools where district == NA)
+  # are kept as separate records rather than collapsed into one entry.
+  has_addr <- "addr_clean_kinder_no_unit" %in% colnames(kinder_dat) &&
+    any(!is.na(kinder_dat$addr_clean_kinder_no_unit) &
+          kinder_dat$addr_clean_kinder_no_unit != "")
+  
+  if (has_addr) {
+    key_cols <- c(key_cols, "addr_clean_kinder_no_unit")
   }
   
   # Helper: re-aggregate a data.table that already has packed id/year columns
@@ -661,14 +705,25 @@ build_kinder_unique_schools <- function(kinder_dat, n_years_data) {
 
 #' Match kindergarten vaccination records to the school reference key
 #'
-#' Performs up to three rounds of fuzzy matching (county+type, county-only,
-#' optional district+type) to link kinder unique schools to the GS+DOE
-#' reference, self-matches remaining unmatched records within the same county,
-#' expands packed ID columns using \pkg{data.table}, joins back vaccination
-#' counts, and optionally applies the kinder address preference.  The district
+#' Performs up to four rounds of fuzzy matching (address+type (conditional),
+#' district+county+type (conditional), county+type, county-only) to link kinder
+#' unique schools to the GS+DOE reference, expands packed ID columns using
+#' \pkg{data.table}, joins back vaccination counts, and optionally applies the
+#' kinder address preference.
+#'
+#' Unmatched kinder schools (those that cannot be linked to any reference entry)
+#' retain \code{school_id = NA} and are subsequently geocoded directly via
+#' Google rather than being fuzzy-matched to other kinder schools.  This
+#' prevents incorrectly assigning the same \code{school_id} to two distinct
+#' schools that happen to share a county (the previous "self-match" step was
+#' the root cause of cases such as "Henry Haight Elementary" being assigned the
+#' same ID as "Henry P. Mohr Elementary").
+#'
+#' The address pass is executed only when \code{addr_clean_kinder_no_unit} is
+#' present and non-empty in \code{kinder_dat_for_matching} and
+#' \code{addr_clean_no_unit} is present in \code{matched_df}.  The district
 #' pass is only executed when \code{district_std} is non-\code{NA} in both
-#' \code{kinder_dat_for_matching} and \code{matched_df}, and differs from
-#' \code{county_std}.
+#' sources.
 #'
 #' @param kinder_dat_for_matching Output of \code{build_kinder_unique_schools}.
 #' @param matched_df Reference key from \code{build_reference_key}.
@@ -707,18 +762,56 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
     dplyr::rename(data2_id = school_id)
   
   
-  # ---- Match pass 1: district + county + school type ----------
+  # ---- Match pass 1: address + school_type (when kinder has address data) ----
+  # Schools with the same cleaned address and type are candidates for name-based
+  # matching.  This correctly distinguishes multi-campus schools (e.g. private
+  # schools where district == NA) that share a county and name but occupy
+  # different physical locations.
+  kinder_has_addr_col <- "addr_clean_kinder_no_unit" %in% colnames(kinder_elem) &&
+    any(!is.na(kinder_elem$addr_clean_kinder_no_unit) &
+          kinder_elem$addr_clean_kinder_no_unit != "")
+  ref_has_addr_col <- "addr_clean_no_unit" %in% colnames(ref_elem) &&
+    any(!is.na(ref_elem$addr_clean_no_unit) & ref_elem$addr_clean_no_unit != "")
+
+  m_addr_kinder <- NULL
+  addr_matched_ids <- integer(0)
+
+  if (kinder_has_addr_col && ref_has_addr_col) {
+    # Rename kinder address column to match the reference column name so that
+    # match_schools_names can use it as a shared group key.
+    kinder_elem_addr <- kinder_elem %>%
+      dplyr::filter(!is.na(addr_clean_kinder_no_unit) &
+                      addr_clean_kinder_no_unit != "") %>%
+      dplyr::mutate(addr_clean_no_unit = addr_clean_kinder_no_unit)
+
+    if (nrow(kinder_elem_addr) > 0) {
+      m_addr_kinder <- match_schools_names(
+        data1 = kinder_elem_addr,
+        data2 = ref_elem,
+        match_cols1 = c("addr_clean_no_unit", "school_type"),
+        match_cols2 = c("addr_clean_no_unit", "school_type"),
+        threshold_jw = 0.3, threshold_jw_min = 0.6, exact_jw = 0.15,
+        parallel = parallel
+      )
+      addr_matched_ids <- m_addr_kinder$matched$data1_id
+    }
+  }
+
+  # ---- Match pass 2: district + county + school type ----------
   kinder_has_district <- "district_std" %in% colnames(kinder_elem) &&
     any(!is.na(kinder_elem$district_std) & kinder_elem$district_std != "")
   ref_has_district    <- "district_std" %in% colnames(ref_elem) &&
     any(!is.na(ref_elem$district_std) & ref_elem$district_std != "")
-  
+
   m_district <- m1 <- m2 <- NULL
   unmatched_after_district <- unmatched_ids2 <- NULL
-  
-  if (kinder_has_district && ref_has_district) {
+
+  all_ids <- kinder_elem$data1_id
+  unmatched_after_addr <- setdiff(all_ids, addr_matched_ids)
+
+  if (kinder_has_district && ref_has_district && length(unmatched_after_addr) > 0) {
     m_district <- match_schools_names(
-      data1 = kinder_elem, 
+      data1 = kinder_elem %>% dplyr::filter(data1_id %in% unmatched_after_addr),
       data2 = ref_elem,
       match_cols1 = c("county_std", "district_std", "school_type"),
       match_cols2 = c("county_std", "district_std", "school_type"),
@@ -728,14 +821,13 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
   } else {
     m_district <- NULL
   }
-  
-  
-  # ---- Match pass 2: county + school_type ------------------------------------
-  
-  all_ids <- kinder_elem$data1_id
+
+
+  # ---- Match pass 3: county + school_type ------------------------------------
+
   district_matched_ids <- if (!is.null(m_district)) m_district$matched$data1_id else integer(0)
-  unmatched_after_district <- setdiff(all_ids, district_matched_ids)
-  
+  unmatched_after_district <- setdiff(unmatched_after_addr, district_matched_ids)
+
   if (length(unmatched_after_district)>0){
     m1 <- match_schools_names(
       data1 = kinder_elem %>% dplyr::filter(data1_id %in% unmatched_after_district),
@@ -745,15 +837,15 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
       threshold_jw = 0.169, threshold_jw_min = 0.3, exact_jw = 0.10,
       parallel = parallel
     )
-  } 
-  
-  
-  # ---- Match pass 3: county only, for remaining unmatched --------------------
-  
+  }
+
+
+  # ---- Match pass 4: county only, for remaining unmatched --------------------
+
   if (!is.null(m1)){
     unmatched_ids2 <- m1$unmatched_dat1$data1_id
-  } 
-  
+  }
+
   if (length(unmatched_ids2)>0){
     m2 <- match_schools_names(
       data1 = kinder_elem %>% dplyr::filter(data1_id %in% unmatched_ids2),
@@ -763,13 +855,23 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
       threshold_jw = 0.15, threshold_jw_min = 0.3, exact_jw = 0.10,
       parallel = parallel
     )
-  } 
-  
-  m_district_matched <- if (!is.null(m_district)) m_district$matched else NULL
-  m1_matched <- if (!is.null(m1)) m1$matched else NULL
-  m2_matched <- if (!is.null(m2)) m2$matched else NULL
-  
+  }
+
+  m_addr_kinder_matched <- if (!is.null(m_addr_kinder)) {
+    m_addr_kinder$matched %>% dplyr::mutate(match_method = "address")
+  } else NULL
+  m_district_matched <- if (!is.null(m_district)) {
+    m_district$matched %>% dplyr::mutate(match_method = "district")
+  } else NULL
+  m1_matched <- if (!is.null(m1)) {
+    m1$matched %>% dplyr::mutate(match_method = "county_type")
+  } else NULL
+  m2_matched <- if (!is.null(m2)) {
+    m2$matched %>% dplyr::mutate(match_method = "county_only")
+  } else NULL
+
   matched_elem <- dplyr::bind_rows(
+    m_addr_kinder_matched,
     m_district_matched,
     m1_matched,
     m2_matched
@@ -783,7 +885,8 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
       matched_elem %>%
         dplyr::select(match_score,
                       vacc_school_id = data1_id,
-                      school_id      = data2_id),
+                      school_id      = data2_id,
+                      match_method),
       by = "vacc_school_id"
     ) %>%
     dplyr::filter(grepl("e", level_code, fixed = FALSE) | is.na(level_code)) %>%
@@ -791,88 +894,23 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
   
   
   
-  # ---- Self-match: match remaining unmatched kinder records to each other ----
-  
-  vacc_to_match   <- kinder_elem %>%
-    dplyr::filter(!(data1_id %in% vacc_matched$vacc_school_id))
-  
-  if (nrow(vacc_to_match)>0){
-    
-    vacc_matchto <- vacc_matched %>%
-      dplyr::select(-dplyr::any_of("data2_id")) %>%
-      dplyr::rename(data2_id = vacc_school_id)
-    
-    
-    if ("district_std" %in% colnames(vacc_to_match)){
-      self_match <- match_schools_names(
-        data1 = vacc_to_match, 
-        data2 = vacc_matchto,
-        match_cols1 = c("county_std", "district_std"), 
-        match_cols2 = c("county_std", "district_std"),
-        threshold_jw = 0.20, threshold_jw_min = 0.35, exact_jw = 0.10,
-        parallel = parallel
-      )
-    } else {
-      self_match <- match_schools_names(
-        data1 = vacc_to_match, 
-        data2 = vacc_matchto,
-        match_cols1 = c("county_std"), 
-        match_cols2 = c("county_std"),
-        threshold_jw = 0.20, threshold_jw_min = 0.35, exact_jw = 0.10,
-        parallel = parallel
-      )
-    }
-    
-    vacc_matched_self <- kinder_elem %>%
-      dplyr::rename(vacc_school_id = data1_id) %>%
-      dplyr::inner_join(
-        self_match$matched %>%
-          dplyr::select(match_score,
-                        vacc_school_id  = data1_id,
-                        vacc_school_id2 = data2_id),
-        by = "vacc_school_id"
-      ) %>%
-      dplyr::arrange(county_std, school_name_std, match_score) %>%
-      dplyr::rename(school_type_orig  = school_type,
-                    school_level_orig = school_level) %>%
-      dplyr::left_join(
-        kinder_elem %>%
-          dplyr::select(vacc_school_id2       = data1_id,
-                        school_name_std_match = school_name_std,
-                        school_type, school_level),
-        by = "vacc_school_id2"
-      ) %>%
-      dplyr::rename(school_name_std_orig = school_name_std,
-                    school_name_std      = school_name_std_match,
-                    vacc_school_id_orig  = vacc_school_id,
-                    vacc_school_id       = vacc_school_id2)
-    
-    # Resolve to the school_id of the matched target.
-    # We only need school_id from vacc_matched; all other data (vacc_data_ids,
-    # n_records, year_sources, school_name_std, etc.) already comes from the
-    # original unmatched kinder_elem row stored in vacc_matched_self.
-    vacc_self_cln <- vacc_matched_self %>%
-      dplyr::rename(vacc_school_id_orig2 = vacc_school_id_orig) %>%
-      dplyr::left_join(
-        vacc_matched %>% dplyr::select(vacc_school_id, school_id),
-        by = "vacc_school_id"
-      )
-  } else {
-    vacc_self_cln <- NULL
-  }
-  
-  # Combine all matched elementary records
-  vacc_elem_all <- dplyr::bind_rows(vacc_matched, vacc_self_cln) %>%
+  # ---- Combine all matched elementary records ---------------------------------
+  # Unmatched kinder schools (school_id = NA) are sent directly to Google
+  # geocoding rather than being fuzzy-matched to already-matched schools.
+  # This prevents incorrect merging of distinct schools that share a county
+  # (e.g. "Henry Haight Elementary" being matched to "Henry P. Mohr Elementary"
+  # solely because both appear in the same county and have a similar first word).
+  vacc_elem_all <- vacc_matched %>%
     dplyr::arrange(county_std, school_name_std, match_score)
-  
-  
+
+
   # ---- Expand packed IDs and join (data.table replaces separate_rows) --------
   
   # 1. Expand matched records
   dt_exp <- .dt_expand_ids(
-    vacc_elem_all[, c("vacc_data_ids", "match_score", "school_id")],
+    vacc_elem_all[, c("vacc_data_ids", "match_score", "school_id", "match_method")],
     packed_col = "vacc_data_ids",
-    by_cols    = c("match_score", "school_id")
+    by_cols    = c("match_score", "school_id", "match_method")
   )
   
   # 2. Expand kinder_elem for name lookup; rename for clarity
@@ -884,17 +922,11 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
   dt_kinder_names[, school_name_std_vacc := school_name_std]
   dt_kinder_names <- dt_kinder_names[, .(school_name_std_vacc, vacc_data_id)]
   
-  # 3. Expand unmatched kinder records.
-  # all_matched_ids collects both the directly-matched school IDs (vacc_school_id)
-  # and the original IDs of self-matched schools (vacc_school_id_orig2, always
-  # present as a column in vacc_elem_all because vacc_self_cln introduces it).
-  orig2_col <- "vacc_school_id_orig2"
-  orig2_ids <- if (orig2_col %in% names(vacc_elem_all)){
-    na.omit(vacc_elem_all[[orig2_col]])
-  } else {
-    integer(0)
-  }
-  all_matched_ids <- union(vacc_elem_all$vacc_school_id, orig2_ids)
+  # 3. Expand unmatched kinder records (schools not matched to the reference).
+  # These retain school_id = NA and will be geocoded directly via Google so
+  # that renamed schools (e.g. a school that changed its name since the DOE/GS
+  # snapshot) can be found under their new name.
+  all_matched_ids <- vacc_elem_all$vacc_school_id
   dt_unmatched_exp <- .dt_expand_ids(
     kinder_elem %>%
       dplyr::filter(!(data1_id %in% all_matched_ids)) %>%
@@ -930,6 +962,22 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
   data.table::setkey(dt_ref, school_id)
   data.table::setkey(dt_exp, school_id)
   dt_matched_full <- dt_ref[dt_exp]   # left join on school_id
+  
+  # For low-context county-only fuzzy matches whose vacc/reference names differ,
+  # clear reference location fields so downstream Google geocoding resolves the
+  # school by vaccination name instead of inheriting a likely stale/wrong address.
+  dt_matched_full[
+    match_method %in% c("county_type", "county_only") &
+      !is.na(school_name_std_vacc) &
+      !is.na(school_name_std) &
+      school_name_std_vacc != school_name_std,
+    `:=`(addr_clean = NA_character_,
+         city = NA_character_,
+         zip = NA_character_,
+         lat = NA_real_,
+         lon = NA_real_)
+  ]
+  dt_matched_full[, match_method := NULL]
   
   # 6. Stack matched + unmatched
   dt_all <- data.table::rbindlist(
