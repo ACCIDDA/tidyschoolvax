@@ -23,6 +23,10 @@ A list with two components:
   }
 }
 \description{
+\strong{Deprecated:} superseded by
+\code{\link{dqa_check_enrollment_deviation}}; see the file header of
+\code{dqa_checks.R}.
+
 Identifies schools where enrollment in a given year deviates significantly
 from that school's historical average enrollment.
 }

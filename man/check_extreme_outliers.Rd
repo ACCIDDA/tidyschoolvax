@@ -16,6 +16,9 @@ check_extreme_outliers(data, multiplier = 10)
 A data frame containing rows with extreme enrollment values
 }
 \description{
+\strong{Deprecated:} superseded by \code{\link{dqa_check_extreme_outliers}};
+see the file header of \code{dqa_checks.R}.
+
 Identifies likely typos or extreme outliers, such as enrollment values
 that are 10x the school's typical enrollment.
 }

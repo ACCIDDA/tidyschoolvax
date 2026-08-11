@@ -1,6 +1,12 @@
 #' Generate DQA Summary Report
 #'
 #' @description
+#' \strong{Deprecated:} consumes the output of the legacy
+#' \code{\link{run_dqa_checks}}. The live pipeline reports DQA results via
+#' \code{\link{print_dqa_summary}} / the \code{dqa_report} list built by
+#' \code{\link{run_final_formatting}} instead. See the file header of
+#' \code{dqa_checks.R} for the full replacement mapping.
+#'
 #' Creates a comprehensive summary report of data quality assurance checks,
 #' consolidating flagged issues from all checks into a standardized format.
 #'
@@ -117,6 +123,10 @@ generate_dqa_summary <- function(dqa_results,
 #' Generate Detailed DQA Report
 #'
 #' @description
+#' \strong{Deprecated:} consumes the output of the legacy
+#' \code{\link{run_dqa_checks}}; see the file header of \code{dqa_checks.R}
+#' for the live-pipeline replacement mapping.
+#'
 #' Creates a detailed report with all flagged records from each DQA check,
 #' optionally combining them into a single consolidated dataset.
 #'

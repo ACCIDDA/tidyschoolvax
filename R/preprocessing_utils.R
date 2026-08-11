@@ -1126,6 +1126,60 @@ clean_address <- function(x,
 }
 
 
+# Internal: standardize school_name/county to matching keys, add school_level
+# and district_std. Extracted from clean_kinder_data(), clean_doe_data(), and
+# setup_other_sourcedata(), which previously each hand-wrote this identical
+# five-step block (clean_kinder_data() differed only in which level_code
+# function it called, and in doing fix_charter_type() before rather than
+# after the district_std step — an order swap that doesn't change the result,
+# since fix_charter_type() only touches school_type/school_name).
+# clean_greatschools_data() is intentionally NOT routed through this helper:
+# it standardizes name/county columns that are still under their raw
+# GreatSchools names (name/county/county2, pre-rename) and interleaves a
+# geocoding step, so forcing it through the same call would obscure more than
+# it would save.
+#
+#' Standardize a school source's name/county/level/district matching keys
+#'
+#' @param df A data frame with at least \code{school_name} and \code{county}
+#'   columns.
+#' @param level_code_fn A one-argument function \code{function(df)} that adds
+#'   a \code{level_code} column — callers pass a closure over
+#'   \code{\link{add_school_level_code_fromtype}} (kinder data, which has no
+#'   \code{grades} column) or \code{\link{add_school_level_code}} (DOE/third
+#'   source, which do).
+#' @param lowercase Logical; apply \code{\link{clean_lowercase}} first
+#'   (default \code{TRUE}, matching all three current callers).
+#' @return \code{df} with \code{school_name_std}, \code{county_std},
+#'   \code{school_level}, a \code{level_code} column added by
+#'   \code{level_code_fn}, and \code{district_std} added.
+#' @keywords internal
+.standardize_school_source <- function(df, level_code_fn, lowercase = TRUE) {
+  if (isTRUE(lowercase)) df <- clean_lowercase(df)
+
+  df <- df %>%
+    dplyr::mutate(
+      school_name_std = standardized_school_name(school_name),
+      county_std      = standardized_county_name(county)
+    ) %>%
+    add_school_level(name_col = "school_name_std")
+
+  df <- level_code_fn(df)
+
+  .add_district_std(df)
+}
+
+# Internal: add district_std from district_col when present, else NA.
+#' @keywords internal
+.add_district_std <- function(df, district_col = "district") {
+  if (district_col %in% colnames(df)) {
+    df %>% dplyr::mutate(district_std = standardize_district_name(.data[[district_col]]))
+  } else {
+    df %>% dplyr::mutate(district_std = NA_character_)
+  }
+}
+
+
 #' Clean and enrich kindergarten vaccination data for school matching
 #'
 #' Applies standardization and enrichment steps to a kindergarten vaccination
@@ -1153,22 +1207,10 @@ clean_address <- function(x,
 clean_kinder_data <- function(kinder_dat) {
 
   kinder_dat <- kinder_dat %>%
-    clean_lowercase() %>%
-    dplyr::mutate(
-      school_name_std = standardized_school_name(school_name),
-      county_std      = standardized_county_name(county)
+    .standardize_school_source(
+      level_code_fn = function(d) add_school_level_code_fromtype(d, name_col = "school_level")
     ) %>%
-    add_school_level(name_col = "school_name_std") %>%
-    add_school_level_code_fromtype(name_col = "school_level") %>%
     fix_charter_type(name_col = "school_name")
-
-  if ("district" %in% colnames(kinder_dat)) {
-    kinder_dat <- kinder_dat %>%
-      dplyr::mutate(district_std = standardize_district_name(district))
-  } else {
-    kinder_dat <- kinder_dat %>%
-      dplyr::mutate(district_std = NA_character_)
-  }
 
   kinder_street_col <- if (any(grepl("address", colnames(kinder_dat)))) {
     grep("address", colnames(kinder_dat), value = TRUE, ignore.case = TRUE)[1]
@@ -1232,21 +1274,9 @@ clean_kinder_data <- function(kinder_dat) {
 clean_doe_data <- function(doe_dat) {
 
   doe_dat <- doe_dat %>%
-    clean_lowercase() %>%
-    dplyr::mutate(
-      school_name_std = standardized_school_name(school_name),
-      county_std      = standardized_county_name(county)
-    ) %>%
-    add_school_level(name_col = "school_name_std") %>%
-    add_school_level_code(name_col = "grades")
-
-  if ("district" %in% colnames(doe_dat)) {
-    doe_dat <- doe_dat %>%
-      dplyr::mutate(district_std = standardize_district_name(district))
-  } else {
-    doe_dat <- doe_dat %>%
-      dplyr::mutate(district_std = NA_character_)
-  }
+    .standardize_school_source(
+      level_code_fn = function(d) add_school_level_code(d, name_col = "grades")
+    )
 
   doe_dat <- doe_dat %>%
     dplyr::mutate(
@@ -1429,21 +1459,9 @@ setup_other_sourcedata <- function(other_dat_filenames = c("other_dat.csv", "oth
     }
 
     other_dat <- other_dat %>%
-      clean_lowercase() %>%
-      dplyr::mutate(
-        school_name_std = standardized_school_name(school_name),
-        county_std      = standardized_county_name(county)
-      ) %>%
-      add_school_level(name_col = "school_name_std") %>%
-      add_school_level_code(name_col = "grades")
-
-    if ("district" %in% colnames(other_dat)) {
-      other_dat <- other_dat %>%
-        dplyr::mutate(district_std = standardize_district_name(district))
-    } else {
-      other_dat <- other_dat %>%
-        dplyr::mutate(district_std = NA_character_)
-    }
+      .standardize_school_source(
+        level_code_fn = function(d) add_school_level_code(d, name_col = "grades")
+      )
 
     other_dat <- other_dat %>%
       dplyr::mutate(

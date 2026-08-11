@@ -669,6 +669,203 @@ match_schools_names <- function(data1, data2,
 
 
 
+# Matching cascade helper ---------------------------------------------------
+#
+# build_reference_key(), .integrate_third_dataset(), and
+# match_kinder_to_reference() (standardize_schools.R) each hand-roll the same
+# pattern: run match_schools_names() on the still-unmatched rows of data1
+# against data2 with one set of match_cols/thresholds, shrink the "still
+# unmatched" set, then repeat with a different set of match_cols/thresholds
+# (address -> zip -> city -> district -> county, etc.), tagging each pass's
+# output with a match_method label. run_matching_cascade() below is that
+# pattern extracted once, driven by a list of pass-specs, so those call sites
+# can be a pass list + one function call instead of a hand-written chain.
+
+
+#' Exact-join matching pass on a shared identity key (e.g. \code{place_id})
+#'
+#' Unlike \code{\link{match_schools_names}}, this performs a plain equi-join
+#' on \code{join_col} rather than fuzzy string-distance scoring. Used as a
+#' high-confidence "Pass 0" ahead of the fuzzy passes: two records that share
+#' a Google \code{place_id} are the same physical school regardless of what
+#' name string each one uses that year, which is exactly the signal needed to
+#' bridge a school rename that fuzzy name-matching cannot.
+#'
+#' @param data1,data2 Data frames with \code{data1_id}/\code{data2_id} and
+#'   \code{join_col} columns (plus \code{school_name}/\code{school_name_std}
+#'   and, optionally, \code{county_std}/\code{district_std} for reporting).
+#' @param join_col Character scalar naming the identity column to join on
+#'   (default \code{"place_id"}).
+#' @param data_1_source,data_2_source Labels carried into the output, as in
+#'   \code{\link{match_schools_names}}.
+#'
+#' @return A named list with \code{matched}, \code{unmatched_dat1}, and
+#'   \code{unmatched_dat2}, matching the shape \code{\link{match_schools_names}}
+#'   returns (only the columns actually consumed downstream are populated;
+#'   string-distance columns are absent since no fuzzy scoring occurs).
+#' @keywords internal
+.run_exact_join_pass <- function(data1, data2, join_col = "place_id",
+                                 data_1_source = "data1", data_2_source = "data2") {
+
+  empty <- list(
+    matched = tibble::tibble(
+      match_score = numeric(0), match_category = character(0),
+      data1_id = integer(0), data2_id = integer(0),
+      data_1_source = character(0), data_2_source = character(0),
+      county_std = character(0), district_std = character(0),
+      school_name_data1 = character(0), school_name_data2 = character(0),
+      school_name_std_data1 = character(0), school_name_std_data2 = character(0)
+    ),
+    unmatched_dat1 = data1,
+    unmatched_dat2 = data2
+  )
+
+  if (!join_col %in% names(data1) || !join_col %in% names(data2)) return(empty)
+
+  d1 <- data1 %>% dplyr::filter(!is.na(.data[[join_col]]), .data[[join_col]] != "")
+  d2 <- data2 %>%
+    dplyr::filter(!is.na(.data[[join_col]]), .data[[join_col]] != "") %>%
+    dplyr::distinct(.data[[join_col]], .keep_all = TRUE)
+
+  if (nrow(d1) == 0 || nrow(d2) == 0) return(empty)
+
+  hit_rows <- which(d1[[join_col]] %in% d2[[join_col]])
+  if (length(hit_rows) == 0) return(empty)
+  hits <- d1[hit_rows, ]
+  idx2 <- match(hits[[join_col]], d2[[join_col]])
+
+  get_or_na <- function(df, nm, i) if (nm %in% names(df)) df[[nm]][i] else NA_character_
+
+  matched <- tibble::tibble(
+    match_score           = 1,
+    match_category        = "Exact Match (place_id)",
+    data1_id               = hits$data1_id,
+    data2_id               = d2$data2_id[idx2],
+    data_1_source           = data_1_source,
+    data_2_source           = data_2_source,
+    county_std             = get_or_na(hits, "county_std", seq_len(nrow(hits))),
+    district_std           = get_or_na(hits, "district_std", seq_len(nrow(hits))),
+    school_name_data1       = hits$school_name,
+    school_name_data2       = get_or_na(d2, "school_name", idx2),
+    school_name_std_data1   = hits$school_name_std,
+    school_name_std_data2   = get_or_na(d2, "school_name_std", idx2)
+  )
+
+  list(
+    matched        = matched,
+    unmatched_dat1 = data1 %>% dplyr::filter(!(data1_id %in% hits$data1_id)),
+    unmatched_dat2 = data2 %>% dplyr::filter(!(.data[[join_col]] %in% hits[[join_col]]))
+  )
+}
+
+
+#' Run a multi-pass school-matching cascade
+#'
+#' Generalizes the "try pass 1, keep whatever's still unmatched, try pass 2,
+#' ..." chains that \code{build_reference_key()}, \code{.integrate_third_dataset()},
+#' and \code{match_kinder_to_reference()} previously hand-wrote as repeated,
+#' near-identical blocks. Each pass either calls \code{\link{match_schools_names}}
+#' (fuzzy string matching within \code{match_cols1}/\code{match_cols2} groups)
+#' or \code{\link{.run_exact_join_pass}} (exact-key join, e.g. on
+#' \code{place_id}), and only ever operates on \code{data1} rows left
+#' unmatched by prior passes.
+#'
+#' @param data1,data2 Data frames of school records, as in
+#'   \code{\link{match_schools_names}}.
+#' @param passes A list of pass-specs. Each element is itself a list with:
+#'   \describe{
+#'     \item{label}{Character. Recorded as \code{match_method} in the output.}
+#'     \item{type}{\code{"fuzzy"} (default) to call
+#'       \code{\link{match_schools_names}}, or \code{"exact_join"} to call
+#'       \code{\link{.run_exact_join_pass}}.}
+#'     \item{join_col}{Required when \code{type = "exact_join"}.}
+#'     \item{match_cols1, match_cols2}{Required when \code{type = "fuzzy"}.}
+#'     \item{threshold_jw, threshold_jw_min, exact_jw}{Fuzzy thresholds,
+#'       passed through to \code{\link{match_schools_names}}.}
+#'     \item{condition}{Optional \code{function(data1, data2)} evaluated once
+#'       against the cascade's original (full) \code{data1}/\code{data2}; the
+#'       pass is skipped entirely when it returns other than \code{TRUE}
+#'       (e.g. "only run the district pass when both sources have usable
+#'       district_std").}
+#'     \item{row_filter1, row_filter2}{Optional \code{function(df)} applied
+#'       to this pass's data1 (the current unmatched subset) / data2 just
+#'       before matching — e.g. adding a derived column, or restricting to
+#'       rows with a non-trivial \code{district_std}.}
+#'   }
+#' @param data_1_source,data_2_source Labels passed through to each pass.
+#' @param parallel See \code{\link{match_schools_names}}; passed through to
+#'   every fuzzy pass.
+#'
+#' @return A named list with \code{matched} (all passes' matches
+#'   row-bound, each tagged with a \code{match_method} column) and
+#'   \code{unmatched_dat1} (data1 rows left unmatched after every pass).
+#' @export
+run_matching_cascade <- function(data1, data2, passes,
+                                 data_1_source = "data1",
+                                 data_2_source = "data2",
+                                 parallel = FALSE) {
+
+  remaining1   <- data1
+  all_matched  <- list()
+
+  for (p in passes) {
+    if (nrow(remaining1) == 0) break
+
+    if (!is.null(p$condition) && !isTRUE(p$condition(data1, data2))) next
+
+    d1 <- remaining1
+    d2 <- data2
+    if (!is.null(p$row_filter1)) d1 <- p$row_filter1(d1)
+    if (!is.null(p$row_filter2)) d2 <- p$row_filter2(d2)
+    if (nrow(d1) == 0 || nrow(d2) == 0) next
+
+    pass_result <- if (identical(p$type, "exact_join")) {
+      .run_exact_join_pass(
+        d1, d2, join_col = p$join_col,
+        data_1_source = data_1_source, data_2_source = data_2_source
+      )
+    } else {
+      match_schools_names(
+        data1 = d1, data2 = d2,
+        match_cols1 = p$match_cols1, match_cols2 = p$match_cols2,
+        data_1_source = data_1_source, data_2_source = data_2_source,
+        threshold_jw = p$threshold_jw, threshold_jw_min = p$threshold_jw_min,
+        exact_jw = p$exact_jw, parallel = parallel
+      )
+    }
+
+    if (nrow(pass_result$matched) > 0) {
+      all_matched[[p$label]] <- dplyr::mutate(pass_result$matched, match_method = p$label)
+    }
+
+    # Track by data1_id, not school_name: match_schools_names()'s own
+    # match_record carries data1_id unconditionally, but school_name is not
+    # guaranteed to exist on every data1 shape run_matching_cascade() is used
+    # with (build_kinder_unique_schools() output, for one, only ever has
+    # school_name_std). data1_id is also strictly safer than a name-based key
+    # when duplicate names exist within data1.
+    matched_ids <- rlang::`%||%`(pass_result$matched$data1_id, integer(0))
+    remaining1 <- remaining1 %>% dplyr::filter(!(data1_id %in% matched_ids))
+  }
+
+  matched_df <- dplyr::bind_rows(all_matched)
+
+  unmatched2_ids <- rlang::`%||%`(matched_df$data2_id, integer(0))
+  unmatched_dat2 <- if ("data2_id" %in% names(data2)) {
+    data2 %>% dplyr::filter(!(data2_id %in% unmatched2_ids))
+  } else {
+    data2
+  }
+
+  list(
+    matched        = matched_df,
+    unmatched_dat1 = remaining1,
+    unmatched_dat2 = unmatched_dat2
+  )
+}
+
+
+
 
 
 

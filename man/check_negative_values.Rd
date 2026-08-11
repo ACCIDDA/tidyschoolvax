@@ -19,6 +19,9 @@ Default: c("current", "delayed", "med_exempt", "rel_exempt", "enrollment")}
 A data frame containing rows with negative values in checked columns
 }
 \description{
+\strong{Deprecated:} superseded by \code{\link{dqa_check_negatives}}; see
+the file header of \code{dqa_checks.R}.
+
 Identifies records with negative values in numeric columns such as
 enrollment, current vaccinations, exemptions, or delayed counts.
 }

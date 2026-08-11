@@ -32,8 +32,24 @@ Default includes standard types for vaccination data columns.}
 A cleaned data frame with standardized columns and data types
 }
 \description{
-Formats raw state-specific data to meet standardized requirements for 
-further processing. Ensures required columns exist, validates column data 
+\strong{Deprecated:} overlaps with \code{\link{format_select_columns}} /
+\code{\link{format_fix_column_classes}} / \code{\link{dqa_remove_zero_enrollment}} /
+\code{\link{dqa_remove_zero_current}} in \code{final_format_utils.R}, which
+the live pipeline (\code{\link{run_final_formatting}}) actually calls.
+\code{clean_state_data()} is kept as its own implementation rather than
+delegating to those, because the contracts have diverged in ways that would
+change behavior: \code{format_select_columns()} \code{warning()}s on
+missing required columns where this function \code{stop()}s (part of its
+documented/tested contract below); \code{format_fix_column_classes()} uses
+a fixed column/class list that doesn't cover \code{cnty_id}/
+\code{school_county} and can't take this function's \code{expected_classes}
+argument; and \code{dqa_remove_zero_enrollment()} requires a
+\code{temp_data_dir} and writes a CSV of removed rows as a side effect,
+which this function's callers don't expect. New code should prefer the
+\code{final_format_utils.R} functions directly.
+
+Formats raw state-specific data to meet standardized requirements for
+further processing. Ensures required columns exist, validates column data
 types, and handles missing or optional column cases.
 }
 \details{

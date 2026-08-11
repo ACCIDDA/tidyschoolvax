@@ -1,6 +1,35 @@
+# ==============================================================================
+# DEPRECATED — legacy, base-R DQA implementation.
+#
+# Every check in this file is functionally superseded by a dplyr-based
+# equivalent in final_format_utils.R, which is what the live pipeline
+# (inst/templates/preprocessing-orchestration.R -> run_final_formatting())
+# actually calls:
+#   check_duplicates()                -> dqa_check_duplicates()
+#   check_negative_values()           -> dqa_check_negatives()
+#   check_exceeding_enrollment_values()-> dqa_check_too_high()
+#   check_coverage_outliers()         -> dqa_check_coverage_outliers()
+#   check_enrollment_deviation()      -> dqa_check_enrollment_deviation()
+#   check_vaccination_deviation()     -> dqa_check_current_deviation()
+#   check_extreme_outliers()          -> dqa_check_extreme_outliers()
+#
+# This file (plus run_dqa_checks.R and generate_dqa_summary.R, which
+# orchestrate it) is reachable only from inst/scripts/test_modular_functions.R
+# and its own unit tests — not from the orchestration template. Kept for
+# backward compatibility with any external caller and its existing tests
+# rather than deleted outright; new code should use the final_format_utils.R
+# functions above instead.
+# ==============================================================================
+
+
 #' Check for Duplicate Records
 #'
 #' @description
+#' \strong{Deprecated:} superseded by \code{\link{dqa_check_duplicates}} in
+#' \code{final_format_utils.R}, which the live pipeline actually calls. Kept
+#' for backward compatibility; see the file header of \code{dqa_checks.R} for
+#' the full list of replacements.
+#'
 #' Identifies duplicate school_id-year combinations in the dataset and determines
 #' whether duplicates are identical or have conflicting data.
 #'
@@ -79,6 +108,9 @@ check_duplicates <- function(data, core_cols = NULL) {
 #' Check for Negative Values
 #'
 #' @description
+#' \strong{Deprecated:} superseded by \code{\link{dqa_check_negatives}}; see
+#' the file header of \code{dqa_checks.R}.
+#'
 #' Identifies records with negative values in numeric columns such as
 #' enrollment, current vaccinations, exemptions, or delayed counts.
 #'
@@ -128,6 +160,9 @@ check_negative_values <- function(data,
 #' Check for Values Exceeding Enrollment
 #'
 #' @description
+#' \strong{Deprecated:} superseded by \code{\link{dqa_check_too_high}}; see
+#' the file header of \code{dqa_checks.R}.
+#'
 #' Identifies records where current vaccinations, exemptions, or delayed counts
 #' individually exceed total enrollment.
 #'
@@ -181,6 +216,10 @@ check_exceeding_enrollment_values <- function(data,
 #' Check for Coverage Outliers
 #'
 #' @description
+#' \strong{Deprecated:} superseded by \code{\link{dqa_check_coverage_outliers}}
+#' / \code{\link{dqa_check_over_coverage}}; see the file header of
+#' \code{dqa_checks.R}.
+#'
 #' Identifies records with unrealistic MMR coverage (<0 or >105 percent) and cases
 #' where current + delayed + exemptions exceed enrollment.
 #'
@@ -252,6 +291,10 @@ check_coverage_outliers <- function(data, coverage_threshold = 1.05) {
 #' Check for Enrollment Deviation
 #'
 #' @description
+#' \strong{Deprecated:} superseded by
+#' \code{\link{dqa_check_enrollment_deviation}}; see the file header of
+#' \code{dqa_checks.R}.
+#'
 #' Identifies schools where enrollment in a given year deviates significantly
 #' from that school's historical average enrollment.
 #'
@@ -320,6 +363,9 @@ check_enrollment_deviation <- function(data, deviation_threshold = 0.5) {
 #' Check for Vaccination Count Deviation
 #'
 #' @description
+#' \strong{Deprecated:} superseded by \code{\link{dqa_check_current_deviation}};
+#' see the file header of \code{dqa_checks.R}.
+#'
 #' Identifies schools where current vaccination count in a given year deviates
 #' significantly from that school's historical average.
 #'
@@ -387,6 +433,9 @@ check_vaccination_deviation <- function(data, deviation_threshold = 0.5) {
 #' Check for Extreme Outliers
 #'
 #' @description
+#' \strong{Deprecated:} superseded by \code{\link{dqa_check_extreme_outliers}};
+#' see the file header of \code{dqa_checks.R}.
+#'
 #' Identifies likely typos or extreme outliers, such as enrollment values
 #' that are 10x the school's typical enrollment.
 #'
