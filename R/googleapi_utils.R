@@ -527,6 +527,19 @@ process_chunk <- function(chunk_df, google_api_key) {
   return(chunk_df)
 }
 
+# Internal: canonical paths for the three geocoding cache files, single-sourced
+# here so run_full_geocoding(), run_school_status_with_cache(), and
+# clear_geocoding_cache() can't drift out of sync on filenames.
+#' @keywords internal
+.geocoding_cache_paths <- function(geo_dir) {
+  c(
+    geocoded = file.path(geo_dir, "geocoded_cache.rds"),
+    progress = file.path(geo_dir, "geocoding_progress.rds"),
+    status   = file.path(geo_dir, "status_cache.rds")
+  )
+}
+
+
 # ------------------------------------------------------------------------------
 # MAIN ORCHESTRATION FUNCTION
 # ------------------------------------------------------------------------------
@@ -572,8 +585,9 @@ process_chunk <- function(chunk_df, google_api_key) {
 #' @export
 run_full_geocoding <- function(unique_schools, geo_dir, google_api_key,
                                parallel_cache = TRUE, api_qps = 50) {
-  save_path <- file.path(geo_dir, "geocoded_cache.rds")
-  progress_path <- file.path(geo_dir, "geocoding_progress.rds")
+  cache_paths   <- .geocoding_cache_paths(geo_dir)
+  save_path     <- cache_paths[["geocoded"]]
+  progress_path <- cache_paths[["progress"]]
   
   # Validate input data
   validate_input_data(unique_schools)
@@ -858,7 +872,7 @@ get_business_status <- function(place_id, google_api_key) {
 #' @importFrom furrr future_map
 #' @export
 run_school_status_with_cache <- function(df, geo_dir, google_api_key) {
-  status_path <- file.path(geo_dir, "status_cache.rds")
+  status_path <- .geocoding_cache_paths(geo_dir)[["status"]]
   df <- df %>% dplyr::mutate(orig_sort_id = dplyr::row_number())
 
   # ── Merge from cache if it exists ──────────────────────────────────────────
@@ -998,6 +1012,111 @@ retry_transient_errors <- function(df,
   }
   
   df
+}
+
+# ------------------------------------------------------------------------------
+# Clear the geocoding cache
+# ------------------------------------------------------------------------------
+
+#' Clear the geocoding cache
+#'
+#' Deletes some or all of the three cache files a state's \code{state_geo_dir}
+#' accumulates: \code{geocoded_cache.rds} (place_id/coordinates/address, from
+#' \code{\link{run_full_geocoding}} and \code{\link{resolve_school_place_ids}}),
+#' \code{status_cache.rds} (\code{business_status}/\code{google_place_name},
+#' from \code{\link{run_school_status_with_cache}} and
+#' \code{\link{add_google_name_variants}}), and \code{geocoding_progress.rds}
+#' (resume state for an interrupted geocoding run).
+#'
+#' @details
+#' You do \strong{not} need to clear the cache for correctness — cached rows
+#' are read back into every function that consults them regardless of when
+#' they were written; clearing is only useful when you specifically want
+#' stale data (e.g. addresses that have since changed, or a school-status
+#' lookup that predates a rename) re-fetched from Google.
+#'
+#' Clearing is deliberately asymmetric in cost, and the defaults reflect that:
+#' \itemize{
+#'   \item \strong{\code{"status"}} (the default) only forces
+#'     \code{business_status}/\code{google_place_name} to be re-fetched — a
+#'     single Places Details call per school, no coordinates lost. Safe to
+#'     clear whenever you want fresher names/statuses.
+#'   \item \strong{\code{"geocoded"}} forces every school to be fully
+#'     re-geocoded from scratch next run — proportional to your school count
+#'     in both Google API quota and wall-clock time. Requires
+#'     \code{force = TRUE} so it can't be cleared by accident.
+#'   \item \strong{\code{"progress"}} discards the resume checkpoint for an
+#'     \emph{interrupted} \code{\link{run_full_geocoding}} call. If you leave
+#'     this file alone, simply re-running the pipeline resumes the unfinished
+#'     batch instead of starting over; only clear it if you want to abandon
+#'     that partial progress. If the file exists and looks like real
+#'     in-progress state, a message reports how many chunks would be
+#'     discarded before removing it.
+#' }
+#'
+#' @param state_geo_dir Character scalar. The state's geocoding cache
+#'   directory (the \code{state_geo_dir} used elsewhere in this package,
+#'   e.g. from \code{\link{setup_paths}}).
+#' @param what Character vector of which cache(s) to clear: any combination
+#'   of \code{"status"}, \code{"geocoded"}, \code{"progress"}, or
+#'   \code{"all"} (shorthand for all three). Defaults to \code{"status"}.
+#' @param force Logical. Must be \code{TRUE} to include \code{"geocoded"} in
+#'   \code{what}, given the API-quota/time cost of rebuilding it. Ignored for
+#'   \code{"status"}/\code{"progress"}. Defaults to \code{FALSE}.
+#'
+#' @return Invisibly, a list with \code{removed} and \code{skipped} (file
+#'   paths that didn't exist, so there was nothing to remove).
+#' @export
+clear_geocoding_cache <- function(state_geo_dir,
+                                  what  = "status",
+                                  force = FALSE) {
+  what <- match.arg(what, c("status", "geocoded", "progress", "all"),
+                    several.ok = TRUE)
+  if ("all" %in% what) what <- c("status", "geocoded", "progress")
+
+  if ("geocoded" %in% what && !isTRUE(force)) {
+    stop(
+      "Clearing 'geocoded_cache.rds' forces every school to be re-geocoded ",
+      "via the Google API next run (API quota + time, proportional to your ",
+      "school count). Pass force = TRUE to confirm you want that.",
+      call. = FALSE
+    )
+  }
+
+  cache_paths <- .geocoding_cache_paths(state_geo_dir)[what]
+
+  if ("progress" %in% what && file.exists(cache_paths[["progress"]])) {
+    progress_data <- tryCatch(readRDS(cache_paths[["progress"]]), error = function(e) NULL)
+    n_done <- length(progress_data$processed_chunks)
+    if (!is.null(progress_data) && n_done > 0) {
+      message(
+        "geocoding_progress.rds has ", n_done, " chunk(s) already completed ",
+        "from an interrupted run. Removing it means the next run starts that ",
+        "geocoding batch over from scratch instead of resuming — re-running ",
+        "the pipeline without clearing this file resumes automatically."
+      )
+    }
+  }
+
+  removed <- character(0)
+  skipped <- character(0)
+  for (path in cache_paths) {
+    if (file.exists(path)) {
+      file.remove(path)
+      removed <- c(removed, path)
+    } else {
+      skipped <- c(skipped, path)
+    }
+  }
+
+  if (length(removed) > 0) {
+    message("Cleared: ", paste(basename(removed), collapse = ", "))
+  }
+  if (length(skipped) > 0) {
+    message("Already clear (not found): ", paste(basename(skipped), collapse = ", "))
+  }
+
+  invisible(list(removed = removed, skipped = skipped))
 }
 
 # ==============================================================================

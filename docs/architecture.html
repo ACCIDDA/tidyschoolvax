@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>tidyschoolvax — System Architecture</title>
+<meta name="description" content="How the tidyschoolvax R package resolves school identity, matches records across sources, and feeds the imuGAP vaccination-coverage model.">
+
+<style>
+  :root {
+    --paper: #eef1f0;
+    --paper-raised: #f8faf9;
+    --paper-sunken: #e4e9e7;
+    --ink: #142326;
+    --ink-soft: #4b5d5f;
+    --ink-faint: #7c8b8c;
+    --line: #c7d2cf;
+    --line-strong: #9fb0ac;
+    --accent: #1f6f6b;
+    --accent-soft: #d9e7e5;
+    --flag: #b8691a;
+    --flag-soft: #f1e0c9;
+    --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --font-body: Charter, "Bitstream Charter", Cambria, Georgia, "Times New Roman", serif;
+    --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas, "Liberation Mono", monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #0b1416;
+      --paper-raised: #101c1f;
+      --paper-sunken: #081012;
+      --ink: #dde8e6;
+      --ink-soft: #93a6a5;
+      --ink-faint: #647676;
+      --line: #23383b;
+      --line-strong: #345052;
+      --accent: #5fb5af;
+      --accent-soft: #12292a;
+      --flag: #e3a25c;
+      --flag-soft: #2c2013;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper: #0b1416;
+    --paper-raised: #101c1f;
+    --paper-sunken: #081012;
+    --ink: #dde8e6;
+    --ink-soft: #93a6a5;
+    --ink-faint: #647676;
+    --line: #23383b;
+    --line-strong: #345052;
+    --accent: #5fb5af;
+    --accent-soft: #12292a;
+    --flag: #e3a25c;
+    --flag-soft: #2c2013;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 17px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .stage, .card { transition: stroke 0.15s ease, fill 0.15s ease; }
+  }
+
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible, button:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  .page {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 72px 28px 96px;
+  }
+
+  /* ---------- title block ---------- */
+
+  .masthead {
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 28px;
+    margin-bottom: 44px;
+  }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin: 0 0 14px;
+  }
+
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: clamp(2rem, 4vw, 2.7rem);
+    letter-spacing: -0.01em;
+    margin: 0 0 10px;
+    text-wrap: balance;
+  }
+
+  .dek {
+    font-family: var(--font-body);
+    font-style: italic;
+    color: var(--ink-soft);
+    font-size: 1.15rem;
+    max-width: 56ch;
+    margin: 0 0 20px;
+    text-wrap: balance;
+  }
+
+  .facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 26px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--ink-soft);
+  }
+  .facts dt { display: inline; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-faint); }
+  .facts dd { display: inline; margin: 0 0 0 6px; color: var(--ink); }
+  .facts > div { white-space: nowrap; }
+
+  /* ---------- prose ---------- */
+
+  .prose { max-width: 66ch; }
+  .prose p { margin: 0 0 1.1em; }
+  .prose ul, .prose ol { margin: 0 0 1.1em; padding-left: 1.3em; }
+  .prose li { margin-bottom: 0.35em; }
+
+  section { margin: 56px 0; }
+  section > h2:first-child, section > .section-head:first-child { margin-top: 0; }
+
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+
+  h2 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.5rem;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .section-no {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--ink-faint);
+    letter-spacing: 0.04em;
+  }
+
+  h3 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.08rem;
+    margin: 1.6em 0 0.5em;
+  }
+
+  code, .mono { font-family: var(--font-mono); font-size: 0.88em; }
+  .prose code {
+    background: var(--paper-sunken);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 0.05em 0.35em;
+  }
+
+  .callout {
+    border-left: 3px solid var(--flag);
+    background: var(--flag-soft);
+    padding: 14px 18px;
+    font-size: 0.95rem;
+    max-width: 66ch;
+    margin: 1.4em 0;
+  }
+  .callout strong { color: var(--flag); font-family: var(--font-display); }
+
+  /* ---------- figures ---------- */
+
+  figure {
+    margin: 0;
+    padding: 0;
+  }
+  figure.panel {
+    border: 1px solid var(--line);
+    background: var(--paper-raised);
+    border-radius: 3px;
+    padding: 20px 20px 18px;
+  }
+  figure svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+  }
+  figcaption {
+    font-size: 0.85rem;
+    color: var(--ink-soft);
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px dotted var(--line);
+    max-width: 68ch;
+  }
+  figcaption .fig-label {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    display: block;
+    margin-bottom: 4px;
+  }
+
+  svg text { font-family: var(--font-body); fill: var(--ink); }
+  svg .lbl-mono { font-family: var(--font-mono); fill: var(--ink-soft); }
+  svg .lbl-title { font-family: var(--font-display); font-weight: 600; fill: var(--ink); }
+  svg .lbl-chip { font-family: var(--font-mono); fill: var(--ink-soft); }
+  svg .lbl-faint { fill: var(--ink-faint); }
+  svg .accent-text { fill: var(--accent); }
+  svg .flag-text { fill: var(--flag); }
+  svg .stage-box { fill: var(--paper-raised); stroke: var(--line-strong); stroke-width: 1.25; }
+  svg .stage-box.flagged { stroke: var(--flag); stroke-width: 1.75; }
+  svg .chip-box { fill: var(--paper-sunken); stroke: var(--line); stroke-width: 1; }
+  svg .boundary { fill: none; stroke: var(--line-strong); stroke-width: 1; stroke-dasharray: 3 4; }
+  svg .flow-line { stroke: var(--ink-faint); stroke-width: 1.25; fill: none; }
+  svg .flow-line.accent { stroke: var(--accent); stroke-width: 1.75; }
+  svg .flow-line.flag { stroke: var(--flag); stroke-width: 2; }
+  svg .flow-line.muted { stroke: var(--ink-faint); stroke-width: 1; stroke-dasharray: 2 3; opacity: 0.7; }
+  svg .card-box { fill: var(--paper-raised); stroke: var(--line-strong); stroke-width: 1.25; }
+  svg .pass-box { fill: var(--paper-sunken); stroke: var(--line); stroke-width: 1; }
+  svg .pass-box.flagged { fill: var(--flag-soft); stroke: var(--flag); stroke-width: 1.75; }
+
+  /* ---------- module reference table ---------- */
+
+  .modtable {
+    border-top: 1px solid var(--line-strong);
+  }
+  .modrow {
+    display: grid;
+    grid-template-columns: 15ch 1fr;
+    gap: 4px 24px;
+    padding: 18px 0;
+    border-bottom: 1px solid var(--line);
+    align-items: start;
+  }
+  .modrow .layer {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--flag);
+    padding-top: 3px;
+  }
+  .modrow.plain .layer { color: var(--ink-faint); }
+  .modgroup + .modgroup { margin-top: 6px; }
+  .modfile {
+    font-family: var(--font-mono);
+    font-size: 0.92rem;
+    color: var(--ink);
+    display: block;
+    margin-bottom: 3px;
+  }
+  .moddesc { font-size: 0.94rem; color: var(--ink-soft); margin: 0 0 6px; max-width: 62ch; }
+  .modfns { font-family: var(--font-mono); font-size: 0.8rem; color: var(--ink-faint); line-height: 1.7; }
+  .modfns b { color: var(--accent); font-weight: 500; }
+
+  /* ---------- decisions ---------- */
+
+  .decisions {
+    display: grid;
+    gap: 22px;
+  }
+  .decision {
+    display: grid;
+    grid-template-columns: minmax(0,1fr);
+    gap: 6px;
+    padding: 18px 20px;
+    background: var(--paper-raised);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+  }
+  .decision h3 { margin: 0; font-size: 1rem; }
+  .decision p { margin: 0; font-size: 0.93rem; color: var(--ink-soft); max-width: 62ch; }
+
+  /* ---------- colophon ---------- */
+
+  .colophon {
+    margin-top: 72px;
+    padding-top: 22px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 18px 40px;
+    font-size: 0.85rem;
+    color: var(--ink-faint);
+  }
+  .colophon-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 28px;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+  .colophon-stats b { color: var(--ink); font-weight: 500; }
+  .colophon-note { max-width: 40ch; font-family: var(--font-body); font-style: italic; }
+
+  @media (max-width: 620px) {
+    .page { padding: 48px 18px 72px; }
+    .modrow { grid-template-columns: 1fr; }
+    .modrow .layer { padding-top: 0; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="masthead">
+    <p class="eyebrow">R package · internal architecture reference</p>
+    <h1>tidyschoolvax</h1>
+    <p class="dek">How a kindergarten vaccination record finds its way to the correct physical school — across sources, across years, and across renames — before it ever reaches the coverage model.</p>
+    <dl class="facts">
+      <div><dt>Domain</dt><dd>School vaccination-coverage preprocessing (ACCIDDA / measles)</dd></div>
+      <div><dt>Core problem</dt><dd>Record linkage across GreatSchools, state DOE, and kindergarten files</dd></div>
+      <div><dt>Identity source</dt><dd>Google Places <code style="background:none;border:none;padding:0">place_id</code></dd></div>
+    </dl>
+  </header>
+
+  <section class="prose">
+    <div class="section-head"><span class="section-no">§1</span><h2>What this package does</h2></div>
+    <p><strong>tidyschoolvax</strong> is the upstream preprocessing stage of the ACCIDDA measles pipeline. Each state publishes kindergarten MMR vaccination counts under whatever school name and formatting its own systems use, in files that arrive one school-year at a time. Before that data can feed a coverage model, every record has to be resolved to <em>one</em> physical school — the same school, whether it's called &ldquo;Robert E. Lee Elementary&rdquo; in a 2019 file or &ldquo;Northside Elementary&rdquo; in a 2024 one.</p>
+    <p>The package does this by cross-matching three kinds of source against each other — <a href="#fig1">GreatSchools.org</a>, the state Department of Education, and the raw kindergarten files — using a cascade of increasingly loose signals: first an exact Google <code>place_id</code>, then address, then ZIP, then city, then county. Everything downstream (data-quality checks, the model's input tables) is built on top of the resulting school key.</p>
+  </section>
+
+  <section>
+    <div class="section-head"><span class="section-no">§2</span><h2>Pipeline architecture</h2></div>
+    <figure class="panel" id="fig1" aria-labelledby="fig1-cap">
+      <svg viewBox="0 0 880 1040" role="img" aria-label="Flow diagram: raw data sources feed a download stage, which feeds source cleaning, then Google identity resolution, then the matching cascade, then enrichment and QC, then formatting and DQA, producing tables consumed by the downstream imuGAP model. The Google Geocoding and Places API is queried at two points: identity resolution and enrichment.">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--ink-faint)"></path>
+          </marker>
+          <marker id="arrow-accent" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"></path>
+          </marker>
+        </defs>
+
+        <!-- sources chip -->
+        <rect class="chip-box" x="40" y="20" width="260" height="104" rx="3"></rect>
+        <text x="56" y="42" class="lbl-title" font-size="12.5">Raw data sources</text>
+        <text x="56" y="62" class="lbl-chip" font-size="10.5">GreatSchools.org</text>
+        <text x="56" y="78" class="lbl-chip" font-size="10.5">State DOE / DOA files</text>
+        <text x="56" y="94" class="lbl-chip" font-size="10.5">Kindergarten vax files (per state)</text>
+        <text x="56" y="110" class="lbl-chip" font-size="10.5">CDC VaxView</text>
+
+        <!-- google + census chips -->
+        <rect class="chip-box" x="620" y="20" width="220" height="52" rx="3"></rect>
+        <text x="636" y="41" class="lbl-title" font-size="12">Google Geocoding</text>
+        <text x="636" y="58" class="lbl-title" font-size="12">+ Places API</text>
+
+        <rect class="chip-box" x="620" y="86" width="220" height="40" rx="3"></rect>
+        <text x="636" y="110" class="lbl-title" font-size="12">Census TIGER (tigris)</text>
+
+        <!-- arrow: sources -> download -->
+        <path class="flow-line" d="M170,124 L170,164" marker-end="url(#arrow)"></path>
+
+        <!-- package boundary -->
+        <rect class="boundary" x="48" y="164" width="540" height="740" rx="4"></rect>
+        <text x="64" y="184" class="lbl-mono lbl-faint" font-size="10.5" letter-spacing="0.06em">TIDYSCHOOLVAX PACKAGE</text>
+
+        <!-- stage 1: download -->
+        <rect class="stage-box" x="70" y="196" width="516" height="80" rx="3"></rect>
+        <text x="88" y="220" class="lbl-title" font-size="14.5">1 · Download</text>
+        <text x="88" y="240" class="lbl-mono" font-size="11">download_agnostic_data()</text>
+        <text x="88" y="256" class="lbl-mono" font-size="11">state 01_download.R</text>
+
+        <path class="flow-line" d="M328,276 L328,308" marker-end="url(#arrow)"></path>
+
+        <!-- stage 2: clean sources -->
+        <rect class="stage-box" x="70" y="308" width="516" height="80" rx="3"></rect>
+        <text x="88" y="332" class="lbl-title" font-size="14.5">2 · Clean &amp; standardize sources</text>
+        <text x="88" y="352" class="lbl-mono" font-size="11">clean_kinder_data() · clean_doe_data() · clean_greatschools_data()</text>
+        <text x="88" y="368" class="lbl-mono" font-size="11">shared via .standardize_school_source()</text>
+
+        <path class="flow-line" d="M328,388 L328,420" marker-end="url(#arrow)"></path>
+        <path class="flow-line" d="M620,106 L594,106 L594,348 L586,348" marker-end="url(#arrow)"></path>
+
+        <!-- stage 3: resolve identity (flagged) -->
+        <rect class="stage-box flagged" x="70" y="420" width="516" height="80" rx="3"></rect>
+        <text x="88" y="444" class="lbl-title" font-size="14.5">3 · Resolve Google identity</text>
+        <text x="88" y="464" class="lbl-mono" font-size="11">resolve_school_place_ids() · add_google_name_variants()</text>
+        <text x="88" y="480" class="flag-text lbl-mono" font-size="11">↳ runs here now, not after matching (see §3)</text>
+
+        <path class="flow-line accent" d="M620,36 L604,36 L604,460 L586,460" marker-end="url(#arrow-accent)"></path>
+
+        <path class="flow-line" d="M328,500 L328,532" marker-end="url(#arrow)"></path>
+
+        <!-- stage 4: match -->
+        <rect class="stage-box" x="70" y="532" width="516" height="80" rx="3"></rect>
+        <text x="88" y="556" class="lbl-title" font-size="14.5">4 · Match</text>
+        <text x="88" y="576" class="lbl-mono" font-size="11">build_reference_key() (GS ↔ DOE) · match_kinder_to_reference()</text>
+        <text x="88" y="592" class="lbl-mono" font-size="11">both via <tspan class="flag-text">run_matching_cascade()</tspan> — place_id first, then fuzzy</text>
+
+        <path class="flow-line" d="M328,612 L328,644" marker-end="url(#arrow)"></path>
+
+        <!-- stage 5: enrich & qc -->
+        <rect class="stage-box" x="70" y="644" width="516" height="80" rx="3"></rect>
+        <text x="88" y="668" class="lbl-title" font-size="14.5">5 · Enrich &amp; QC</text>
+        <text x="88" y="688" class="lbl-mono" font-size="11">run_full_geocoding() · run_school_status_with_cache()</text>
+        <text x="88" y="704" class="lbl-mono" font-size="11">→ school_renames_detected.csv + 4 more QC reports</text>
+
+        <path class="flow-line accent" d="M620,58 L614,58 L614,684 L586,684" marker-end="url(#arrow-accent)"></path>
+
+        <path class="flow-line" d="M328,724 L328,756" marker-end="url(#arrow)"></path>
+
+        <!-- stage 6: format & dqa -->
+        <rect class="stage-box" x="70" y="756" width="516" height="80" rx="3"></rect>
+        <text x="88" y="780" class="lbl-title" font-size="14.5">6 · Format &amp; DQA</text>
+        <text x="88" y="800" class="lbl-mono" font-size="11">03_state_cleaning.R → run_final_formatting()</text>
+        <text x="88" y="816" class="lbl-mono" font-size="11">dqa_check_*() / dqa_remove_*() (final_format_utils.R)</text>
+
+        <path class="flow-line" d="M328,836 L328,936" marker-end="url(#arrow)"></path>
+
+        <!-- downstream chip -->
+        <rect class="chip-box" x="70" y="936" width="516" height="80" rx="3"></rect>
+        <text x="88" y="960" class="lbl-title" font-size="13">Downstream (outside this package)</text>
+        <text x="88" y="980" class="lbl-mono" font-size="11">obs / obs_populations / locations / linkage_key tables</text>
+        <text x="88" y="998" class="lbl-mono" font-size="11">→ imuGAP model (Stan MCMC) → dashboard.json → Power BI / Web Dashboard</text>
+      </svg>
+      <figcaption id="fig1-cap">
+        <span class="fig-label">Figure 1</span>
+        The full <code>standardize_schools()</code> pipeline. Google identity resolution (stage 3, outlined in amber) used to run only at the very end, purely as enrichment — it now runs immediately after source cleaning, so its output can be used as a matching signal in stage 4. The Google API is called at two points (teal lines): once to resolve identity early, once more at enrichment, where it now mostly hits cache.
+      </figcaption>
+    </figure>
+  </section>
+
+  <section class="prose">
+    <div class="section-head"><span class="section-no">§3</span><h2>Why reordering the geocoding step matters</h2></div>
+    <p>Matching has always run on fuzzy string distance — Jaro-Winkler, soundex, cosine, and three other metrics computed in C++ (<code>match_schools_batch_cpp()</code>), scored and tie-broken in R (<code>match_schools_names()</code>). That works well for typos and formatting drift, but a genuine rename produces two name strings with nothing in common to measure. Fuzzy matching either leaves the new name unmatched, or — worse — links it to whichever <em>other</em> school in the county happens to look closest.</p>
+    <p>A Google Place ID doesn't have that problem: it identifies the physical location, not the label on the sign. Moving geocoding from the last step to the first means every source — GreatSchools, DOE, and the kindergarten file itself, where an address is available — can carry a <code>place_id</code> into the matching stage, where it becomes <strong>Pass 0</strong>, an exact join that runs before any string comparison at all.</p>
+  </section>
+
+  <section>
+    <div class="section-head"><span class="section-no">§4</span><h2>The matching cascade, close up</h2></div>
+    <figure class="panel" id="fig2" aria-labelledby="fig2-cap">
+      <svg viewBox="0 0 880 460" role="img" aria-label="Two kindergarten records for the same physical school under different names, from different years, both carry the same Google place_id. The place_id pass matches them directly to one reference school before any name comparison. A separate, muted fallback path shows the three fuzzy passes — district and type, county and type, county only — used only when no place_id is available.">
+        <defs>
+          <marker id="arrow2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--ink-faint)"></path>
+          </marker>
+          <marker id="arrow2-flag" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--flag)"></path>
+          </marker>
+        </defs>
+
+        <!-- kinder record cards -->
+        <rect class="card-box" x="24" y="46" width="228" height="78" rx="3"></rect>
+        <text x="38" y="68" class="lbl-faint" font-size="10.5" letter-spacing="0.04em">2019–20 KINDER RECORD</text>
+        <text x="38" y="90" class="lbl-title" font-size="13">Northside Elementary</text>
+        <text x="38" y="108" class="lbl-mono" font-size="10.5">place_id: ChIJ_lee</text>
+
+        <rect class="card-box" x="24" y="196" width="228" height="78" rx="3"></rect>
+        <text x="38" y="218" class="lbl-faint" font-size="10.5" letter-spacing="0.04em">2023–24 KINDER RECORD</text>
+        <text x="38" y="240" class="lbl-title" font-size="13">Robert E Lee Elementary</text>
+        <text x="38" y="258" class="lbl-mono" font-size="10.5">place_id: ChIJ_lee</text>
+
+        <!-- convergence to cascade -->
+        <path class="flow-line flag" d="M252,85 C 310,85 300,150 358,150" marker-end="url(#arrow2-flag)"></path>
+        <path class="flow-line flag" d="M252,235 C 310,235 300,160 358,160" marker-end="url(#arrow2-flag)"></path>
+
+        <!-- cascade stack -->
+        <rect class="pass-box flagged" x="360" y="126" width="220" height="42" rx="2"></rect>
+        <text x="374" y="145" class="lbl-title" font-size="12">Pass 0 · place_id</text>
+        <text x="374" y="160" class="lbl-mono flag-text" font-size="9.5">exact join — runs first</text>
+
+        <rect class="pass-box" x="360" y="182" width="220" height="34" rx="2"></rect>
+        <text x="374" y="203" class="lbl-mono" font-size="10.5">district + county + type</text>
+
+        <rect class="pass-box" x="360" y="222" width="220" height="34" rx="2"></rect>
+        <text x="374" y="243" class="lbl-mono" font-size="10.5">county + type</text>
+
+        <rect class="pass-box" x="360" y="262" width="220" height="34" rx="2"></rect>
+        <text x="374" y="283" class="lbl-mono" font-size="10.5">county only</text>
+
+        <text x="360" y="179" class="lbl-faint" font-size="9.5" style="font-style:italic">fallback, no place_id:</text>
+        <text x="360" y="316" class="lbl-faint" font-size="10">fuzzy passes 1–3 · only reached when no place_id resolves</text>
+
+        <!-- fallback path also converges on the same output -->
+        <path class="flow-line muted" d="M580,279 C 650,279 660,180 700,180" marker-end="url(#arrow2)"></path>
+
+        <!-- output -->
+        <path class="flow-line flag" d="M580,147 C 660,147 640,160 700,160" marker-end="url(#arrow2-flag)"></path>
+        <rect class="card-box" x="700" y="120" width="156" height="80" rx="3"></rect>
+        <text x="714" y="142" class="lbl-faint" font-size="10.5" letter-spacing="0.04em">REFERENCE KEY</text>
+        <text x="714" y="164" class="lbl-title" font-size="13">school_id 42</text>
+        <text x="714" y="182" class="lbl-mono" font-size="10.5">one row, both years</text>
+
+        <text x="360" y="370" class="lbl-faint" font-size="11.5" style="font-style:italic">Same place_id → same school_id, regardless of what the name string says that year.</text>
+      </svg>
+      <figcaption id="fig2-cap">
+        <span class="fig-label">Figure 2</span>
+        <code>run_matching_cascade()</code> tries passes in order and only hands the next pass whatever the previous one left unmatched. Without Pass 0, &ldquo;Northside Elementary&rdquo; and &ldquo;Robert E Lee Elementary&rdquo; share no substring, no county-level distinctness, and no phonetic overlap — the fuzzy passes below would either leave one of the two years unmatched or, in a dense county, attach it to an unrelated school with a similar name.
+      </figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <div class="section-head"><span class="section-no">§5</span><h2>Module reference</h2></div>
+    <div class="modtable">
+
+      <div class="modgroup">
+        <div class="modrow">
+          <div class="layer">orchestration</div>
+          <div>
+            <span class="modfile">standardize_schools.R</span>
+            <p class="moddesc">The pipeline itself. Owns the six-stage sequence in Figure&nbsp;1 and the join logic that turns three separate sources into one reference key, then links kindergarten records to it.</p>
+            <p class="modfns"><b>standardize_schools()</b> · <b>build_reference_key()</b> · <b>match_kinder_to_reference()</b> · build_kinder_unique_schools() · .integrate_third_dataset()</p>
+          </div>
+        </div>
+        <div class="modrow plain">
+          <div class="layer">orchestration</div>
+          <div>
+            <span class="modfile">setup_paths.R · download_agnostic.R</span>
+            <p class="moddesc">Resolves the per-state directory layout (<code>02_geocoding/</code>, <code>cleaning_temp/</code>, …) and downloads the two state-agnostic sources, GreatSchools and CDC VaxView.</p>
+            <p class="modfns">setup_paths() · download_agnostic_data()</p>
+          </div>
+        </div>
+        <div class="modrow plain">
+          <div class="layer">onboarding</div>
+          <div>
+            <span class="modfile">create_state_download_script.R · create_state_cleaning_script.R</span>
+            <p class="moddesc">Scaffold a new state's <code>01_download.R</code> / <code>03_state_cleaning.R</code> from the package templates when adding state coverage.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="modgroup">
+        <div class="modrow plain">
+          <div class="layer">source cleaning</div>
+          <div>
+            <span class="modfile">preprocessing_utils.R</span>
+            <p class="moddesc">Standardizes each raw source to a common shape — name/county/district keys, school level, address normalization — so downstream matching sees consistent columns regardless of source.</p>
+            <p class="modfns">clean_kinder_data() · clean_doe_data() · clean_greatschools_data() · setup_other_sourcedata() · <b>.standardize_school_source()</b> · standardized_school_name() · clean_address()</p>
+          </div>
+        </div>
+        <div class="modrow plain">
+          <div class="layer">source cleaning</div>
+          <div>
+            <span class="modfile">greatschools_utils.R · data_utils.R</span>
+            <p class="moddesc">Source-specific fetchers: the GreatSchools.org scraper, and CDC VaxView loaders (child / school / teen coverage).</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="modgroup">
+        <div class="modrow">
+          <div class="layer">identity &amp; matching</div>
+          <div>
+            <span class="modfile">matching_schools_utils.R + src/match_schools_cpp.cpp</span>
+            <p class="moddesc">The matching engine. Six string-distance metrics run in compiled C++ for speed; the R layer handles grouping, tie-breaking, and — new — the generalized multi-pass cascade that both matching call sites now share.</p>
+            <p class="modfns">match_schools_batch_cpp() · score_candidates_cpp() (C++) · match_schools_names() · <b>run_matching_cascade()</b> · .run_exact_join_pass()</p>
+          </div>
+        </div>
+        <div class="modrow">
+          <div class="layer">identity &amp; matching</div>
+          <div>
+            <span class="modfile">school_identity_utils.R <span class="mono" style="color:var(--flag)">— new</span></span>
+            <p class="moddesc">Turns a Google Place ID into two matching signals: an exact join key, and a current-name synonym that lets the fuzzy passes bridge a rename even without an address on the kindergarten side.</p>
+            <p class="modfns"><b>resolve_school_place_ids()</b> · <b>add_google_name_variants()</b> · augment_with_google_name_variant() · log_school_renames()</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="modgroup">
+        <div class="modrow plain">
+          <div class="layer">geocoding</div>
+          <div>
+            <span class="modfile">googleapi_utils.R</span>
+            <p class="moddesc">All Google API traffic — geocoding, Places Details lookups, and the three-file on-disk cache everything above reuses rather than re-querying.</p>
+            <p class="modfns">run_full_geocoding() · get_place_details() · run_school_status_with_cache() · clear_geocoding_cache() · report_*() (QC exports)</p>
+          </div>
+        </div>
+        <div class="modrow plain">
+          <div class="layer">geocoding</div>
+          <div>
+            <span class="modfile">geocoding_utils.R</span>
+            <p class="moddesc">Census TIGER/Line spatial joins (via <code>tigris</code>) used to cross-check the county GreatSchools reports for a school.</p>
+            <p class="modfns">get_county() · get_zip() · get_geo_info()</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="modgroup">
+        <div class="modrow plain">
+          <div class="layer">formatting &amp; dqa</div>
+          <div>
+            <span class="modfile">final_format_utils.R</span>
+            <p class="moddesc">The live data-quality layer: auto-corrections (drop zero enrollment, fix impossible counts), flagging checks (duplicates, outliers, year-over-year deviation), and the final table assembly for the coverage model.</p>
+            <p class="modfns">dqa_check_*() · dqa_remove_*() · format_select_columns() · run_final_formatting()</p>
+          </div>
+        </div>
+        <div class="modrow plain">
+          <div class="layer">formatting &amp; dqa</div>
+          <div>
+            <span class="modfile">dqa_checks.R · run_dqa_checks.R · generate_dqa_summary.R · clean_state_data.R <span class="mono" style="color:var(--ink-faint)">— deprecated</span></span>
+            <p class="moddesc">An earlier, base-R implementation of the same checks, superseded by <code>final_format_utils.R</code> above. Kept for backward compatibility; not called by the live pipeline.</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><span class="section-no">§6</span><h2>Design decisions worth knowing</h2></div>
+    <div class="decisions">
+      <div class="decision">
+        <h3>Identity before geometry before text</h3>
+        <p>The cascade always tries the strongest signal first: an exact <code>place_id</code>, then structural signals (address, ZIP, district), then plain county-level fuzzy matching as the last resort. Each pass only ever sees what the passes above it left unmatched.</p>
+      </div>
+      <div class="decision">
+        <h3>One cache, read from three places</h3>
+        <p><code>geocoded_cache.rds</code> and <code>status_cache.rds</code> are written once but read by both the early identity-resolution step and the late enrichment step — moving geocoding earlier didn't roughly double the API calls, because the second read mostly hits cache. Filenames are single-sourced in <code>.geocoding_cache_paths()</code> so the two writers and <code>clear_geocoding_cache()</code> can't drift apart.</p>
+      </div>
+      <div class="decision">
+        <h3>Deprecate in place, don't delete</h3>
+        <p>The legacy base-R DQA stack overlaps with <code>final_format_utils.R</code> but has diverged contracts — different error handling, a fixed column list versus a parameterized one. Rather than force a merge that would silently change behavior, it's documented as superseded and left alone.</p>
+      </div>
+      <div class="decision">
+        <h3>Renames are logged, not just fixed</h3>
+        <p>Every school pair reconciled through the <code>place_id</code> pass — or matched via a Google name variant a source hadn't caught up to yet — is written to <code>school_renames_detected.csv</code>, sorted so identity-based matches surface first. The fix is auditable, not silent.</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="colophon">
+    <div class="colophon-stats">
+      <span><b>20</b> R files</span>
+      <span><b>~9,250</b> lines</span>
+      <span><b>121</b> exported functions</span>
+      <span><b>12</b> test files</span>
+      <span><b>338</b> passing tests</span>
+    </div>
+    <p class="colophon-note">MIT-licensed R package · Rcpp-backed matching engine · part of the ACCIDDA measles preprocessing pipeline, upstream of the imuGAP coverage model.</p>
+  </div>
+
+</div>
+</body>
+</html>
