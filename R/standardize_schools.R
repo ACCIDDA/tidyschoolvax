@@ -124,6 +124,26 @@ standardize_schools <- function(state_id,
                              state_abbr = state_id) %>%
     add_google_name_variants(geo_dir = state_geo_dir, google_api_key = google_api_key)
 
+  # ---- PART 1.6: Collapse within-source duplicates sharing a place_id --------
+  # Two rows in the SAME source that resolved to the same place_id are the
+  # same physical school regardless of how differently their names are
+  # spelled. Collapsing this before cross-source matching (Part 2) means
+  # build_reference_key() never has to fuzzy-guess between two internal
+  # GreatSchools (or two DOE) listings of the one school. Every original row
+  # is recorded in a crosswalk (old id/name -> surviving id/name), combined
+  # across sources and written once, after kinder is collapsed too (Part 3.6).
+  gs_collapsed  <- collapse_reference_by_place_id(
+    greatschools_dat, id_col = "data1_id", name_col = "school_name",
+    name_std_col = "school_name_std", source_label = "greatschools"
+  )
+  greatschools_dat <- gs_collapsed$data
+
+  doe_collapsed <- collapse_reference_by_place_id(
+    doe_dat, id_col = "data2_id", name_col = "school_name",
+    name_std_col = "school_name_std", source_label = "doe"
+  )
+  doe_dat <- doe_collapsed$data
+
   # ---- PART 2: Build GS+DOE+(optional third) reference key -------------------
   matched_df <- build_reference_key(
     greatschools_dat = greatschools_dat,
@@ -152,6 +172,7 @@ standardize_schools <- function(state_id,
   # schools still benefit from Part 1.5's Google-name augmentation on the
   # reference side (see match_kinder_to_reference()) even without their own
   # place_id.
+  kinder_collapsed <- list(crosswalk = tibble::tibble())
   if (isTRUE(kinder_has_addr)) {
     kinder_dat_for_matching <- kinder_dat_for_matching %>%
       .attach_kinder_addresses(kinder_dat) %>%
@@ -160,7 +181,22 @@ standardize_schools <- function(state_id,
         state_abbr = state_id, name_col = "school_name_std",
         addr_col = "addr_clean_kinder", city_col = "city_kinder", zip_col = "zip_kinder"
       )
+
+    # ---- PART 3.6: Collapse kinder school-groups sharing a place_id --------
+    # Same idea as Part 1.6, for the kindergarten side: a school reported
+    # under two different name spellings in two different years' files, but
+    # geocoding to the same place, is one school — collapse before matching
+    # rather than relying on the reference-side name-variant augmentation
+    # (match_kinder_to_reference()) to bridge it after the fact.
+    kinder_collapsed <- .collapse_kinder_by_place_id(kinder_dat_for_matching)
+    kinder_dat_for_matching <- kinder_collapsed$data
   }
+
+  # ---- Write the combined place_id crosswalk (all sources) -------------------
+  place_id_crosswalk <- dplyr::bind_rows(
+    gs_collapsed$crosswalk, doe_collapsed$crosswalk, kinder_collapsed$crosswalk
+  )
+  write_report(place_id_crosswalk, report_name = "place_id_crosswalk", out_dir = review_dir)
 
   # ---- PARTS 4–5: Match kinder to reference; assemble final dataset ----------
   vacc_data_final <- match_kinder_to_reference(
@@ -531,33 +567,20 @@ build_reference_key <- function(greatschools_dat,
 #'   \code{vacc_school_id}, and (when available in input) \code{district_std}.
 #' @keywords internal
 build_kinder_unique_schools <- function(kinder_dat, n_years_data) {
-  
+
   key_cols <- c("school_name_std", "county_std", "school_type",
                 "school_level", "level_code")
-  
+
   has_district <- "district_std" %in% colnames(kinder_dat)
-  
+
   if (has_district){
     key_cols <- c(key_cols, "district_std")
   }
-  
-  # Helper: re-aggregate a data.table that already has packed id/year columns
-  .reaggregate_kinder <- function(dt) {
-    dt[, .(
-      n_records     = sum(n_records, na.rm = TRUE),
-      year_sources  = paste(sort(unique(
-        unlist(strsplit(year_sources, "; ", fixed = TRUE)))), collapse = "; "),
-      vacc_data_ids = paste(sort(unique(
-        unlist(strsplit(vacc_data_ids, "; ", fixed = TRUE)))), collapse = "; ")
-    ), by = key_cols][
-      order(school_name_std, county_std)
-    ][, vacc_school_id := .I][]
-  }
-  
+
   # ---- Pass 1: initial aggregation from raw records --------------------------
   dt <- data.table::as.data.table(kinder_dat)
   dt[, vacc_data_id := as.character(vacc_data_id)]
-  
+
   dt_unique <- dt[, .(
     n_records     = .N,
     year_sources  = paste(sort(unique(year_source)), collapse = "; "),
@@ -565,33 +588,34 @@ build_kinder_unique_schools <- function(kinder_dat, n_years_data) {
   ), by = key_cols][
     order(school_name_std, county_std)
   ][, vacc_school_id := .I][]
-  
+
   # ---- Fix NAs in school_level and school_type (existing package functions) --
   dt_unique <- fix_school_level_na(data = dt_unique, n_years_data = n_years_data,
                                    id_col = "vacc_school_id")
   dt_unique <- fix_school_type_na(data  = dt_unique, n_years_data = n_years_data,
                                   id_col = "vacc_school_id")
-  
+
   # ---- Pass 2: re-aggregate after level/type fixes ---------------------------
-  dt_unique <- .reaggregate_kinder(
+  dt_unique <- .reaggregate_kinder_by(
     dt_unique[, c(key_cols, "n_records", "year_sources", "vacc_data_ids"),
-              with = FALSE]
+              with = FALSE],
+    key_cols = key_cols
   )
-  
+
   # ---- Majority-vote school_type correction ----------------------------------
   mistype_grp <- c("school_name_std", "county_std", "school_level", "level_code")
   if (has_district) mistype_grp <- c(mistype_grp, "district_std")
-  
+
   dt_unique[, total_recs := sum(n_records), by = mistype_grp]
   dt_unique[, type_wt    := n_records / total_recs,  by = mistype_grp]
-  
+
   # Identify rows belonging to fixable groups
   ids_to_fix <- dt_unique[
     total_recs <= n_years_data & type_wt != 1,
     if (any(type_wt > 0.5)) vacc_school_id,
     by = mistype_grp
   ]$vacc_school_id
-  
+
   if (length(ids_to_fix) > 0) {
     # Set school_type to the majority value within each group
     dt_unique[
@@ -602,15 +626,37 @@ build_kinder_unique_schools <- function(kinder_dat, n_years_data) {
     # Remove helper columns before Pass 3
     dt_unique[, c("total_recs", "type_wt") := NULL]
     # Pass 3: re-aggregate after mistype fix
-    dt_unique <- .reaggregate_kinder(
+    dt_unique <- .reaggregate_kinder_by(
       dt_unique[, c(key_cols, "n_records", "year_sources", "vacc_data_ids"),
-                with = FALSE]
+                with = FALSE],
+      key_cols = key_cols
     )
   } else {
     dt_unique[, c("total_recs", "type_wt") := NULL]
   }
-  
+
   as.data.frame(dt_unique)
+}
+
+
+# Internal: re-aggregate a data.table that already has packed n_records/
+# year_sources/vacc_data_ids columns, grouping by key_cols and re-deriving a
+# fresh sequential vacc_school_id. Shared by build_kinder_unique_schools()'s
+# repeated re-aggregation passes (grouped by name/county/type/level/district)
+# and .collapse_kinder_by_place_id() (which groups by place_id instead, after
+# picking a canonical row's attribute columns for the group — see that
+# function; it does not call this one directly for that reason, but reuses
+# the same merge expressions).
+.reaggregate_kinder_by <- function(dt, key_cols) {
+  dt[, .(
+    n_records     = sum(n_records, na.rm = TRUE),
+    year_sources  = paste(sort(unique(
+      unlist(strsplit(year_sources, "; ", fixed = TRUE)))), collapse = "; "),
+    vacc_data_ids = paste(sort(unique(
+      unlist(strsplit(vacc_data_ids, "; ", fixed = TRUE)))), collapse = "; ")
+  ), by = key_cols][
+    order(school_name_std, county_std)
+  ][, vacc_school_id := .I][]
 }
 
 
@@ -657,6 +703,95 @@ build_kinder_unique_schools <- function(kinder_dat, n_years_data) {
 
   kinder_dat_for_matching %>%
     dplyr::left_join(addr_modal, by = "vacc_school_id")
+}
+
+
+# Internal: collapse kinder unique-school rows that share a resolved
+# place_id — the kinder-side counterpart of collapse_reference_by_place_id()
+# (school_identity_utils.R), used for the GreatSchools/DOE sources. Unlike
+# .reaggregate_kinder_by() (which groups by identical name/county/type/level
+# and can just re-derive every column from the grouping key), this groups by
+# place_id across rows that may carry DIFFERENT names/types/levels recorded
+# in different years — so it additionally has to decide which row's
+# attributes to keep as canonical. It keeps the row whose own individual
+# year is most recent (year_sources is pre-sorted ascending, so a row's last
+# token is its own latest year), on the theory that the most recently
+# reported name/type/level is the one most likely to still be current.
+#
+# Rows without a resolved place_id pass through untouched. Returns
+# list(data=, crosswalk=) in the same shared crosswalk schema as
+# collapse_reference_by_place_id().
+#' @keywords internal
+.collapse_kinder_by_place_id <- function(dt_unique) {
+
+  empty_crosswalk <- tibble::tibble(
+    source = character(0), orig_id = character(0), orig_name = character(0),
+    orig_name_std = character(0), place_id = character(0), new_id = character(0),
+    new_name = character(0), new_name_std = character(0),
+    n_collapsed = integer(0), collapsed = logical(0)
+  )
+
+  if (nrow(dt_unique) == 0 || !"place_id" %in% names(dt_unique)) {
+    return(list(data = dt_unique, crosswalk = empty_crosswalk))
+  }
+
+  dt <- data.table::as.data.table(dt_unique)
+  dt[, orig_id    := as.character(vacc_school_id)]
+  dt[, latest_year := sub(".*; ", "", year_sources)]
+  dt[, group_key   := data.table::fifelse(
+    !is.na(place_id) & place_id != "", place_id, paste0("__row__", orig_id)
+  )]
+  # Sort so the most-recent-year row of each group lands first; the
+  # aggregation below takes its attribute columns as the group's canonical
+  # values via .SD[1L].
+  data.table::setorder(dt, group_key, -latest_year)
+
+  attr_cols <- intersect(
+    c("school_name_std", "county_std", "school_type", "school_level",
+      "level_code", "district_std", "addr_clean_kinder", "city_kinder",
+      "zip_kinder", "place_id"),
+    names(dt)
+  )
+
+  collapsed <- dt[, c(
+    lapply(.SD, `[`, 1L),
+    list(
+      n_records     = sum(n_records, na.rm = TRUE),
+      year_sources  = paste(sort(unique(
+        unlist(strsplit(year_sources, "; ", fixed = TRUE)))), collapse = "; "),
+      vacc_data_ids = paste(sort(unique(
+        unlist(strsplit(vacc_data_ids, "; ", fixed = TRUE)))), collapse = "; "),
+      orig_id       = orig_id[1L]
+    )
+  ), by = group_key, .SDcols = attr_cols]
+
+  collapsed <- collapsed[order(school_name_std, county_std)]
+  collapsed[, vacc_school_id := .I]
+
+  id_map <- collapsed[, .(group_key, new_id = as.character(vacc_school_id),
+                          new_name = school_name_std)]
+  group_sizes <- dt[, .N, by = group_key]
+
+  crosswalk_dt <- dt[, .(group_key, orig_id, orig_name = school_name_std,
+                         orig_name_std = school_name_std, place_id)]
+  crosswalk_dt <- merge(crosswalk_dt, id_map, by = "group_key", all.x = TRUE)
+  crosswalk_dt <- merge(crosswalk_dt, group_sizes, by = "group_key", all.x = TRUE)
+  data.table::setnames(crosswalk_dt, "N", "n_collapsed")
+  crosswalk_dt[, `:=`(
+    source       = "kinder",
+    new_name_std = new_name,
+    collapsed    = orig_id != new_id
+  )]
+  crosswalk_dt <- crosswalk_dt[, .(source, orig_id, orig_name, orig_name_std,
+                                   place_id, new_id, new_name, new_name_std,
+                                   n_collapsed, collapsed)]
+
+  collapsed[, c("group_key", "orig_id") := NULL]
+
+  list(
+    data      = as.data.frame(collapsed),
+    crosswalk = tibble::as_tibble(crosswalk_dt)
+  )
 }
 
 

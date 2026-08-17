@@ -202,6 +202,102 @@ augment_with_google_name_variant <- function(ref_df,
 }
 
 
+#' Collapse rows within a single cleaned source that share a Google place_id
+#'
+#' Two rows in the \emph{same} source (e.g. two GreatSchools listings, or two
+#' DOE listings) that resolved to the same Google \code{place_id} are the
+#' same physical school, regardless of how differently their names are
+#' spelled — no fuzzy-matching judgment call needed. This collapses each such
+#' group down to one canonical row (the first occurrence, by \code{id_col})
+#' \strong{before} that source is cross-matched against another one, so
+#' cross-source matching (\code{\link{build_reference_key}}) never has to
+#' silently pick between two internal duplicates.
+#'
+#' Rows without a resolved \code{place_id} (or when the column is absent
+#' entirely) pass through unchanged, each treated as its own group of one.
+#'
+#' @param df A cleaned source data frame (e.g. \code{greatschools_dat} or
+#'   \code{doe_dat}) with a \code{place_id} column and a stable per-row id
+#'   column.
+#' @param id_col Name of the row-identity column (e.g. \code{"data1_id"} or
+#'   \code{"data2_id"}).
+#' @param name_col Name of the raw school-name column.
+#' @param name_std_col Name of the standardized school-name column.
+#' @param source_label Character scalar recorded in the \code{source} column
+#'   of the returned crosswalk (e.g. \code{"greatschools"}, \code{"doe"}).
+#'
+#' @return A named list:
+#' \describe{
+#'   \item{data}{\code{df} with collapsed-duplicate rows dropped, keeping only
+#'     the canonical row per \code{place_id} group. All original columns are
+#'     preserved.}
+#'   \item{crosswalk}{A tibble with one row per \emph{original} input row —
+#'     \code{source}, \code{orig_id}, \code{orig_name}, \code{orig_name_std},
+#'     \code{place_id}, \code{new_id}, \code{new_name}, \code{new_name_std},
+#'     \code{n_collapsed} (group size, including the survivor), and
+#'     \code{collapsed} (\code{TRUE} when this row was dropped in favor of a
+#'     different canonical row). Rows that were never part of a multi-row
+#'     group have \code{new_id == orig_id} and \code{collapsed == FALSE}.}
+#' }
+#' @export
+collapse_reference_by_place_id <- function(df, id_col, name_col, name_std_col, source_label) {
+
+  empty_crosswalk <- tibble::tibble(
+    source = character(0), orig_id = character(0), orig_name = character(0),
+    orig_name_std = character(0), place_id = character(0), new_id = character(0),
+    new_name = character(0), new_name_std = character(0),
+    n_collapsed = integer(0), collapsed = logical(0)
+  )
+
+  if (nrow(df) == 0) return(list(data = df, crosswalk = empty_crosswalk))
+
+  if (!"place_id" %in% names(df)) df$place_id <- NA_character_
+
+  df2 <- df %>%
+    dplyr::mutate(
+      .orig_id       = as.character(.data[[id_col]]),
+      .orig_name     = .data[[name_col]],
+      .orig_name_std = .data[[name_std_col]],
+      # Rows without a resolved place_id are each their own group of one —
+      # a synthetic key unique to that row, so they never collapse together.
+      .group_key     = dplyr::if_else(
+        !is.na(place_id) & place_id != "",
+        place_id,
+        paste0("__row__", .orig_id)
+      )
+    )
+
+  canonical <- df2 %>%
+    dplyr::group_by(.group_key) %>%
+    dplyr::slice(1L) %>%
+    dplyr::ungroup() %>%
+    dplyr::transmute(.group_key, new_id = .orig_id, new_name = .orig_name,
+                     new_name_std = .orig_name_std)
+
+  group_sizes <- df2 %>% dplyr::count(.group_key, name = "n_collapsed")
+
+  crosswalk <- df2 %>%
+    dplyr::select(.group_key, .row_place_id = place_id,
+                  orig_id = .orig_id, orig_name = .orig_name,
+                  orig_name_std = .orig_name_std) %>%
+    dplyr::left_join(canonical,    by = ".group_key") %>%
+    dplyr::left_join(group_sizes,  by = ".group_key") %>%
+    dplyr::transmute(
+      source = source_label,
+      orig_id, orig_name, orig_name_std,
+      place_id = .row_place_id,
+      new_id, new_name, new_name_std,
+      n_collapsed,
+      collapsed = orig_id != new_id
+    )
+
+  kept_ids  <- unique(crosswalk$new_id)
+  kept_data <- df[as.character(df[[id_col]]) %in% kept_ids, , drop = FALSE]
+
+  list(data = kept_data, crosswalk = crosswalk)
+}
+
+
 #' Write a QC report of school-name pairs reconciled during matching
 #'
 #' Filters a matched-schools data frame (the \code{matched} element returned
