@@ -176,6 +176,79 @@ test_that("pre_standardized=TRUE skips standardization: raw unstandardized input
   expect_gt(result_pre_raw$score_sum, 0)
 })
 
+# ---- exact_match_locations: require="all" is row-adaptive --------------------
+# Regression coverage for a real bug found on a full CA run: computing one
+# FIXED "usable columns" set for the whole call (e.g. via .usable_geo_cols())
+# and requiring it uniformly meant any row missing just one column that
+# happened to be populated on *some other* row (district_std, in CA's case
+# many private/religious schools have none) was excluded from ever
+# exact-matching at all — even though its own available columns (name +
+# county) would have uniquely identified it. This cost ~100k previously-good
+# matches on a real run. exact_match_locations() must use each row's OWN
+# non-NA columns among `cols`, not one set for every row in the call.
+
+test_that("exact_match_locations require='all' matches a row missing one of `cols` on the columns it does have", {
+  data1 <- tibble::tibble(
+    orig_id = c("k1", "k2"),
+    school_name_std = c("lincoln elementary", "lincoln elementary"),
+    county_std   = c("alpha", "alpha"),
+    district_std = c(NA_character_, "alpha usd")  # k1 has no district; k2 does
+  )
+  data2 <- tibble::tibble(
+    orig_id = c("m1", "m2"),
+    school_name_std = c("lincoln elementary", "lincoln elementary"),
+    county_std   = c("alpha", "alpha"),
+    district_std = c(NA_character_, "alpha usd")
+  )
+
+  res <- exact_match_locations(data1, data2, cols = c("county_std", "district_std"), require = "all")
+
+  # k1 (no district) matches m1 on name+county alone -- it must NOT be
+  # excluded just because k2 happens to have a district.
+  expect_true("k1" %in% res$matched$orig_id_1)
+  expect_equal(res$matched$orig_id_2[res$matched$orig_id_1 == "k1"], "m1")
+  # k2 (has a district) matches m2 on name+county+district.
+  expect_true("k2" %in% res$matched$orig_id_1)
+  expect_equal(res$matched$orig_id_2[res$matched$orig_id_1 == "k2"], "m2")
+})
+
+test_that("exact_match_locations require='all' still rejects a mismatch on a column the row DOES have", {
+  data1 <- tibble::tibble(
+    orig_id = "k1",
+    school_name_std = "lincoln elementary",
+    county_std   = "alpha",
+    district_std = "alpha usd"
+  )
+  data2 <- tibble::tibble(
+    orig_id = "m1",
+    school_name_std = "lincoln elementary",
+    county_std   = "alpha",
+    district_std = "beta usd"  # different district -> must not match
+  )
+
+  res <- exact_match_locations(data1, data2, cols = c("county_std", "district_std"), require = "all")
+  expect_equal(nrow(res$matched), 0L)
+})
+
+test_that("exact_match_locations require='all' skips (does not name-only match) a row with none of `cols` populated", {
+  data1 <- tibble::tibble(
+    orig_id = "k1",
+    school_name_std = "lincoln elementary",
+    county_std   = NA_character_,
+    district_std = NA_character_
+  )
+  data2 <- tibble::tibble(
+    orig_id = "m1",
+    school_name_std = "lincoln elementary",
+    county_std   = "alpha",
+    district_std = "alpha usd"
+  )
+
+  res <- exact_match_locations(data1, data2, cols = c("county_std", "district_std"), require = "all")
+  expect_equal(nrow(res$matched), 0L)
+  expect_equal(res$unmatched_dat1$orig_id, "k1")
+})
+
 # ---- fix_school_type_na: input/return classes ---------------------------------
 
 make_fix_school_type_data <- function() {

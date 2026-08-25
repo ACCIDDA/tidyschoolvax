@@ -32,6 +32,18 @@ rename report is written.}
 A data frame: the merged reference key.
 }
 \description{
+\strong{Deprecated:} superseded by the geocode-first sequence in
+\code{\link{standardize_schools}} (build a location-key table per source
+via \code{\link{build_location_key_table}}, geocode with
+\code{\link{geocode_original_then_std}}, exact-match with
+\code{\link{exact_match_locations}}, place_id-match with
+\code{.run_exact_join_pass()}, fuzzy match only as a last resort) — the
+fuzzy cascade this function ran primarily on turned out to be too
+permissive in practice (see \code{exact_match_locations()}'s docs for the
+motivating false-positive example). Kept for backward compatibility and
+as regression test coverage; not called by \code{standardize_schools()}.
+}
+\details{
 Matches GreatSchools data to DOE data using a cascade of matching passes —
 an exact \code{place_id} join first (when both sources have resolved a
 Google identity; see \code{\link{resolve_school_place_ids}}), then fuzzy

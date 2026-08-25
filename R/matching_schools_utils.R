@@ -865,6 +865,179 @@ run_matching_cascade <- function(data1, data2, passes,
 }
 
 
+#' Exact-equality match between two location-key tables
+#'
+#' A plain equi-join matcher, deliberately independent of
+#' \code{\link{match_schools_names}}/\code{\link{run_matching_cascade}}:
+#' boolean equality on a defined key is a different operation from fuzzy
+#' string-distance scoring, and routing it through the fuzzy engine's
+#' hardcoded column allowlist would only add risk for no benefit. Always
+#' requires \code{name_col} (standardized school name) to match exactly, plus
+#' \code{cols} matched according to \code{require}:
+#' \describe{
+#'   \item{\code{"any"}}{At least one of \code{cols} must also match — tried
+#'     one column at a time, in the order given, each pass only attempted on
+#'     rows the previous pass left unmatched (same "each pass only sees
+#'     what's still unmatched" idea as \code{\link{run_matching_cascade}}).}
+#'   \item{\code{"all"}}{Every column in \code{cols} that is actually
+#'     populated \strong{for that row} must match simultaneously — row-
+#'     adaptive, not a single fixed set for the whole call. A row missing
+#'     \code{district_std} isn't excluded from matching just because some
+#'     \emph{other} row in \code{data1} happens to have it; it's only
+#'     required to match on whichever of \code{cols} it itself has. Rows
+#'     with none of \code{cols} populated are skipped (name-only would be
+#'     too permissive/ambiguous) rather than treated as trivially
+#'     satisfying "match every available column."}
+#' }
+#' A row missing (\code{NA}) any column required for a given attempt is
+#' excluded from that attempt rather than joined — an equi-join would
+#' otherwise treat two \code{NA}s as matching, which would silently assert a
+#' match this function has no actual evidence for. This matters most for
+#' \code{"all"}: a fixed, dataset-wide column requirement would wrongly
+#' exclude every row missing just one column that happens to be populated
+#' elsewhere (e.g. many private/religious schools have no district but do
+#' have a county — found via a real CA run where this cost ~100k
+#' previously-good matches before being made row-adaptive).
+#'
+#' @param data1,data2 Location-key tables (e.g. from
+#'   \code{\link{build_location_key_table}}) — must each have an
+#'   \code{orig_id} column and the columns named in \code{name_col}/\code{cols}.
+#' @param cols Character vector of secondary column names to match on.
+#' @param require \code{"any"} (default) or \code{"all"} — see above.
+#' @param name_col Column required to match exactly on every attempt
+#'   (default \code{"school_name_std"}).
+#'
+#' @return A named list:
+#' \describe{
+#'   \item{matched}{Tibble with \code{orig_id_1}, \code{orig_id_2}, and
+#'     \code{match_cols} (which column(s) the pair matched on), one row per
+#'     matched pair.}
+#'   \item{unmatched_dat1, unmatched_dat2}{The input tables filtered to rows
+#'     with no match.}
+#' }
+#' @export
+exact_match_locations <- function(data1, data2, cols, require = c("any", "all"),
+                                  name_col = "school_name_std") {
+  require <- match.arg(require)
+
+  empty_matched <- tibble::tibble(
+    orig_id_1 = character(0), orig_id_2 = character(0), match_cols = character(0)
+  )
+  empty <- list(matched = empty_matched, unmatched_dat1 = data1, unmatched_dat2 = data2)
+
+  if (nrow(data1) == 0 || nrow(data2) == 0) return(empty)
+
+  cols <- intersect(cols, intersect(names(data1), names(data2)))
+  if (length(cols) == 0 || !name_col %in% names(data1) || !name_col %in% names(data2)) {
+    return(empty)
+  }
+
+  d2_small <- data2 %>% dplyr::select(dplyr::all_of(c(name_col, cols)), orig_id_2 = orig_id)
+
+  run_pass <- function(join_cols, remaining1) {
+    keep <- stats::complete.cases(remaining1[, c(name_col, join_cols), drop = FALSE])
+    complete1 <- remaining1[keep, , drop = FALSE]
+    if (nrow(complete1) == 0) return(tibble::tibble())
+
+    complete1 %>%
+      dplyr::select(dplyr::all_of(c(name_col, join_cols)), orig_id_1 = orig_id) %>%
+      dplyr::inner_join(
+        d2_small %>%
+          dplyr::distinct(dplyr::across(dplyr::all_of(c(name_col, join_cols))), .keep_all = TRUE),
+        by = c(name_col, join_cols)
+      ) %>%
+      dplyr::transmute(orig_id_1, orig_id_2, match_cols = paste(join_cols, collapse = "+"))
+  }
+
+  if (require == "all") {
+    # Row-adaptive: group data1 rows by their OWN non-NA pattern among
+    # `cols` and run one pass per group, using only that group's populated
+    # columns as the join key — rather than a single global set (see docs
+    # above for why a fixed set silently drops rows that are otherwise
+    # perfectly identifiable on name + whatever they do have).
+    na_flags <- vapply(cols, function(col) is.na(data1[[col]]) | data1[[col]] == "",
+                       logical(nrow(data1)))
+    na_flags <- matrix(na_flags, nrow = nrow(data1), ncol = length(cols))
+    row_sig <- apply(!na_flags, 1, function(r) paste(cols[r], collapse = "|"))
+
+    matched_list <- list()
+    for (key in unique(row_sig)) {
+      row_cols <- if (nchar(key) == 0) character(0) else strsplit(key, "|", fixed = TRUE)[[1]]
+      if (length(row_cols) == 0) next
+      group <- data1[row_sig == key, , drop = FALSE]
+      pass_res <- run_pass(row_cols, group)
+      if (nrow(pass_res) > 0) matched_list[[key]] <- pass_res
+    }
+    # bind_rows(list()) on an empty list returns a 0-row, 0-COLUMN tibble
+    # (no orig_id_1/orig_id_2/match_cols at all), which breaks the
+    # distinct()-by-those-names guard below when nothing matched in any
+    # group — fall back to the properly-shaped empty tibble instead.
+    matched <- if (length(matched_list) == 0) empty_matched else dplyr::bind_rows(matched_list)
+  } else {
+    remaining1  <- data1
+    matched_list <- list()
+    for (col in cols) {
+      if (nrow(remaining1) == 0) break
+      pass_res <- run_pass(col, remaining1)
+      if (nrow(pass_res) > 0) {
+        matched_list[[col]] <- pass_res
+        remaining1 <- remaining1[!(remaining1$orig_id %in% pass_res$orig_id_1), , drop = FALSE]
+      }
+    }
+    matched <- dplyr::bind_rows(matched_list)
+  }
+
+  # dplyr::bind_rows(list()) drops all columns when nothing matched (unlike
+  # an empty-but-typed tibble), which breaks the distinct() calls below —
+  # fall back to the properly-shaped empty tibble defined up top.
+  if (nrow(matched) == 0) matched <- empty_matched
+
+  # Guard against ambiguous exact matches (e.g. two candidates identical on
+  # the matched columns) by keeping one pairing per side, deterministically.
+  matched <- matched %>%
+    dplyr::distinct(orig_id_2, .keep_all = TRUE) %>%
+    dplyr::distinct(orig_id_1, .keep_all = TRUE)
+
+  list(
+    matched        = matched,
+    unmatched_dat1 = data1 %>% dplyr::filter(!(orig_id %in% matched$orig_id_1)),
+    unmatched_dat2 = data2 %>% dplyr::filter(!(orig_id %in% matched$orig_id_2))
+  )
+}
+
+
+# Internal: place_id-match two orig_id-keyed tables (e.g. two location-key
+# tables from build_location_key_table()), wrapping .run_exact_join_pass()
+# — which expects data1_id/data2_id — and translating its result into the
+# same orig_id_1/orig_id_2/match_cols shape exact_match_locations() returns,
+# so pipeline orchestration code can treat every matching stage uniformly
+# regardless of whether it was an exact-field match or a place_id match.
+#' @keywords internal
+.place_id_match <- function(data1, data2, id1_col = "orig_id", id2_col = "orig_id",
+                            data_1_source = "data1", data_2_source = "data2") {
+  d1 <- data1 %>% dplyr::rename(data1_id = dplyr::all_of(id1_col))
+  d2 <- data2 %>% dplyr::rename(data2_id = dplyr::all_of(id2_col))
+
+  res <- .run_exact_join_pass(d1, d2, join_col = "place_id",
+                              data_1_source = data_1_source, data_2_source = data_2_source)
+
+  matched <- if (nrow(res$matched) > 0) {
+    res$matched %>%
+      dplyr::transmute(orig_id_1 = as.character(data1_id),
+                       orig_id_2 = as.character(data2_id),
+                       match_cols = "place_id")
+  } else {
+    tibble::tibble(orig_id_1 = character(0), orig_id_2 = character(0), match_cols = character(0))
+  }
+
+  list(
+    matched        = matched,
+    unmatched_dat1 = data1 %>% dplyr::filter(!(.data[[id1_col]] %in% matched$orig_id_1)),
+    unmatched_dat2 = data2 %>% dplyr::filter(!(.data[[id2_col]] %in% matched$orig_id_2))
+  )
+}
+
+
 
 
 

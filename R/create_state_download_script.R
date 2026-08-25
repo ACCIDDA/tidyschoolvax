@@ -15,11 +15,13 @@
 #'   \code{"md"}).  The function normalizes the value to lower case.
 #' @param project_root Path to the repository root.  Defaults to
 #'   \code{getwd()}.  The output file is written relative to this path.
-#' @param overwrite Logical.  If \code{FALSE} (the default) the function
-#'   stops with an informative error if the target file already exists.  Set to
-#'   \code{TRUE} to replace an existing file.
+#' @param overwrite Logical.  If \code{FALSE} (the default) and the target
+#'   file already exists, the function leaves it untouched, prints a message
+#'   saying so, and returns the existing file's path — it does not error. Set
+#'   to \code{TRUE} to replace an existing file.
 #'
-#' @return The path to the newly created script (invisibly).
+#' @return The path to the script (invisibly) — either the pre-existing file
+#'   left untouched, or the newly created one.
 #'
 #' @details
 #' The template bundled with the package is stored in
@@ -84,11 +86,11 @@ create_state_download_script <- function(state,
   dest_file <- file.path(dest_dir, "01_download.R")
 
   if (file.exists(dest_file) && !overwrite) {
-    stop(
+    message(
       "A download script already exists at:\n  ", dest_file, "\n",
-      "Set overwrite = TRUE to replace it.",
-      call. = FALSE
+      "Leaving it untouched — set overwrite = TRUE to replace it."
     )
+    return(invisible(dest_file))
   }
 
   # --- Create directory and copy template ------------------------------------

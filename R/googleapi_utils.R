@@ -751,7 +751,27 @@ run_full_geocoding <- function(unique_schools, geo_dir, google_api_key,
   # STEP 4: Save final results as cache for next run
   # ============================================================================
   cat("\nSaving final results as cache...\n")
-  saveRDS(results, save_path)
+  # Merge into whatever's already on disk rather than overwriting wholesale:
+  # this call only ever sees the schools passed in `unique_schools`, but the
+  # cache file accumulates across many separate calls (one per source, plus
+  # standardized-name retries, in the geocode-first pipeline) — writing just
+  # `results` would silently discard every previously cached school this
+  # call didn't happen to touch. Rows from this call win over stale entries
+  # for the same school; everything else in the existing cache is preserved.
+  results_to_save <- results
+  if (file.exists(save_path)) {
+    existing_cache <- tryCatch(readRDS(save_path), error = function(e) NULL)
+    if (!is.null(existing_cache) && nrow(existing_cache) > 0) {
+      key_cols <- if ("county_std" %in% names(results) && "county_std" %in% names(existing_cache)) {
+        c("school_name", "county_std")
+      } else {
+        "school_name"
+      }
+      results_to_save <- dplyr::bind_rows(results, existing_cache) %>%
+        dplyr::distinct(dplyr::across(dplyr::all_of(key_cols)), .keep_all = TRUE)
+    }
+  }
+  saveRDS(results_to_save, save_path)
   cat(sprintf("Cache saved to: %s\n", save_path))
   
   # Summary statistics
@@ -1328,9 +1348,52 @@ report_unique_missing_addresses <- function(df, out_dir) {
     report_name = "unique_missing_addresses",
     out_dir = out_dir
   )
-  
+
   return(report)
 }
+
+# 5. Report: schools that never matched, after every matching stage
+
+#' Report schools that remained unmatched after every matching stage
+#'
+#' The final catch-all report for the geocode-first matching pipeline:
+#' whatever a source's location-key rows are left in \code{unmatched_dat1}
+#' after exact matching, place_id matching, geocoding on both the original
+#' and standardized name, and the last-resort fuzzy pass — nothing left to
+#' try. Follows the same \code{\link{write_report}} convention as the other
+#' \code{report_*()} functions in this file.
+#'
+#' @param df A data frame of still-unmatched schools (e.g. the
+#'   \code{unmatched_dat1} left over from the last stage of matching), any
+#'   shape — typically a location-key table
+#'   (\code{\link{build_location_key_table}}) or a source data frame.
+#' @param out_dir Directory for the output CSV
+#'   (\code{unmatched_schools_final.csv}).
+#'
+#' @return \code{df}, arranged by \code{county_std}/\code{school_name_std}
+#'   when those columns are present, unchanged otherwise.
+#' @export
+report_unmatched_schools <- function(df, out_dir) {
+
+  sort_cols <- intersect(c("county_std", "district_std", "school_name_std"), names(df))
+
+  report <- if (length(sort_cols) > 0) {
+    df %>% dplyr::arrange(dplyr::across(dplyr::all_of(sort_cols)))
+  } else {
+    df
+  }
+
+  message("Found ", nrow(report), " school(s) still unmatched after all matching stages.")
+
+  write_report(
+    report,
+    report_name = "unmatched_schools_final",
+    out_dir = out_dir
+  )
+
+  return(report)
+}
+
 # ------------------------------------------------------------------------------
 # Merge geocoding results back to long file
 # ------------------------------------------------------------------------------

@@ -43,6 +43,19 @@ A long data frame with one row per vaccination record, merged with
   school metadata and (optionally) kinder addresses.
 }
 \description{
+\strong{Deprecated:} superseded by the geocode-first sequence in
+\code{\link{standardize_schools}} — exact-match kinder against the master
+reference (\code{\link{exact_match_locations}}, requiring every
+geographic column actually available for that state), then place_id
+match, and only fall back to fuzzy matching (\code{\link{run_matching_cascade}})
+for kinder rows that failed to geocode on both the original and
+standardized name. Kept for backward compatibility and as regression test
+coverage; not called by \code{standardize_schools()}. Its output-assembly
+logic (id expansion, joining vaccination counts, \code{addr_source_pref})
+was extracted to \code{\link{.assemble_kinder_output}}, which the new
+sequence calls directly.
+}
+\details{
 Runs a matching cascade (place_id, district+county+type, county+type,
 county-only) to link kinder unique schools to the GS+DOE reference,
 self-matches remaining unmatched records within the same county, expands

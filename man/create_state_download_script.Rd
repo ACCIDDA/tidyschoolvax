@@ -13,12 +13,14 @@ create_state_download_script(state, project_root = getwd(), overwrite = FALSE)
 \item{project_root}{Path to the repository root.  Defaults to
 \code{getwd()}.  The output file is written relative to this path.}
 
-\item{overwrite}{Logical.  If \code{FALSE} (the default) the function
-stops with an informative error if the target file already exists.  Set to
-\code{TRUE} to replace an existing file.}
+\item{overwrite}{Logical.  If \code{FALSE} (the default) and the target
+file already exists, the function leaves it untouched, prints a message
+saying so, and returns the existing file's path — it does not error. Set
+to \code{TRUE} to replace an existing file.}
 }
 \value{
-The path to the newly created script (invisibly).
+The path to the script (invisibly) — either the pre-existing file
+  left untouched, or the newly created one.
 }
 \description{
 Copies the generic \code{01_download.R} template into the conventional
