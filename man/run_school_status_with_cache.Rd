@@ -17,6 +17,8 @@ read from \code{Sys.getenv("GOOGLEGEO_API_KEY")}).}
 }
 \value{
 The input data frame with additional columns \code{business_status},
+  \code{google_place_name} (Google's current name for the place — the
+  signal used elsewhere in the package to detect school renames),
   \code{status_reason}, and \code{business_source}.  The result is also
   written to \code{file.path(geo_dir, "status_cache.rds")}.
 }

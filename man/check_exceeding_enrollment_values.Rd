@@ -19,6 +19,9 @@ Default: c("current", "delayed", "med_exempt", "rel_exempt")}
 A data frame containing rows where checked values exceed enrollment
 }
 \description{
+\strong{Deprecated:} superseded by \code{\link{dqa_check_too_high}}; see
+the file header of \code{dqa_checks.R}.
+
 Identifies records where current vaccinations, exemptions, or delayed counts
 individually exceed total enrollment.
 }

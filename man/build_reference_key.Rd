@@ -9,7 +9,8 @@ build_reference_key(
   doe_dat,
   other_dat = NULL,
   addr_source_pref = "greatschools",
-  parallel = FALSE
+  parallel = FALSE,
+  out_dir = NULL
 )
 }
 \arguments{
@@ -22,16 +23,36 @@ build_reference_key(
 \item{addr_source_pref}{See \code{\link{standardize_schools}}.}
 
 \item{parallel}{See \code{\link{standardize_schools}}.}
+
+\item{out_dir}{Optional directory to write \code{school_renames_detected.csv}
+to via \code{\link{log_school_renames}}. When \code{NULL} (default), no
+rename report is written.}
 }
 \value{
 A data frame: the merged reference key.
 }
 \description{
-Matches GreatSchools data to DOE data using up to five passes of fuzzy
-string matching (address, ZIP, city, district (conditional), county),
+\strong{Deprecated:} superseded by the geocode-first sequence in
+\code{\link{standardize_schools}} (build a location-key table per source
+via \code{\link{build_location_key_table}}, geocode with
+\code{\link{geocode_original_then_std}}, exact-match with
+\code{\link{exact_match_locations}}, place_id-match with
+\code{.run_exact_join_pass()}, fuzzy match only as a last resort) — the
+fuzzy cascade this function ran primarily on turned out to be too
+permissive in practice (see \code{exact_match_locations()}'s docs for the
+motivating false-positive example). Kept for backward compatibility and
+as regression test coverage; not called by \code{standardize_schools()}.
+}
+\details{
+Matches GreatSchools data to DOE data using a cascade of matching passes —
+an exact \code{place_id} join first (when both sources have resolved a
+Google identity; see \code{\link{resolve_school_place_ids}}), then fuzzy
+string matching on address, ZIP, city, district (conditional), and county —
 optionally integrates a third dataset, applies the chosen address source
-preference, and returns a single reference data frame.  The district pass
-is only executed when \code{district_std} is available (non-\code{NA}) in
-both data sources and differs from \code{county_std}.
+preference, and returns a single reference data frame. The \code{place_id}
+pass is what lets two GS/DOE records at the same physical school be
+reconciled even when one source's name is stale after a rename; the
+district pass is only executed when \code{district_std} is available
+(non-\code{NA}) in both data sources and differs from \code{county_std}.
 }
 \keyword{internal}

@@ -11,11 +11,14 @@ match_kinder_to_reference(
   temp_data_dir,
   addr_source_pref = "greatschools",
   kinder_has_addr = FALSE,
-  parallel = FALSE
+  parallel = FALSE,
+  out_dir = NULL
 )
 }
 \arguments{
-\item{kinder_dat_for_matching}{Output of \code{build_kinder_unique_schools}.}
+\item{kinder_dat_for_matching}{Output of \code{build_kinder_unique_schools},
+optionally with a \code{place_id} column attached by
+\code{\link{resolve_school_place_ids}}.}
 
 \item{matched_df}{Reference key from \code{build_reference_key}.}
 
@@ -30,19 +33,41 @@ is written.}
 columns (\code{addr_clean_kinder}, \code{city_kinder}, \code{zip_kinder}).}
 
 \item{parallel}{See \code{\link{standardize_schools}}.}
+
+\item{out_dir}{Optional directory to write \code{school_renames_detected.csv}
+to via \code{\link{log_school_renames}}. When \code{NULL} (default), no
+rename report is written.}
 }
 \value{
 A long data frame with one row per vaccination record, merged with
   school metadata and (optionally) kinder addresses.
 }
 \description{
-Performs up to three rounds of fuzzy matching (county+type, county-only,
-optional district+type) to link kinder unique schools to the GS+DOE
-reference, self-matches remaining unmatched records within the same county,
-expands packed ID columns using \pkg{data.table}, joins back vaccination
-counts, and optionally applies the kinder address preference.  The district
-pass is only executed when \code{district_std} is non-\code{NA} in both
-\code{kinder_dat_for_matching} and \code{matched_df}, and differs from
-\code{county_std}.
+\strong{Deprecated:} superseded by the geocode-first sequence in
+\code{\link{standardize_schools}} — exact-match kinder against the master
+reference (\code{\link{exact_match_locations}}, requiring every
+geographic column actually available for that state), then place_id
+match, and only fall back to fuzzy matching (\code{\link{run_matching_cascade}})
+for kinder rows that failed to geocode on both the original and
+standardized name. Kept for backward compatibility and as regression test
+coverage; not called by \code{standardize_schools()}. Its output-assembly
+logic (id expansion, joining vaccination counts, \code{addr_source_pref})
+was extracted to \code{\link{.assemble_kinder_output}}, which the new
+sequence calls directly.
+}
+\details{
+Runs a matching cascade (place_id, district+county+type, county+type,
+county-only) to link kinder unique schools to the GS+DOE reference,
+self-matches remaining unmatched records within the same county, expands
+packed ID columns using \pkg{data.table}, joins back vaccination counts,
+and optionally applies the kinder address preference. This is where a
+renamed school gets bridged across years: the place_id pass links records
+that share a Google identity regardless of name string, and the reference
+table is expanded with a Google-current-name synonym for every school
+(see \code{\link{augment_with_google_name_variant}}) so the remaining
+fuzzy passes can also match a kinder record against whichever name — old
+or new — Google currently has on file. The district pass is only executed
+when \code{district_std} is non-\code{NA} in both \code{kinder_dat_for_matching}
+and \code{matched_df}, and differs from \code{county_std}.
 }
 \keyword{internal}

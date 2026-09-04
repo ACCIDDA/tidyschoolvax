@@ -1,0 +1,137 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="780" height="980" font-family="Arial, sans-serif">
+
+  <!-- Background -->
+  <rect width="780" height="980" fill="#f9f9f9"/>
+
+  <!-- Title -->
+  <text x="390" y="36" text-anchor="middle" font-size="20" font-weight="bold" fill="#1a1a1a">Pipeline Workflow</text>
+
+  <!-- ── UPSTREAM (contains Preprocessing as its middle sub-block) ── -->
+  <rect x="40" y="55" width="700" height="296" rx="8" fill="#fde8e8" stroke="#c0392b" stroke-width="1.5" stroke-dasharray="6,4"/>
+  <text x="390" y="74" text-anchor="middle" font-size="11" fill="#c0392b" font-weight="bold">UPSTREAM</text>
+
+  <!-- Raw State Data sub-box (left) -->
+  <rect x="55" y="92" width="115" height="50" rx="6" fill="#fff" stroke="#c0392b" stroke-width="1"/>
+  <text x="112" y="113" text-anchor="middle" font-size="11" fill="#333">Raw State Data</text>
+  <text x="112" y="129" text-anchor="middle" font-size="10" fill="#666">55+ state formats</text>
+
+  <!-- Arrow: Raw State Data → Preprocessing block -->
+  <line x1="170" y1="117" x2="181" y2="117" stroke="#c0392b" stroke-width="1.5" marker-end="url(#arr-red)"/>
+
+  <!-- Preprocessing sub-block (middle) -->
+  <rect x="183" y="94" width="320" height="236" rx="6" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+  <text x="343" y="113" text-anchor="middle" font-size="11" font-weight="bold" fill="#2e7d32">Preprocessing  ·  00_preprocessing/</text>
+
+  <!-- Step 1 — expanded to show two download scripts -->
+  <rect x="198" y="122" width="290" height="50" rx="5" fill="#fff" stroke="#66bb6a" stroke-width="1"/>
+  <text x="343" y="136" text-anchor="middle" font-size="10" fill="#333" font-weight="bold">Step 1 — Download</text>
+  <text x="343" y="150" text-anchor="middle" font-size="9" fill="#555">01_download.R: Kinder · DOE · state-specific data</text>
+  <text x="343" y="164" text-anchor="middle" font-size="9" fill="#555">01_download_agnostic.R: GreatSchools · VaxView</text>
+
+  <!-- Step 2 -->
+  <rect x="198" y="180" width="290" height="34" rx="5" fill="#fff" stroke="#66bb6a" stroke-width="1"/>
+  <text x="343" y="194" text-anchor="middle" font-size="10" fill="#333" font-weight="bold">Step 2 — Standardize &amp; Geocode</text>
+  <text x="343" y="209" text-anchor="middle" font-size="9.5" fill="#555">School/county keys · lat/lon · status</text>
+
+  <!-- Step 3 -->
+  <rect x="198" y="222" width="290" height="34" rx="5" fill="#fff" stroke="#66bb6a" stroke-width="1"/>
+  <text x="343" y="236" text-anchor="middle" font-size="10" fill="#333" font-weight="bold">Step 3 — State-Specific Cleaning</text>
+  <text x="343" y="251" text-anchor="middle" font-size="9.5" fill="#555">states/{state}/01_cleaning/</text>
+
+  <!-- Step 4 -->
+  <rect x="198" y="264" width="290" height="34" rx="5" fill="#fff" stroke="#66bb6a" stroke-width="1"/>
+  <text x="343" y="278" text-anchor="middle" font-size="10" fill="#333" font-weight="bold">Step 4 — Final Formatting &amp; DQA</text>
+  <text x="343" y="293" text-anchor="middle" font-size="9.5" fill="#555">cleaned_data.csv/.rds · DQA reports</text>
+
+  <!-- Entry point label -->
+  <text x="343" y="316" text-anchor="middle" font-size="9.5" fill="#2e7d32" font-style="italic">Entry point: 00_orchestration.R</text>
+
+  <!-- Arrow: Preprocessing block → Standardized Input -->
+  <line x1="503" y1="117" x2="514" y2="117" stroke="#c0392b" stroke-width="1.5" marker-end="url(#arr-red)"/>
+
+  <!-- Standardized Input sub-box (right) -->
+  <rect x="516" y="92" width="210" height="60" rx="6" fill="#fff" stroke="#c0392b" stroke-width="1"/>
+  <text x="621" y="113" text-anchor="middle" font-size="11" fill="#333">Standardized Input</text>
+  <text x="621" y="129" text-anchor="middle" font-size="9.5" fill="#666">observations</text>
+  <text x="621" y="143" text-anchor="middle" font-size="9.5" fill="#666">obs_populations · locations</text>
+
+  <!-- Arrow: UPSTREAM → CLI Wrapper -->
+  <line x1="390" y1="351" x2="390" y2="379" stroke="#555" stroke-width="2" marker-end="url(#arr-dark)"/>
+
+  <!-- ── CLI WRAPPER (contains imuGAP Model) ── -->
+  <rect x="40" y="379" width="700" height="155" rx="8" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+  <text x="390" y="400" text-anchor="middle" font-size="12" font-weight="bold" fill="#2e7d32">CLI Script Wrapper  —  "Candy Shell"</text>
+  <text x="390" y="419" text-anchor="middle" font-size="10" fill="#444">imugap &lt;input_dir&gt;  ·  validation via -h flag  ·  CLI arguments</text>
+
+  <!-- imuGAP Model nested inside CLI Wrapper -->
+  <rect x="65" y="432" width="650" height="72" rx="8" fill="#fff9c4" stroke="#f9a825" stroke-width="1.5"/>
+  <text x="390" y="452" text-anchor="middle" font-size="12" font-weight="bold" fill="#e65100">imuGAP Model</text>
+  <text x="390" y="470" text-anchor="middle" font-size="10" fill="#444">R/Stan Bayesian inference  ·  MCMC sampling</text>
+  <text x="390" y="487" text-anchor="middle" font-size="9.5" fill="#777">Estimates vaccination coverage by school · county · cohort · life year</text>
+
+  <!-- Arrow: CLI Wrapper → Outputs -->
+  <line x1="390" y1="534" x2="390" y2="562" stroke="#555" stroke-width="2" marker-end="url(#arr-dark)"/>
+
+  <!-- ── OUTPUTS ── -->
+  <rect x="40" y="562" width="700" height="125" rx="8" fill="#e3f2fd" stroke="#1565c0" stroke-width="1.5"/>
+  <text x="390" y="584" text-anchor="middle" font-size="12" font-weight="bold" fill="#1565c0">Standardized Output Files</text>
+
+  <rect x="175" y="594" width="195" height="74" rx="6" fill="#fff" stroke="#90caf9" stroke-width="1"/>
+  <text x="272" y="617" text-anchor="middle" font-size="10" font-weight="bold" fill="#333">Model Output</text>
+  <text x="272" y="632" text-anchor="middle" font-size="9.5" fill="#555">Raw Stan fit object</text>
+  <text x="272" y="647" text-anchor="middle" font-size="9.5" fill="#555">coverage · phi · lambda</text>
+  <text x="272" y="660" text-anchor="middle" font-size="9" fill="#777" font-style="italic">fit.rds</text>
+
+  <rect x="410" y="594" width="195" height="74" rx="6" fill="#fff" stroke="#90caf9" stroke-width="1"/>
+  <text x="507" y="617" text-anchor="middle" font-size="10" font-weight="bold" fill="#333">Dashboard Data</text>
+  <text x="507" y="632" text-anchor="middle" font-size="9.5" fill="#555">Map &amp; chart-ready output</text>
+  <text x="507" y="647" text-anchor="middle" font-size="9" fill="#777" font-style="italic">dashboard.json</text>
+
+  <!-- Arrows: outputs → downstream (fan out) -->
+  <line x1="272" y1="668" x2="147" y2="742" stroke="#555" stroke-width="1.5" marker-end="url(#arr-dark)"/>
+  <line x1="390" y1="668" x2="390" y2="742" stroke="#555" stroke-width="1.5" marker-end="url(#arr-dark)"/>
+  <line x1="507" y1="668" x2="631" y2="742" stroke="#555" stroke-width="1.5" marker-end="url(#arr-dark)"/>
+
+  <!-- ── DOWNSTREAM ── -->
+  <rect x="40" y="742" width="215" height="80" rx="8" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+  <text x="147" y="764" text-anchor="middle" font-size="11" font-weight="bold" fill="#2e7d32">Power BI</text>
+  <text x="147" y="781" text-anchor="middle" font-size="9.5" fill="#444">NC DHHS intranet</text>
+  <text x="147" y="796" text-anchor="middle" font-size="9.5" fill="#444">Static file import</text>
+  <text x="147" y="811" text-anchor="middle" font-size="9.5" fill="#444">Manual refresh per run</text>
+
+  <rect x="282" y="742" width="215" height="80" rx="8" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+  <text x="389" y="764" text-anchor="middle" font-size="11" font-weight="bold" fill="#2e7d32">Web Dashboard</text>
+  <text x="389" y="788" text-anchor="middle" font-size="9.5" fill="#444">GitHub Pages</text>
+  <text x="389" y="804" text-anchor="middle" font-size="9.5" fill="#444">accidda.github.io/measles</text>
+
+  <rect x="524" y="742" width="215" height="80" rx="8" fill="#f3e5f5" stroke="#6a1b9a" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <text x="631" y="764" text-anchor="middle" font-size="11" font-weight="bold" fill="#6a1b9a">Researcher Analysis</text>
+  <text x="631" y="781" text-anchor="middle" font-size="9.5" fill="#555">Direct .rds consumption</text>
+  <text x="631" y="796" text-anchor="middle" font-size="9.5" fill="#555">dashboard.json</text>
+  <text x="631" y="811" text-anchor="middle" font-size="9.5" fill="#888" font-style="italic">Future consumers</text>
+
+  <!-- Legend -->
+  <rect x="40" y="858" width="700" height="60" rx="6" fill="#fff" stroke="#ccc" stroke-width="1"/>
+  <text x="390" y="876" text-anchor="middle" font-size="10" font-weight="bold" fill="#555">LEGEND</text>
+  <rect x="60" y="884" width="14" height="14" rx="3" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1"/>
+  <text x="80" y="896" font-size="9.5" fill="#333">New / Enhanced</text>
+  <rect x="180" y="884" width="14" height="14" rx="3" fill="#fff9c4" stroke="#f9a825" stroke-width="1"/>
+  <text x="200" y="896" font-size="9.5" fill="#333">Existing</text>
+  <rect x="280" y="884" width="14" height="14" rx="3" fill="#fde8e8" stroke="#c0392b" stroke-width="1"/>
+  <text x="300" y="896" font-size="9.5" fill="#333">Upstream</text>
+  <rect x="400" y="884" width="14" height="14" rx="3" fill="#e3f2fd" stroke="#1565c0" stroke-width="1"/>
+  <text x="420" y="896" font-size="9.5" fill="#333">Output Files</text>
+  <rect x="510" y="884" width="14" height="14" rx="3" fill="#f3e5f5" stroke="#6a1b9a" stroke-width="1" stroke-dasharray="4,2"/>
+  <text x="530" y="896" font-size="9.5" fill="#333">Future / Planned</text>
+
+  <!-- Arrowhead markers -->
+  <defs>
+    <marker id="arr-dark" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#555"/>
+    </marker>
+    <marker id="arr-red" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#c0392b"/>
+    </marker>
+  </defs>
+
+</svg>

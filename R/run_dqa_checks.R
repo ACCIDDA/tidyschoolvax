@@ -1,6 +1,12 @@
 #' Run Data Quality Assurance Checks
 #'
 #' @description
+#' \strong{Deprecated:} orchestrates the legacy \code{check_*()} family in
+#' \code{dqa_checks.R}, all of which are superseded by the \code{dqa_check_*()}
+#' family in \code{final_format_utils.R} that \code{\link{run_final_formatting}}
+#' actually calls in the live pipeline. Kept for backward compatibility; see
+#' the file header of \code{dqa_checks.R} for the full replacement mapping.
+#'
 #' Wrapper function that executes a series of data quality assurance (DQA) checks
 #' on vaccination data. Captures any issues into an output log for reporting.
 #'

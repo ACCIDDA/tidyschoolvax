@@ -29,6 +29,10 @@ with all issues (default: FALSE)}
 Invisibly returns a list of data frames containing flagged records
 }
 \description{
+\strong{Deprecated:} consumes the output of the legacy
+\code{\link{run_dqa_checks}}; see the file header of \code{dqa_checks.R}
+for the live-pipeline replacement mapping.
+
 Creates a detailed report with all flagged records from each DQA check,
 optionally combining them into a single consolidated dataset.
 }

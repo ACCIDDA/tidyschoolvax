@@ -22,7 +22,13 @@ for the majority-vote mistype fix.}
 A data frame with columns \code{school_name_std}, \code{county_std},
   \code{school_type}, \code{school_level}, \code{level_code},
   \code{n_records}, \code{year_sources}, \code{vacc_data_ids},
-  \code{vacc_school_id}, and (when available in input) \code{district_std}.
+  \code{school_names_orig}, \code{vacc_school_id}, and (when available in
+  input) \code{district_std}. \code{school_names_orig} is the "; "-packed
+  set of distinct \code{school_name} values (kinder's own name BEFORE
+  \code{\link{add_school_level}} strips level words like "elementary" out
+  of \code{school_name_std}) that collapsed into this group — used
+  downstream to geocode on the fuller original name first, per
+  \code{\link{geocode_original_then_std}}'s original-name-first design.
 }
 \description{
 Creates one row per unique (school, county, type, level) combination,

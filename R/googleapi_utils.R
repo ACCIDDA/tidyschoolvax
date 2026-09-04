@@ -130,7 +130,19 @@ consolidate_api_cols <- function(df, col_name) {
 #'   columns where available.
 #' @keywords internal
 load_and_merge_cache <- function(unique_schools, save_path) {
-  
+
+  # Prefer a composite (school_name, county_std) cache key when both frames
+  # have county_std, so two different schools that happen to share a name in
+  # different counties don't collide on a bare school_name join. Falls back
+  # to school_name alone for older cache files that predate county_std.
+  .cache_key_cols <- function(a, b) {
+    if ("county_std" %in% names(a) && "county_std" %in% names(b)) {
+      c("school_name", "county_std")
+    } else {
+      "school_name"
+    }
+  }
+
   result <- unique_schools
   if (!("place_id"          %in% names(result))) result$place_id          <- NA_character_
   if (!("lat"               %in% names(result))) result$lat               <- NA_real_
@@ -155,34 +167,30 @@ load_and_merge_cache <- function(unique_schools, save_path) {
     return(result)
   }
   
-  cache <- readRDS(save_path) %>%
-    dplyr::distinct(school_name, .keep_all = TRUE)
-  
+  cache_raw  <- readRDS(save_path)
+  key_cols_1 <- .cache_key_cols(result, cache_raw)
+  cache <- cache_raw %>%
+    dplyr::distinct(dplyr::across(dplyr::all_of(key_cols_1)), .keep_all = TRUE)
+
   # --------------------------------------------------------------------------
   # Step 1a: Copy place_id (and formatted_address) for ALL schools from cache
   # --------------------------------------------------------------------------
   if ("place_id" %in% names(cache)) {
-    
+
     # Build cache_1a with only columns that actually exist in the cache
-    cache_1a <- cache %>%
-      dplyr::select(school_name, place_id_cache = place_id)
-    
-    if ("formatted_address" %in% names(cache)) {
-      cache_1a <- cache_1a %>%
-        dplyr::mutate(formatted_address_cache = cache$formatted_address[
-          match(school_name, cache$school_name)
-        ])
-      # Simpler: just select it directly
-      cache_1a <- cache %>%
-        dplyr::select(school_name,
+    has_fmt_1a <- "formatted_address" %in% names(cache)
+    cache_1a <- if (has_fmt_1a) {
+      cache %>%
+        dplyr::select(dplyr::all_of(key_cols_1),
                       place_id_cache          = place_id,
                       formatted_address_cache = formatted_address)
+    } else {
+      cache %>%
+        dplyr::select(dplyr::all_of(key_cols_1), place_id_cache = place_id)
     }
-    
-    has_fmt_1a <- "formatted_address_cache" %in% names(cache_1a)
-    
+
     result <- result %>%
-      dplyr::left_join(cache_1a, by = "school_name") %>%
+      dplyr::left_join(cache_1a, by = key_cols_1) %>%
       dplyr::mutate(
         dplyr::across(dplyr::any_of(c("place_id_cache", "formatted_address_cache")),
                       as.character),
@@ -224,12 +232,14 @@ load_and_merge_cache <- function(unique_schools, save_path) {
   available_cache_cols <- cache_cols_map[cache_cols_map %in% names(cache)]
   
   if (length(available_cache_cols) > 0) {
+    key_cols_1b  <- .cache_key_cols(result, cache)
+    n_key        <- length(key_cols_1b)
     cache_subset <- cache %>%
-      dplyr::select(school_name, dplyr::any_of(available_cache_cols))
-    names(cache_subset)[-1] <- names(available_cache_cols)
-    
+      dplyr::select(dplyr::all_of(key_cols_1b), dplyr::any_of(available_cache_cols))
+    names(cache_subset)[-seq_len(n_key)] <- names(available_cache_cols)
+
     result <- result %>%
-      dplyr::left_join(cache_subset, by = "school_name") %>%
+      dplyr::left_join(cache_subset, by = key_cols_1b) %>%
       dplyr::mutate(
         dplyr::across(dplyr::any_of(c("addr_clean_cache", "city_cache",
                                       "zip_cache", "formatted_address_cache")),
@@ -517,6 +527,19 @@ process_chunk <- function(chunk_df, google_api_key) {
   return(chunk_df)
 }
 
+# Internal: canonical paths for the three geocoding cache files, single-sourced
+# here so run_full_geocoding(), run_school_status_with_cache(), and
+# clear_geocoding_cache() can't drift out of sync on filenames.
+#' @keywords internal
+.geocoding_cache_paths <- function(geo_dir) {
+  c(
+    geocoded = file.path(geo_dir, "geocoded_cache.rds"),
+    progress = file.path(geo_dir, "geocoding_progress.rds"),
+    status   = file.path(geo_dir, "status_cache.rds")
+  )
+}
+
+
 # ------------------------------------------------------------------------------
 # MAIN ORCHESTRATION FUNCTION
 # ------------------------------------------------------------------------------
@@ -562,8 +585,9 @@ process_chunk <- function(chunk_df, google_api_key) {
 #' @export
 run_full_geocoding <- function(unique_schools, geo_dir, google_api_key,
                                parallel_cache = TRUE, api_qps = 50) {
-  save_path <- file.path(geo_dir, "geocoded_cache.rds")
-  progress_path <- file.path(geo_dir, "geocoding_progress.rds")
+  cache_paths   <- .geocoding_cache_paths(geo_dir)
+  save_path     <- cache_paths[["geocoded"]]
+  progress_path <- cache_paths[["progress"]]
   
   # Validate input data
   validate_input_data(unique_schools)
@@ -727,7 +751,27 @@ run_full_geocoding <- function(unique_schools, geo_dir, google_api_key,
   # STEP 4: Save final results as cache for next run
   # ============================================================================
   cat("\nSaving final results as cache...\n")
-  saveRDS(results, save_path)
+  # Merge into whatever's already on disk rather than overwriting wholesale:
+  # this call only ever sees the schools passed in `unique_schools`, but the
+  # cache file accumulates across many separate calls (one per source, plus
+  # standardized-name retries, in the geocode-first pipeline) — writing just
+  # `results` would silently discard every previously cached school this
+  # call didn't happen to touch. Rows from this call win over stale entries
+  # for the same school; everything else in the existing cache is preserved.
+  results_to_save <- results
+  if (file.exists(save_path)) {
+    existing_cache <- tryCatch(readRDS(save_path), error = function(e) NULL)
+    if (!is.null(existing_cache) && nrow(existing_cache) > 0) {
+      key_cols <- if ("county_std" %in% names(results) && "county_std" %in% names(existing_cache)) {
+        c("school_name", "county_std")
+      } else {
+        "school_name"
+      }
+      results_to_save <- dplyr::bind_rows(results, existing_cache) %>%
+        dplyr::distinct(dplyr::across(dplyr::all_of(key_cols)), .keep_all = TRUE)
+    }
+  }
+  saveRDS(results_to_save, save_path)
   cat(sprintf("Cache saved to: %s\n", save_path))
   
   # Summary statistics
@@ -753,49 +797,74 @@ run_full_geocoding <- function(unique_schools, geo_dir, google_api_key,
 # Get business status from Google Places API / Reasons if no status returned
 # ------------------------------------------------------------------------------
 
-#' Retrieve the business status of a school from the Google Places API
+#' Retrieve the current name and business status of a place from the Google
+#' Places API
 #'
-#' Calls the Places Details endpoint with the given \code{place_id} and
-#' returns a list with the \code{business_status} string and a
-#' \code{status_reason} code explaining the outcome.
+#' Calls the Places Details endpoint once with the given \code{place_id} and
+#' returns a list with the \code{business_status} string, the place's current
+#' \code{google_place_name} (Google's authoritative name for that physical
+#' location today — the mechanism used elsewhere in this package to detect
+#' when a school has been renamed), and a \code{status_reason} code
+#' explaining the outcome.  Requesting both fields in a single call keeps API
+#' usage the same as the previous status-only lookup.
 #'
 #' @param place_id Character scalar.  Google Place ID.
 #' @param google_api_key Character scalar.  Google Places API key.
 #'
-#' @return A named list with two elements:
+#' @return A named list with three elements:
 #' \describe{
 #'   \item{business_status}{Character.  One of \code{"OPERATIONAL"},
 #'     \code{"CLOSED_TEMPORARILY"}, \code{"CLOSED_PERMANENTLY"}, or
 #'     \code{NA_character_} when the status could not be retrieved.}
+#'   \item{google_place_name}{Character.  Google's current name for this
+#'     place, or \code{NA_character_} when unavailable.}
 #'   \item{status_reason}{Character.  One of \code{"success"},
 #'     \code{"missing_place_id"}, \code{"transient_error"}, or
 #'     \code{"not_available"}.}
 #' }
 #' @keywords internal
-get_business_status <- function(place_id, google_api_key) {
+get_place_details <- function(place_id, google_api_key) {
   if (is.na(place_id) || place_id == "") {
-    return(list(business_status = NA_character_, status_reason = "missing_place_id"))
+    return(list(business_status = NA_character_, google_place_name = NA_character_,
+                status_reason = "missing_place_id"))
   }
-  
-  url <- paste0("https://maps.googleapis.com/maps/api/place/details/json?place_id=", 
-                URLencode(place_id), "&fields=business_status&key=", google_api_key)
-  
+
+  url <- paste0("https://maps.googleapis.com/maps/api/place/details/json?place_id=",
+                URLencode(place_id), "&fields=name,business_status&key=", google_api_key)
+
   res <- tryCatch(httr::GET(url), error = function(e) return(NULL))
   if (is.null(res) || httr::status_code(res) != 200) {
-    return(list(business_status = NA_character_, status_reason = "transient_error"))
+    return(list(business_status = NA_character_, google_place_name = NA_character_,
+                status_reason = "transient_error"))
   }
-  
+
   json <- httr::content(res, as = "parsed", simplifyVector = TRUE)
   if (!is.null(json$status) && json$status != "OK") {
-    return(list(business_status = NA_character_, status_reason = "transient_error"))
+    return(list(business_status = NA_character_, google_place_name = NA_character_,
+                status_reason = "transient_error"))
   }
-  
+
   result <- json$result
-  if (is.null(result) || !"business_status" %in% names(result)) {
-    return(list(business_status = NA_character_, status_reason = "not_available"))
+  if (is.null(result) || !any(c("business_status", "name") %in% names(result))) {
+    return(list(business_status = NA_character_, google_place_name = NA_character_,
+                status_reason = "not_available"))
   }
-  
-  list(business_status = result$business_status, status_reason = "success")
+
+  list(
+    business_status   = if (!is.null(result$business_status)) result$business_status else NA_character_,
+    google_place_name = if (!is.null(result$name)) result$name else NA_character_,
+    status_reason     = "success"
+  )
+}
+
+#' @rdname get_place_details
+#' @description \code{get_business_status()} is a deprecated, status-only
+#'   wrapper kept for backward compatibility; new code should call
+#'   \code{\link{get_place_details}} directly.
+#' @keywords internal
+get_business_status <- function(place_id, google_api_key) {
+  res <- get_place_details(place_id, google_api_key)
+  list(business_status = res$business_status, status_reason = res$status_reason)
 }
 # ------------------------------------------------------------------------------
 # Retrieve operational status (parallel)
@@ -815,69 +884,83 @@ get_business_status <- function(place_id, google_api_key) {
 #'   read from \code{Sys.getenv("GOOGLEGEO_API_KEY")}).
 #'
 #' @return The input data frame with additional columns \code{business_status},
+#'   \code{google_place_name} (Google's current name for the place — the
+#'   signal used elsewhere in the package to detect school renames),
 #'   \code{status_reason}, and \code{business_source}.  The result is also
 #'   written to \code{file.path(geo_dir, "status_cache.rds")}.
 #'
 #' @importFrom furrr future_map
 #' @export
 run_school_status_with_cache <- function(df, geo_dir, google_api_key) {
-  status_path <- file.path(geo_dir, "status_cache.rds")
+  status_path <- .geocoding_cache_paths(geo_dir)[["status"]]
   df <- df %>% dplyr::mutate(orig_sort_id = dplyr::row_number())
-  
+
   # ── Merge from cache if it exists ──────────────────────────────────────────
   if (file.exists(status_path)) {
     status_cache <- readRDS(status_path)
-    
-    if ("business_status" %in% names(status_cache) && 
+
+    if ("business_status" %in% names(status_cache) &&
         "place_id"        %in% names(status_cache)) {
-      
+
       status_cache <- status_cache %>%
         dplyr::select(place_id, business_status,
-                      dplyr::any_of(c("status_reason", "business_source"))) %>%
+                      dplyr::any_of(c("google_place_name", "status_reason", "business_source"))) %>%
         dplyr::filter(!is.na(place_id)) %>%
         dplyr::distinct(place_id, .keep_all = TRUE)
-      
+
       # Handle older cache files missing status_reason
       if (!"status_reason" %in% names(status_cache)) {
         status_cache$status_reason <- NA_character_
       }
-      
+
+      # Handle older cache files missing google_place_name
+      if (!"google_place_name" %in% names(status_cache)) {
+        status_cache$google_place_name <- NA_character_
+      }
+
       # Handle older cache files missing business_source
       if (!"business_source" %in% names(status_cache)) {
         status_cache$business_source <- "cache"
       } else {
         status_cache$business_source <- dplyr::coalesce(status_cache$business_source, "cache")
       }
-      
+
       df <- df %>%
-        dplyr::select(-dplyr::any_of(c("business_status", "status_reason", "business_source"))) %>%
+        dplyr::select(-dplyr::any_of(c("business_status", "google_place_name",
+                                       "status_reason", "business_source"))) %>%
         dplyr::left_join(status_cache, by = "place_id")
     } else {
       message("Cache file found but missing required columns — skipping cache merge.")
     }
   }
-  
+
   # ── Ensure columns exist before any filtering ──────────────────────────────
-  if (!"business_status" %in% names(df)) df$business_status <- NA_character_
-  if (!"status_reason"   %in% names(df)) df$status_reason   <- NA_character_
-  if (!"business_source" %in% names(df)) df$business_source <- NA_character_
-  
+  if (!"business_status"    %in% names(df)) df$business_status    <- NA_character_
+  if (!"google_place_name"  %in% names(df)) df$google_place_name  <- NA_character_
+  if (!"status_reason"      %in% names(df)) df$status_reason      <- NA_character_
+  if (!"business_source"    %in% names(df)) df$business_source    <- NA_character_
+
   # ── Partition ──────────────────────────────────────────────────────────────
-  already_done <- df %>% dplyr::filter(!is.na(business_status))
-  no_id        <- df %>% dplyr::filter(is.na(business_status) & (is.na(place_id) | place_id == "")) %>%
+  # A row still needs a lookup if either business_status or google_place_name
+  # is missing (the latter matters even when status is already known, since
+  # it's the signal that feeds rename detection).
+  needs_lookup <- is.na(df$business_status) | is.na(df$google_place_name)
+  already_done <- df[!needs_lookup, ]
+  no_id        <- df[needs_lookup & (is.na(df$place_id) | df$place_id == ""), ] %>%
     dplyr::mutate(status_reason   = "missing_place_id",
                   business_source = NA_character_)
-  to_search    <- df %>% dplyr::filter(is.na(business_status) & !is.na(place_id) & place_id != "")
-  
+  to_search    <- df[needs_lookup & !is.na(df$place_id) & df$place_id != "", ]
+
   if (nrow(to_search) > 0) {
     search_list <- furrr::future_map(
       to_search$place_id,
-      ~get_business_status(.x, google_api_key),
+      ~get_place_details(.x, google_api_key),
       .progress = TRUE
     )
     results_df <- dplyr::bind_rows(lapply(search_list, tibble::as_tibble))
-    to_search$business_status <- results_df$business_status
-    to_search$status_reason   <- results_df$status_reason
+    to_search$business_status   <- dplyr::coalesce(results_df$business_status, to_search$business_status)
+    to_search$google_place_name <- dplyr::coalesce(results_df$google_place_name, to_search$google_place_name)
+    to_search$status_reason     <- results_df$status_reason
     # Tag rows that were actually looked up — NA status means the API couldn't
     # return anything, but the attempt was still made via Google.
     to_search$business_source <- dplyr::if_else(
@@ -886,11 +969,11 @@ run_school_status_with_cache <- function(df, geo_dir, google_api_key) {
       NA_character_
     )
   }
-  
+
   final_df <- dplyr::bind_rows(already_done, to_search, no_id) %>%
     dplyr::arrange(orig_sort_id) %>%
     dplyr::select(-orig_sort_id)
-  
+
   saveRDS(final_df, status_path)
   return(final_df)
 }
@@ -936,17 +1019,124 @@ retry_transient_errors <- function(df,
       break
     }
     
-    retry_list    <- lapply(df$place_id[retry_idx], get_business_status,
+    retry_list    <- lapply(df$place_id[retry_idx], get_place_details,
                             google_api_key = google_api_key)
     retry_results <- dplyr::bind_rows(lapply(retry_list, tibble::as_tibble))
-    
+
     df$business_status[retry_idx] <- retry_results$business_status
+    if (!"google_place_name" %in% names(df)) df$google_place_name <- NA_character_
+    df$google_place_name[retry_idx] <- retry_results$google_place_name
     df$status_reason[retry_idx]   <- retry_results$status_reason
-    
+
     attempt <- attempt + 1
   }
   
   df
+}
+
+# ------------------------------------------------------------------------------
+# Clear the geocoding cache
+# ------------------------------------------------------------------------------
+
+#' Clear the geocoding cache
+#'
+#' Deletes some or all of the three cache files a state's \code{state_geo_dir}
+#' accumulates: \code{geocoded_cache.rds} (place_id/coordinates/address, from
+#' \code{\link{run_full_geocoding}} and \code{\link{resolve_school_place_ids}}),
+#' \code{status_cache.rds} (\code{business_status}/\code{google_place_name},
+#' from \code{\link{run_school_status_with_cache}} and
+#' \code{\link{add_google_name_variants}}), and \code{geocoding_progress.rds}
+#' (resume state for an interrupted geocoding run).
+#'
+#' @details
+#' You do \strong{not} need to clear the cache for correctness — cached rows
+#' are read back into every function that consults them regardless of when
+#' they were written; clearing is only useful when you specifically want
+#' stale data (e.g. addresses that have since changed, or a school-status
+#' lookup that predates a rename) re-fetched from Google.
+#'
+#' Clearing is deliberately asymmetric in cost, and the defaults reflect that:
+#' \itemize{
+#'   \item \strong{\code{"status"}} (the default) only forces
+#'     \code{business_status}/\code{google_place_name} to be re-fetched — a
+#'     single Places Details call per school, no coordinates lost. Safe to
+#'     clear whenever you want fresher names/statuses.
+#'   \item \strong{\code{"geocoded"}} forces every school to be fully
+#'     re-geocoded from scratch next run — proportional to your school count
+#'     in both Google API quota and wall-clock time. Requires
+#'     \code{force = TRUE} so it can't be cleared by accident.
+#'   \item \strong{\code{"progress"}} discards the resume checkpoint for an
+#'     \emph{interrupted} \code{\link{run_full_geocoding}} call. If you leave
+#'     this file alone, simply re-running the pipeline resumes the unfinished
+#'     batch instead of starting over; only clear it if you want to abandon
+#'     that partial progress. If the file exists and looks like real
+#'     in-progress state, a message reports how many chunks would be
+#'     discarded before removing it.
+#' }
+#'
+#' @param state_geo_dir Character scalar. The state's geocoding cache
+#'   directory (the \code{state_geo_dir} used elsewhere in this package,
+#'   e.g. from \code{\link{setup_paths}}).
+#' @param what Character vector of which cache(s) to clear: any combination
+#'   of \code{"status"}, \code{"geocoded"}, \code{"progress"}, or
+#'   \code{"all"} (shorthand for all three). Defaults to \code{"status"}.
+#' @param force Logical. Must be \code{TRUE} to include \code{"geocoded"} in
+#'   \code{what}, given the API-quota/time cost of rebuilding it. Ignored for
+#'   \code{"status"}/\code{"progress"}. Defaults to \code{FALSE}.
+#'
+#' @return Invisibly, a list with \code{removed} and \code{skipped} (file
+#'   paths that didn't exist, so there was nothing to remove).
+#' @export
+clear_geocoding_cache <- function(state_geo_dir,
+                                  what  = "status",
+                                  force = FALSE) {
+  what <- match.arg(what, c("status", "geocoded", "progress", "all"),
+                    several.ok = TRUE)
+  if ("all" %in% what) what <- c("status", "geocoded", "progress")
+
+  if ("geocoded" %in% what && !isTRUE(force)) {
+    stop(
+      "Clearing 'geocoded_cache.rds' forces every school to be re-geocoded ",
+      "via the Google API next run (API quota + time, proportional to your ",
+      "school count). Pass force = TRUE to confirm you want that.",
+      call. = FALSE
+    )
+  }
+
+  cache_paths <- .geocoding_cache_paths(state_geo_dir)[what]
+
+  if ("progress" %in% what && file.exists(cache_paths[["progress"]])) {
+    progress_data <- tryCatch(readRDS(cache_paths[["progress"]]), error = function(e) NULL)
+    n_done <- length(progress_data$processed_chunks)
+    if (!is.null(progress_data) && n_done > 0) {
+      message(
+        "geocoding_progress.rds has ", n_done, " chunk(s) already completed ",
+        "from an interrupted run. Removing it means the next run starts that ",
+        "geocoding batch over from scratch instead of resuming — re-running ",
+        "the pipeline without clearing this file resumes automatically."
+      )
+    }
+  }
+
+  removed <- character(0)
+  skipped <- character(0)
+  for (path in cache_paths) {
+    if (file.exists(path)) {
+      file.remove(path)
+      removed <- c(removed, path)
+    } else {
+      skipped <- c(skipped, path)
+    }
+  }
+
+  if (length(removed) > 0) {
+    message("Cleared: ", paste(basename(removed), collapse = ", "))
+  }
+  if (length(skipped) > 0) {
+    message("Already clear (not found): ", paste(basename(skipped), collapse = ", "))
+  }
+
+  invisible(list(removed = removed, skipped = skipped))
 }
 
 # ==============================================================================
@@ -1158,9 +1348,52 @@ report_unique_missing_addresses <- function(df, out_dir) {
     report_name = "unique_missing_addresses",
     out_dir = out_dir
   )
-  
+
   return(report)
 }
+
+# 5. Report: schools that never matched, after every matching stage
+
+#' Report schools that remained unmatched after every matching stage
+#'
+#' The final catch-all report for the geocode-first matching pipeline:
+#' whatever a source's location-key rows are left in \code{unmatched_dat1}
+#' after exact matching, place_id matching, geocoding on both the original
+#' and standardized name, and the last-resort fuzzy pass — nothing left to
+#' try. Follows the same \code{\link{write_report}} convention as the other
+#' \code{report_*()} functions in this file.
+#'
+#' @param df A data frame of still-unmatched schools (e.g. the
+#'   \code{unmatched_dat1} left over from the last stage of matching), any
+#'   shape — typically a location-key table
+#'   (\code{\link{build_location_key_table}}) or a source data frame.
+#' @param out_dir Directory for the output CSV
+#'   (\code{unmatched_schools_final.csv}).
+#'
+#' @return \code{df}, arranged by \code{county_std}/\code{school_name_std}
+#'   when those columns are present, unchanged otherwise.
+#' @export
+report_unmatched_schools <- function(df, out_dir) {
+
+  sort_cols <- intersect(c("county_std", "district_std", "school_name_std"), names(df))
+
+  report <- if (length(sort_cols) > 0) {
+    df %>% dplyr::arrange(dplyr::across(dplyr::all_of(sort_cols)))
+  } else {
+    df
+  }
+
+  message("Found ", nrow(report), " school(s) still unmatched after all matching stages.")
+
+  write_report(
+    report,
+    report_name = "unmatched_schools_final",
+    out_dir = out_dir
+  )
+
+  return(report)
+}
+
 # ------------------------------------------------------------------------------
 # Merge geocoding results back to long file
 # ------------------------------------------------------------------------------

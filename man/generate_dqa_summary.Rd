@@ -26,6 +26,12 @@ Supported formats: CSV (.csv), RDS (.rds), or Excel (.xlsx)}
 Invisibly returns the summary data frame that was saved
 }
 \description{
+\strong{Deprecated:} consumes the output of the legacy
+\code{\link{run_dqa_checks}}. The live pipeline reports DQA results via
+\code{\link{print_dqa_summary}} / the \code{dqa_report} list built by
+\code{\link{run_final_formatting}} instead. See the file header of
+\code{dqa_checks.R} for the full replacement mapping.
+
 Creates a comprehensive summary report of data quality assurance checks,
 consolidating flagged issues from all checks into a standardized format.
 }

@@ -19,6 +19,10 @@ A list with two data frames:
   }
 }
 \description{
+\strong{Deprecated:} superseded by \code{\link{dqa_check_coverage_outliers}}
+/ \code{\link{dqa_check_over_coverage}}; see the file header of
+\code{dqa_checks.R}.
+
 Identifies records with unrealistic MMR coverage (<0 or >105 percent) and cases
 where current + delayed + exemptions exceed enrollment.
 }

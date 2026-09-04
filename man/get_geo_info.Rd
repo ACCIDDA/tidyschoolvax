@@ -7,12 +7,12 @@
 get_geo_info(state_abbr = state, lat, lon, data_year = 2020)
 }
 \arguments{
+\item{state_abbr}{Character vector of state abbreviations (e.g., \code{"MD"})
+used to filter TIGER/Census geometries and speed up spatial joins.}
+
 \item{lat}{Numeric vector of latitudes in decimal degrees (WGS84).}
 
 \item{lon}{Numeric vector of longitudes in decimal degrees (WGS84).}
-
-\item{state_abbr}{Character vector of state abbreviations (e.g., \code{"MD"})
-used to filter TIGER/Census geometries and speed up spatial joins.}
 
 \item{data_year}{Integer. The year of Census TIGER/Line shapefiles to use.
 Defaults to \code{2020}.}

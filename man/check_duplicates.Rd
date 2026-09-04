@@ -20,6 +20,11 @@ A list with two data frames:
   }
 }
 \description{
+\strong{Deprecated:} superseded by \code{\link{dqa_check_duplicates}} in
+\code{final_format_utils.R}, which the live pipeline actually calls. Kept
+for backward compatibility; see the file header of \code{dqa_checks.R} for
+the full list of replacements.
+
 Identifies duplicate school_id-year combinations in the dataset and determines
 whether duplicates are identical or have conflicting data.
 }
