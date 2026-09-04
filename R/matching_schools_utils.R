@@ -796,9 +796,12 @@ match_schools_names <- function(data1, data2,
 #' @param parallel See \code{\link{match_schools_names}}; passed through to
 #'   every fuzzy pass.
 #'
-#' @return A named list with \code{matched} (all passes' matches
-#'   row-bound, each tagged with a \code{match_method} column) and
-#'   \code{unmatched_dat1} (data1 rows left unmatched after every pass).
+#' @return A named list with:
+#'   \itemize{
+#'     \item \code{matched}: all passes' matches, row-bound and tagged with \code{match_method}.
+#'     \item \code{unmatched_dat1}: data1 rows left unmatched after every pass.
+#'     \item \code{unmatched_dat2}: data2 rows left unmatched after every pass.
+#'   }
 #' @export
 run_matching_cascade <- function(data1, data2, passes,
                                  data_1_source = "data1",
