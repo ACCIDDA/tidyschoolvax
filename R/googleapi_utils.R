@@ -828,31 +828,54 @@ get_place_details <- function(place_id, google_api_key) {
     return(list(business_status = NA_character_, google_place_name = NA_character_,
                 status_reason = "missing_place_id"))
   }
-
-  url <- paste0("https://maps.googleapis.com/maps/api/place/details/json?place_id=",
-                URLencode(place_id), "&fields=name,business_status&key=", google_api_key)
-
-  res <- tryCatch(httr::GET(url), error = function(e) return(NULL))
-  if (is.null(res) || httr::status_code(res) != 200) {
+  
+  # Migrated from the legacy REST endpoint (maps.googleapis.com/.../place/details/json)
+  # to Places API v1 -- the legacy endpoint bills every call under the "Places
+  # Details" SKU ($17/1000 after a 5,000/month free cap) REGARDLESS of which
+  # fields are requested; the "Basic Data" free SKU shown alongside it on the
+  # bill does not offset that charge, it's just a parallel zero-cost line item.
+  # v1's field-mask-based billing genuinely does route a basic-fields-only
+  # request to the cheaper "Place Details Essentials" SKU ($5/1000, 10,000/month
+  # free). Confirmed via Cloud Billing screenshot: 12,279 legacy calls cost
+  # $123.74; the same call volume under Essentials would be ~$10.
+  url <- paste0("https://places.googleapis.com/v1/places/", URLencode(place_id))
+  
+  res <- tryCatch(
+    httr::GET(
+      url,
+      httr::add_headers(
+        "X-Goog-Api-Key"   = google_api_key,
+        "X-Goog-FieldMask" = "id,displayName,businessStatus"
+      )
+    ),
+    error = function(e) NULL
+  )
+  
+  if (is.null(res)) {
     return(list(business_status = NA_character_, google_place_name = NA_character_,
                 status_reason = "transient_error"))
   }
-
-  json <- httr::content(res, as = "parsed", simplifyVector = TRUE)
-  if (!is.null(json$status) && json$status != "OK") {
-    return(list(business_status = NA_character_, google_place_name = NA_character_,
-                status_reason = "transient_error"))
-  }
-
-  result <- json$result
-  if (is.null(result) || !any(c("business_status", "name") %in% names(result))) {
+  
+  code <- httr::status_code(res)
+  
+  # v1 uses HTTP status itself to signal outcome, unlike the legacy endpoint's
+  # always-200-with-a-status-field pattern -- 404 means Google has no record
+  # of this place_id (e.g. permanently deleted), which is a real "not
+  # available" outcome, not a transient failure worth retrying.
+  if (code == 404) {
     return(list(business_status = NA_character_, google_place_name = NA_character_,
                 status_reason = "not_available"))
   }
-
+  if (code != 200) {
+    return(list(business_status = NA_character_, google_place_name = NA_character_,
+                status_reason = "transient_error"))
+  }
+  
+  json <- httr::content(res, as = "parsed", simplifyVector = TRUE)
+  
   list(
-    business_status   = if (!is.null(result$business_status)) result$business_status else NA_character_,
-    google_place_name = if (!is.null(result$name)) result$name else NA_character_,
+    business_status   = if (!is.null(json$businessStatus)) json$businessStatus else NA_character_,
+    google_place_name = if (!is.null(json$displayName$text)) json$displayName$text else NA_character_,
     status_reason     = "success"
   )
 }
