@@ -44,9 +44,12 @@ run_matching_cascade(
 every fuzzy pass.}
 }
 \value{
-A named list with \code{matched} (all passes' matches
-  row-bound, each tagged with a \code{match_method} column) and
-  \code{unmatched_dat1} (data1 rows left unmatched after every pass).
+A named list with:
+  \itemize{
+    \item \code{matched}: all passes' matches, row-bound and tagged with \code{match_method}.
+    \item \code{unmatched_dat1}: data1 rows left unmatched after every pass.
+    \item \code{unmatched_dat2}: data2 rows left unmatched after every pass.
+  }
 }
 \description{
 Generalizes the "try pass 1, keep whatever's still unmatched, try pass 2,
