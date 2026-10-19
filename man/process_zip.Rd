@@ -6,9 +6,6 @@
 \usage{
 process_zip(zipcode)
 }
-\arguments{
-\item{zipcode}{}
-}
 \value{
 A data.frame of schools data for the given ZIP code, or NULL if no schools found
 }

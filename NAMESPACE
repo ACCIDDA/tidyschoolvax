@@ -105,92 +105,118 @@ export(standardize_state_school_data)
 export(standardized_county_name)
 export(standardized_school_name)
 importFrom(Rcpp,sourceCpp)
-importFrom(data.table,as.data.table)
-importFrom(data.table,data.table)
-importFrom(data.table,fread)
-importFrom(data.table,fwrite)
-importFrom(data.table,is.data.table)
-importFrom(data.table,rbindlist)
-importFrom(data.table,setcolorder)
-importFrom(data.table,setkey)
-importFrom(data.table,setorder)
-importFrom(dplyr,"%>%")
-importFrom(dplyr,across)
-importFrom(dplyr,all_of)
-importFrom(dplyr,any_of)
-importFrom(dplyr,arrange)
-importFrom(dplyr,as_tibble)
-importFrom(dplyr,bind_cols)
-importFrom(dplyr,bind_rows)
-importFrom(dplyr,case_when)
-importFrom(dplyr,coalesce)
-importFrom(dplyr,desc)
-importFrom(dplyr,distinct)
-importFrom(dplyr,everything)
-importFrom(dplyr,filter)
-importFrom(dplyr,full_join)
-importFrom(dplyr,group_by)
-importFrom(dplyr,if_all)
-importFrom(dplyr,if_any)
-importFrom(dplyr,if_else)
-importFrom(dplyr,inner_join)
-importFrom(dplyr,left_join)
-importFrom(dplyr,mutate)
-importFrom(dplyr,n)
-importFrom(dplyr,n_distinct)
-importFrom(dplyr,pick)
-importFrom(dplyr,pull)
-importFrom(dplyr,reframe)
-importFrom(dplyr,rename)
-importFrom(dplyr,row_number)
-importFrom(dplyr,select)
-importFrom(dplyr,semi_join)
-importFrom(dplyr,slice)
-importFrom(dplyr,slice_max)
-importFrom(dplyr,summarise)
-importFrom(dplyr,ungroup)
-importFrom(furrr,furrr_options)
-importFrom(furrr,future_map)
-importFrom(future,multisession)
-importFrom(future,plan)
-importFrom(future,sequential)
-importFrom(httr,GET)
-importFrom(httr,content)
-importFrom(httr,timeout)
-importFrom(httr,user_agent)
+importFrom(data.table,
+  as.data.table,
+  data.table,
+  fread,
+  fwrite,
+  is.data.table,
+  rbindlist,
+  setcolorder,
+  setkey,
+  setorder
+)
+importFrom(dplyr,
+  "%>%",
+  across,
+  all_of,
+  any_of,
+  arrange,
+  as_tibble,
+  bind_cols,
+  bind_rows,
+  case_when,
+  coalesce,
+  desc,
+  distinct,
+  everything,
+  filter,
+  full_join,
+  group_by,
+  if_all,
+  if_any,
+  if_else,
+  inner_join,
+  left_join,
+  mutate,
+  n,
+  n_distinct,
+  pick,
+  pull,
+  reframe,
+  rename,
+  row_number,
+  select,
+  semi_join,
+  slice,
+  slice_max,
+  summarise,
+  ungroup
+)
+importFrom(furrr,
+  furrr_options,
+  future_map
+)
+importFrom(future,
+  multisession,
+  plan,
+  sequential
+)
+importFrom(httr,
+  GET,
+  content,
+  timeout,
+  user_agent
+)
 importFrom(janitor,clean_names)
 importFrom(jsonlite,fromJSON)
-importFrom(purrr,compact)
-importFrom(purrr,map_chr)
-importFrom(purrr,walk)
-importFrom(readr,parse_number)
-importFrom(readr,read_csv)
-importFrom(readr,write_csv)
-importFrom(readxl,read_excel)
-importFrom(readxl,read_xlsx)
+importFrom(purrr,
+  compact,
+  map_chr,
+  walk
+)
+importFrom(readr,
+  parse_number,
+  read_csv,
+  write_csv
+)
+importFrom(readxl,
+  read_excel,
+  read_xlsx
+)
 importFrom(rlang,sym)
-importFrom(sf,st_as_sf)
-importFrom(sf,st_drop_geometry)
-importFrom(sf,st_join)
-importFrom(sf,st_transform)
-importFrom(sf,st_within)
-importFrom(stats,median)
-importFrom(stats,na.omit)
-importFrom(stats,qt)
+importFrom(sf,
+  st_as_sf,
+  st_drop_geometry,
+  st_join,
+  st_transform,
+  st_within
+)
+importFrom(stats,
+  median,
+  na.omit,
+  qt
+)
 importFrom(stringi,stri_trans_general)
-importFrom(stringr,regex)
-importFrom(stringr,str_detect)
-importFrom(stringr,str_match)
-importFrom(stringr,str_sub)
-importFrom(stringr,str_to_sentence)
-importFrom(stringr,str_trim)
+importFrom(stringr,
+  regex,
+  str_detect,
+  str_match,
+  str_sub,
+  str_to_sentence,
+  str_trim
+)
 importFrom(tibble,tibble)
 importFrom(tidygeocoder,geocode)
-importFrom(tidyr,pivot_longer)
-importFrom(tidyr,separate)
-importFrom(tidyr,unpack)
-importFrom(tigris,counties)
-importFrom(tigris,zctas)
+importFrom(tidyr,
+  pivot_longer,
+  separate,
+  unpack
+)
+importFrom(tigris,
+  counties,
+  zctas
+)
 importFrom(tools,file_ext)
 importFrom(utils,write.csv)
 useDynLib(tidyschoolvax, .registration = TRUE)

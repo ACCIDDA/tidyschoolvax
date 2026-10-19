@@ -19,4 +19,9 @@ Useful links:
 \author{
 \strong{Maintainer}: ACCIDDA Team \email{contact@accidda.org}
 
+Authors:
+\itemize{
+  \item ACCIDDA Team \email{contact@accidda.org}
+}
+
 }

@@ -13,7 +13,6 @@ Description: Provides modular functions for preprocessing, cleaning, and
 License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true
-RoxygenNote: 7.3.2
 Depends: 
     R (>= 3.5.0)
 Imports:
@@ -55,3 +54,4 @@ Config/testthat/edition: 3
 VignetteBuilder: knitr
 URL: https://github.com/ACCIDDA/tidyschoolvax
 BugReports: https://github.com/ACCIDDA/tidyschoolvax/issues
+Config/roxygen2/version: 8.1.0
