@@ -197,6 +197,7 @@ test_that("clean_doe_data() drops secondary-only schools only when asked", {
     county = "Montgomery County",
     grades = c("PK-5", "9-12", NA),
     street = c("1 A St", "2 B St", "3 C St"),
+    school_type = "public",
     stringsAsFactors = FALSE
   )
   all_rows <- clean_doe_data(doe)
