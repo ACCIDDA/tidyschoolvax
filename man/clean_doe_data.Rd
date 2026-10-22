@@ -4,7 +4,7 @@
 \alias{clean_doe_data}
 \title{Clean DOE (Department of Education) school reference data}
 \usage{
-clean_doe_data(doe_dat)
+clean_doe_data(doe_dat, elementary_only = FALSE)
 }
 \arguments{
 \item{doe_dat}{A data frame of DOE school data.  Must contain at minimum
@@ -12,6 +12,10 @@ clean_doe_data(doe_dat)
 columns.  A \code{district} column is used when present to create
 \code{district_std}; if absent, \code{district_std} is set to
 \code{NA_character_}.}
+
+\item{elementary_only}{Logical (default \code{FALSE}).  If \code{TRUE}, drop
+schools whose derived \code{level_code} has no elementary or pre-K grades
+(e.g. grades 6-12).  Schools with an unknown grade span are kept.}
 }
 \value{
 The enriched data frame with additional columns:
