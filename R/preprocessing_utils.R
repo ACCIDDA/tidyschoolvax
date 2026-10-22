@@ -1366,11 +1366,16 @@ clean_doe_data <- function(doe_dat, elementary_only = FALSE) {
 #'   \code{district} and \code{district_std}.
 #' @param state_abbr Two-letter state abbreviation (e.g., \code{"md"}) used to
 #'   look up geocoded county information via \code{\link{get_geo_info}}.
-#' @param drop_po_box Logical (default \code{TRUE}).  GreatSchools ships some
-#'   PO Box entries with coordinates already attached (not a school's physical
-#'   location), which create ghost schools.  If \code{TRUE}, rows whose
-#'   \code{street1} is a PO Box are \emph{dropped} (not set to \code{NA}:
-#'   \code{sf::st_as_sf()} errors on missing coordinates).
+#' @param po_box_action How to treat rows whose \code{street1} is a PO Box.
+#'   GreatSchools ships some PO Box entries with coordinates already attached
+#'   (the post office, not the school), which create ghost schools.
+#'   \code{"blank"} (default) keeps the row so a real school with vaccination
+#'   records can still be matched by name, district and county, but sets
+#'   \code{lat}, \code{lon}, \code{addr_clean} and \code{addr_clean_no_unit}
+#'   to \code{NA} so it can never match on location; the county falls back to
+#'   the GreatSchools county.  \code{"drop"} removes these rows entirely.
+#'   \code{"keep"} leaves them untouched.  A logical \code{po_box} column
+#'   flags the affected rows (all \code{FALSE} when action is \code{"drop"}).
 #' @param elementary_only Logical (default \code{FALSE}).  If \code{TRUE}, drop
 #'   schools whose \code{level_code} has no elementary or pre-K level (e.g.
 #'   \code{"m"}, \code{"h"}, \code{"m,h"}).  Unknown level codes are kept.
@@ -1381,25 +1386,33 @@ clean_doe_data <- function(doe_dat, elementary_only = FALSE) {
 #'   \code{school_level}, \code{school_type}, \code{school_name},
 #'   \code{level_code}, \code{addr_clean}, \code{addr_clean_no_unit},
 #'   \code{county_geo}, \code{zip_geo}, \code{county_geo_std},
-#'   \code{county_gs}, \code{county_gs_std}, \code{data1_id}, and
+#'   \code{county_gs}, \code{county_gs_std}, \code{po_box}, \code{data1_id}, and
 #'   \code{level_code_match}.
 #'
 #' @importFrom dplyr mutate rename row_number bind_cols select
 #' @export
 clean_greatschools_data <- function(gs_dat, state_abbr,
-                                    drop_po_box = TRUE,
+                                    po_box_action = c("blank", "drop", "keep"),
                                     elementary_only = FALSE) {
 
   if (!is.character(state_abbr) || length(state_abbr) != 1L || is.na(state_abbr) || !grepl("^[A-Za-z]{2}$", state_abbr)) {
     stop("'state_abbr' must be a single two-letter state abbreviation (e.g., \"md\").", call. = FALSE)
   }
 
-  # Drop PO Box rows up front (before geocoding/ID assignment).
-  if (isTRUE(drop_po_box) && "street1" %in% colnames(gs_dat)) {
-    is_po <- .is_po_box(gs_dat$street1)
-    if (any(is_po)) {
-      message(sprintf("GreatSchools: dropped %d PO Box row(s).", sum(is_po)))
-      gs_dat <- gs_dat[!is_po, , drop = FALSE]
+  po_box_action <- match.arg(po_box_action)
+
+  # Flag PO Box rows; optionally drop them up front (before geocoding/IDs).
+  gs_dat$po_box <- if ("street1" %in% colnames(gs_dat)) .is_po_box(gs_dat$street1) else FALSE
+  if (any(gs_dat$po_box)) {
+    if (po_box_action == "drop") {
+      message(sprintf("GreatSchools: dropped %d PO Box row(s).", sum(gs_dat$po_box)))
+      gs_dat <- gs_dat[!gs_dat$po_box, , drop = FALSE]
+    } else if (po_box_action == "blank") {
+      message(sprintf(
+        "GreatSchools: %d PO Box row(s) kept, location blanked (name/county matching only).",
+        sum(gs_dat$po_box)))
+      gs_dat$lat[gs_dat$po_box] <- NA_real_
+      gs_dat$lon[gs_dat$po_box] <- NA_real_
     }
   }
 
@@ -1448,7 +1461,17 @@ clean_greatschools_data <- function(gs_dat, state_abbr,
   old_tigris_use_cache <- getOption("tigris_use_cache")
   on.exit(options(tigris_use_cache = old_tigris_use_cache), add = TRUE)
   options(tigris_use_cache = TRUE)
-  gs_geos <- get_geo_info(state_abbr = state_abbr, lat = gs_dat$lat, lon = gs_dat$lon)
+  # st_as_sf() errors on missing coordinates, so geocode only rows that have
+  # them; the rest (blanked PO Box rows) get NA county/zip here.
+  has_xy  <- is.finite(gs_dat$lat) & is.finite(gs_dat$lon)
+  gs_geos <- dplyr::tibble(county = rep(NA_character_, nrow(gs_dat)),
+                           zip_code = rep(NA_character_, nrow(gs_dat)))
+  if (any(has_xy)) {
+    xy_geos <- get_geo_info(state_abbr = state_abbr,
+                            lat = gs_dat$lat[has_xy], lon = gs_dat$lon[has_xy])
+    gs_geos$county[has_xy]   <- xy_geos$county
+    gs_geos$zip_code[has_xy] <- xy_geos$zip_code
+  }
   gs_dat <- gs_dat %>%
     dplyr::bind_cols(
       gs_geos %>% dplyr::select(county_geo = county, zip_geo = zip_code)
@@ -1458,13 +1481,22 @@ clean_greatschools_data <- function(gs_dat, state_abbr,
   # Geocoded counties are more reliable than GreatSchools counties;
   # GreatSchools ZIP codes are more reliable than geocoded ZIPs (due to
   # misalignment between ZIP and ZCTA boundaries).
+  # Blanked PO Box rows have no geocoded county, so they keep GreatSchools'.
   gs_dat <- gs_dat %>%
     dplyr::mutate(
       county_gs     = county,
       county_gs_std = county_std,
-      county        = county_geo,
-      county_std    = county_geo_std
+      county        = ifelse(po_box & is.na(county_geo), county, county_geo),
+      county_std    = ifelse(po_box & is.na(county_geo_std), county_std, county_geo_std)
     )
+
+  if (po_box_action == "blank") {
+    gs_dat <- gs_dat %>%
+      dplyr::mutate(
+        addr_clean         = ifelse(po_box, NA_character_, addr_clean),
+        addr_clean_no_unit = ifelse(po_box, NA_character_, addr_clean_no_unit)
+      )
+  }
 
   gs_dat <- gs_dat %>%
     dplyr::mutate(data1_id = dplyr::row_number())

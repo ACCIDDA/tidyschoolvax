@@ -34,8 +34,9 @@
 #' @param addr_source_pref Character.  Address source to prefer as the primary
 #'   address in the output.  One of \code{"greatschools"} (default),
 #'   \code{"doe"}, \code{"third"}, or \code{"kinder"}.
-#' @param drop_po_box Logical (default \code{TRUE}). Drop GreatSchools rows
-#'   whose street address is a PO Box; see \code{\link{clean_greatschools_data}}.
+#' @param po_box_action \code{"blank"} (default), \code{"drop"} or
+#'   \code{"keep"}: how GreatSchools PO Box rows are treated; see
+#'   \code{\link{clean_greatschools_data}}.
 #' @param elementary_only_reference Logical (default \code{TRUE}). Drop
 #'   middle/high-only schools from the GreatSchools and DOE reference tables
 #'   before matching (see \code{\link{clean_greatschools_data}},
@@ -93,7 +94,7 @@ standardize_schools <- function(state_id,
                                 parallel = FALSE,
                                 parallel_cache = TRUE,
                                 api_qps = 50,
-                                drop_po_box = TRUE,
+                                po_box_action = c("blank", "drop", "keep"),
                                 elementary_only_reference = TRUE) {
   
   # Reviewer-facing QC directory — computed early since Google identity
@@ -110,7 +111,7 @@ standardize_schools <- function(state_id,
   greatschools_dat <- clean_greatschools_data(
     gs_dat = readRDS(file.path(greatschools_dir, "greatschools_dat.RDS")),
     state_abbr = state_id,
-    drop_po_box = drop_po_box,
+    po_box_action = match.arg(po_box_action),
     elementary_only = elementary_only_reference
   )
 

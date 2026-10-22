@@ -7,7 +7,7 @@
 clean_greatschools_data(
   gs_dat,
   state_abbr,
-  drop_po_box = TRUE,
+  po_box_action = c("blank", "drop", "keep"),
   elementary_only = FALSE
 )
 }
@@ -21,11 +21,16 @@ columns.  A \code{districtName} column is used when present to populate
 \item{state_abbr}{Two-letter state abbreviation (e.g., \code{"md"}) used to
 look up geocoded county information via \code{\link{get_geo_info}}.}
 
-\item{drop_po_box}{Logical (default \code{TRUE}).  GreatSchools ships some
-PO Box entries with coordinates already attached (not a school's physical
-location), which create ghost schools.  If \code{TRUE}, rows whose
-\code{street1} is a PO Box are \emph{dropped} (not set to \code{NA}:
-\code{sf::st_as_sf()} errors on missing coordinates).}
+\item{po_box_action}{How to treat rows whose \code{street1} is a PO Box.
+GreatSchools ships some PO Box entries with coordinates already attached
+(the post office, not the school), which create ghost schools.
+\code{"blank"} (default) keeps the row so a real school with vaccination
+records can still be matched by name, district and county, but sets
+\code{lat}, \code{lon}, \code{addr_clean} and \code{addr_clean_no_unit}
+to \code{NA} so it can never match on location; the county falls back to
+the GreatSchools county.  \code{"drop"} removes these rows entirely.
+\code{"keep"} leaves them untouched.  A logical \code{po_box} column
+flags the affected rows (all \code{FALSE} when action is \code{"drop"}).}
 
 \item{elementary_only}{Logical (default \code{FALSE}).  If \code{TRUE}, drop
 schools whose \code{level_code} has no elementary or pre-K level (e.g.
@@ -38,7 +43,7 @@ The enriched data frame with additional columns:
   \code{school_level}, \code{school_type}, \code{school_name},
   \code{level_code}, \code{addr_clean}, \code{addr_clean_no_unit},
   \code{county_geo}, \code{zip_geo}, \code{county_geo_std},
-  \code{county_gs}, \code{county_gs_std}, \code{data1_id}, and
+  \code{county_gs}, \code{county_gs_std}, \code{po_box}, \code{data1_id}, and
   \code{level_code_match}.
 }
 \description{

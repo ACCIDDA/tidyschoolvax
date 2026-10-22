@@ -17,7 +17,7 @@ standardize_schools(
   parallel = FALSE,
   parallel_cache = TRUE,
   api_qps = 50,
-  drop_po_box = TRUE,
+  po_box_action = c("blank", "drop", "keep"),
   elementary_only_reference = TRUE
 )
 }
@@ -61,8 +61,9 @@ When \code{TRUE} (default), chunks whose schools are all already geocoded
 Maximum Google Geocoding API queries per second used to throttle
 sequential API chunks.  Defaults to \code{50}.}
 
-\item{drop_po_box}{Logical (default \code{TRUE}). Drop GreatSchools rows
-whose street address is a PO Box; see \code{\link{clean_greatschools_data}}.}
+\item{po_box_action}{\code{"blank"} (default), \code{"drop"} or
+\code{"keep"}: how GreatSchools PO Box rows are treated; see
+\code{\link{clean_greatschools_data}}.}
 
 \item{elementary_only_reference}{Logical (default \code{TRUE}). Drop
 middle/high-only schools from the GreatSchools and DOE reference tables
