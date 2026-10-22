@@ -4,7 +4,12 @@
 \alias{clean_greatschools_data}
 \title{Clean GreatSchools school reference data}
 \usage{
-clean_greatschools_data(gs_dat, state_abbr)
+clean_greatschools_data(
+  gs_dat,
+  state_abbr,
+  drop_po_box = TRUE,
+  elementary_only = FALSE
+)
 }
 \arguments{
 \item{gs_dat}{A data frame of GreatSchools school data.  Must contain at
@@ -15,6 +20,16 @@ columns.  A \code{districtName} column is used when present to populate
 
 \item{state_abbr}{Two-letter state abbreviation (e.g., \code{"md"}) used to
 look up geocoded county information via \code{\link{get_geo_info}}.}
+
+\item{drop_po_box}{Logical (default \code{TRUE}).  GreatSchools ships some
+PO Box entries with coordinates already attached (not a school's physical
+location), which create ghost schools.  If \code{TRUE}, rows whose
+\code{street1} is a PO Box are \emph{dropped} (not set to \code{NA}:
+\code{sf::st_as_sf()} errors on missing coordinates).}
+
+\item{elementary_only}{Logical (default \code{FALSE}).  If \code{TRUE}, drop
+schools whose \code{level_code} has no elementary or pre-K level (e.g.
+\code{"m"}, \code{"h"}, \code{"m,h"}).  Unknown level codes are kept.}
 }
 \value{
 The enriched data frame with additional columns:

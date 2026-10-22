@@ -34,6 +34,16 @@
 #' @param addr_source_pref Character.  Address source to prefer as the primary
 #'   address in the output.  One of \code{"greatschools"} (default),
 #'   \code{"doe"}, \code{"third"}, or \code{"kinder"}.
+#' @param drop_po_box Logical (default \code{TRUE}). Drop GreatSchools rows
+#'   whose street address is a PO Box; see \code{\link{clean_greatschools_data}}.
+#' @param elementary_only_reference Logical (default \code{TRUE}). Drop
+#'   middle/high-only schools from the GreatSchools and DOE reference tables
+#'   before matching (see \code{\link{clean_greatschools_data}},
+#'   \code{\link{clean_doe_data}}). This stops kindergarten records from
+#'   matching same-named secondary schools. Note it also removes a real school
+#'   that a source mislabels as non-elementary; set \code{FALSE} to keep the
+#'   full reference for exact and place_id matching (fuzzy matching is always
+#'   limited to elementary-eligible schools).
 #' @param parallel Logical. If \code{TRUE}, the per-row R post-processing loop
 #'   inside every \code{\link{match_schools_names}} call is dispatched to worker
 #'   processes via \code{\link[furrr:future_map]{furrr::future_map()}}. The
@@ -82,7 +92,9 @@ standardize_schools <- function(state_id,
                                 addr_source_pref = "greatschools",
                                 parallel = FALSE,
                                 parallel_cache = TRUE,
-                                api_qps = 50) {
+                                api_qps = 50,
+                                drop_po_box = TRUE,
+                                elementary_only_reference = TRUE) {
   
   # Reviewer-facing QC directory — computed early since Google identity
   # resolution (Parts 1.5/3.5 below) writes school_renames_detected.csv here
@@ -97,10 +109,13 @@ standardize_schools <- function(state_id,
 
   greatschools_dat <- clean_greatschools_data(
     gs_dat = readRDS(file.path(greatschools_dir, "greatschools_dat.RDS")),
-    state_abbr = state_id
+    state_abbr = state_id,
+    drop_po_box = drop_po_box,
+    elementary_only = elementary_only_reference
   )
 
-  doe_dat <- clean_doe_data(readRDS(file.path(doe_dir, "doe_dat.rds")))
+  doe_dat <- clean_doe_data(readRDS(file.path(doe_dir, "doe_dat.rds")),
+                            elementary_only = elementary_only_reference)
 
   other_dat <- setup_other_sourcedata(
     other_dat_filenames = c("other_dat.csv", "other_dat.xlsx"),

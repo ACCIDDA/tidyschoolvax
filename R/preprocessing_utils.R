@@ -1250,6 +1250,49 @@ clean_kinder_data <- function(kinder_dat) {
 
 
 
+#' Detect PO Box street addresses
+#'
+#' @param x Character vector of street addresses.
+#' @return Logical vector; \code{TRUE} where \code{x} is a PO Box address
+#'   (\code{"PO Box"}, \code{"P.O. Box"}, \code{"POBOX"}, \code{"Post Office Box"},
+#'   any case).  \code{NA} addresses give \code{FALSE}.
+#' @keywords internal
+.is_po_box <- function(x) {
+  x <- dplyr::coalesce(as.character(x), "")
+  stringr::str_detect(
+    x, "(?i)\\bP\\.?\\s*O\\.?\\s*BOX\\b|\\bPOBOX\\b|\\bPOST\\s+OFFICE\\s+BOX\\b"
+  )
+}
+
+#' Is a level code elementary-eligible?
+#'
+#' @param level_code Character vector of level codes (e.g. \code{"e"},
+#'   \code{"p,e"}, \code{"m,h"}).
+#' @return Logical vector; \code{TRUE} when the code contains \code{"e"} or
+#'   \code{"p"}, or is \code{NA} (unknown grade span is kept, never dropped).
+#' @keywords internal
+.is_elementary_eligible <- function(level_code) {
+  is.na(level_code) | grepl("[ep]", level_code)
+}
+
+#' Drop non-elementary rows from a reference school table
+#'
+#' Removes rows whose \code{level_code} marks a school with no elementary or
+#' pre-K grades (middle/high only).  Rows with an \code{NA} level code are kept.
+#'
+#' @param df Reference data frame with a \code{level_code} column.
+#' @param source_label Label used in the message (e.g. \code{"GreatSchools"}).
+#' @return \code{df} without the non-elementary rows.
+#' @keywords internal
+.drop_non_elementary <- function(df, source_label) {
+  keep <- .is_elementary_eligible(df$level_code)
+  if (any(!keep)) {
+    message(sprintf("%s: dropped %d non-elementary school(s) (no 'e'/'p' in level_code).",
+                    source_label, sum(!keep)))
+  }
+  df[keep, , drop = FALSE]
+}
+
 #' Clean DOE (Department of Education) school reference data
 #'
 #' Applies standardization steps to a DOE school data frame: lowercases all
@@ -1263,6 +1306,9 @@ clean_kinder_data <- function(kinder_dat) {
 #'   columns.  A \code{district} column is used when present to create
 #'   \code{district_std}; if absent, \code{district_std} is set to
 #'   \code{NA_character_}.
+#' @param elementary_only Logical (default \code{FALSE}).  If \code{TRUE}, drop
+#'   schools whose derived \code{level_code} has no elementary or pre-K grades
+#'   (e.g. grades 6-12).  Schools with an unknown grade span are kept.
 #'
 #' @return The enriched data frame with additional columns:
 #'   \code{school_name_std}, \code{county_std}, \code{district_std},
@@ -1271,7 +1317,7 @@ clean_kinder_data <- function(kinder_dat) {
 #'
 #' @importFrom dplyr mutate row_number
 #' @export
-clean_doe_data <- function(doe_dat) {
+clean_doe_data <- function(doe_dat, elementary_only = FALSE) {
 
   doe_dat <- doe_dat %>%
     .standardize_school_source(
@@ -1283,6 +1329,10 @@ clean_doe_data <- function(doe_dat) {
       addr_clean         = clean_address(street, target_case = "lower"),
       addr_clean_no_unit = clean_address(street, keep_units = FALSE, keep_directionals = FALSE, target_case = "lower")
     )
+
+  if (isTRUE(elementary_only)) {
+    doe_dat <- .drop_non_elementary(doe_dat, "DOE")
+  }
 
   doe_dat <- doe_dat %>%
     dplyr::mutate(data2_id = dplyr::row_number())
@@ -1316,6 +1366,14 @@ clean_doe_data <- function(doe_dat) {
 #'   \code{district} and \code{district_std}.
 #' @param state_abbr Two-letter state abbreviation (e.g., \code{"md"}) used to
 #'   look up geocoded county information via \code{\link{get_geo_info}}.
+#' @param drop_po_box Logical (default \code{TRUE}).  GreatSchools ships some
+#'   PO Box entries with coordinates already attached (not a school's physical
+#'   location), which create ghost schools.  If \code{TRUE}, rows whose
+#'   \code{street1} is a PO Box are \emph{dropped} (not set to \code{NA}:
+#'   \code{sf::st_as_sf()} errors on missing coordinates).
+#' @param elementary_only Logical (default \code{FALSE}).  If \code{TRUE}, drop
+#'   schools whose \code{level_code} has no elementary or pre-K level (e.g.
+#'   \code{"m"}, \code{"h"}, \code{"m,h"}).  Unknown level codes are kept.
 #'
 #' @return The enriched data frame with additional columns:
 #'   \code{school_name_std}, \code{county_std}, \code{county2_std},
@@ -1328,10 +1386,21 @@ clean_doe_data <- function(doe_dat) {
 #'
 #' @importFrom dplyr mutate rename row_number bind_cols select
 #' @export
-clean_greatschools_data <- function(gs_dat, state_abbr) {
+clean_greatschools_data <- function(gs_dat, state_abbr,
+                                    drop_po_box = TRUE,
+                                    elementary_only = FALSE) {
 
   if (!is.character(state_abbr) || length(state_abbr) != 1L || is.na(state_abbr) || !grepl("^[A-Za-z]{2}$", state_abbr)) {
     stop("'state_abbr' must be a single two-letter state abbreviation (e.g., \"md\").", call. = FALSE)
+  }
+
+  # Drop PO Box rows up front (before geocoding/ID assignment).
+  if (isTRUE(drop_po_box) && "street1" %in% colnames(gs_dat)) {
+    is_po <- .is_po_box(gs_dat$street1)
+    if (any(is_po)) {
+      message(sprintf("GreatSchools: dropped %d PO Box row(s).", sum(is_po)))
+      gs_dat <- gs_dat[!is_po, , drop = FALSE]
+    }
   }
 
   gs_dat <- gs_dat %>%
@@ -1349,6 +1418,10 @@ clean_greatschools_data <- function(gs_dat, state_abbr) {
       level_code  = levelCode
     ) %>%
     dplyr::mutate(zip = as.character(zip))
+
+  if (isTRUE(elementary_only)) {
+    gs_dat <- .drop_non_elementary(gs_dat, "GreatSchools")
+  }
 
   # Standardize district from districtName when available
   if ("districtName" %in% colnames(gs_dat)) {

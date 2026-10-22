@@ -161,3 +161,48 @@ test_that("standardize_district_name() returns NA for NA input", {
   result <- standardize_district_name(NA_character_)
   expect_true(is.na(result))
 })
+
+# ---- .is_po_box() ------------------------------------------------------------
+
+test_that(".is_po_box() detects PO Box variants and ignores street addresses", {
+  x <- c("PO Box 123", "P.O. Box 9", "p o box 5", "POBOX 7", "Post Office Box 4",
+         "123 Main St", "1 Boxwood Ln", NA, "")
+  expect_equal(.is_po_box(x),
+               c(TRUE, TRUE, TRUE, TRUE, TRUE, FALSE, FALSE, FALSE, FALSE))
+})
+
+# ---- .is_elementary_eligible() / .drop_non_elementary() ---------------------
+
+test_that(".is_elementary_eligible() keeps e/p codes and NA, drops m/h only", {
+  expect_equal(
+    .is_elementary_eligible(c("e", "p,e", "p", "e,m", "m", "h", "m,h", NA)),
+    c(TRUE, TRUE, TRUE, TRUE, FALSE, FALSE, FALSE, TRUE)
+  )
+})
+
+test_that(".drop_non_elementary() drops secondary-only rows and messages", {
+  df <- data.frame(id = 1:4, level_code = c("e", "m,h", NA, "h"),
+                   stringsAsFactors = FALSE)
+  expect_message(out <- .drop_non_elementary(df, "TEST"), "dropped 2")
+  expect_equal(out$id, c(1L, 3L))
+  expect_silent(.drop_non_elementary(df[c(1, 3), ], "TEST"))
+})
+
+# ---- clean_doe_data(elementary_only) -----------------------------------------
+
+test_that("clean_doe_data() drops secondary-only schools only when asked", {
+  doe <- data.frame(
+    school_name = c("Poolesville Elementary School", "Poolesville High School",
+                    "Mystery School"),
+    county = "Montgomery County",
+    grades = c("PK-5", "9-12", NA),
+    street = c("1 A St", "2 B St", "3 C St"),
+    stringsAsFactors = FALSE
+  )
+  all_rows <- clean_doe_data(doe)
+  expect_equal(nrow(all_rows), 3L)
+  elem <- suppressMessages(clean_doe_data(doe, elementary_only = TRUE))
+  expect_equal(nrow(elem), 2L)
+  expect_false(any(grepl("high", elem$school_name)))
+  expect_equal(elem$data2_id, 1:2)  # ids assigned after filtering
+})

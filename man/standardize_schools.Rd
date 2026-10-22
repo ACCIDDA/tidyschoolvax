@@ -16,7 +16,9 @@ standardize_schools(
   addr_source_pref = "greatschools",
   parallel = FALSE,
   parallel_cache = TRUE,
-  api_qps = 50
+  api_qps = 50,
+  drop_po_box = TRUE,
+  elementary_only_reference = TRUE
 )
 }
 \arguments{
@@ -58,6 +60,18 @@ When \code{TRUE} (default), chunks whose schools are all already geocoded
 \item{api_qps}{Positive numeric. Passed to \code{\link{run_full_geocoding}}.
 Maximum Google Geocoding API queries per second used to throttle
 sequential API chunks.  Defaults to \code{50}.}
+
+\item{drop_po_box}{Logical (default \code{TRUE}). Drop GreatSchools rows
+whose street address is a PO Box; see \code{\link{clean_greatschools_data}}.}
+
+\item{elementary_only_reference}{Logical (default \code{TRUE}). Drop
+middle/high-only schools from the GreatSchools and DOE reference tables
+before matching (see \code{\link{clean_greatschools_data}},
+\code{\link{clean_doe_data}}). This stops kindergarten records from
+matching same-named secondary schools. Note it also removes a real school
+that a source mislabels as non-elementary; set \code{FALSE} to keep the
+full reference for exact and place_id matching (fuzzy matching is always
+limited to elementary-eligible schools).}
 }
 \value{
 The final cleaned \code{data.frame} (invisibly).  The same object is
