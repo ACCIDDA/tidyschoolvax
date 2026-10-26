@@ -896,9 +896,18 @@ get_business_status <- function(place_id, google_api_key) {
 #' Look up school operational status via Google Places, with caching
 #'
 #' Merges any previously saved status cache, then uses
-#' \code{furrr::future_map} to call the Google Places API in parallel for all
-#' schools that still need a status.  Results are saved to
-#' \code{file.path(geo_dir, "status_cache.rds")} before returning.
+#' \code{furrr::future_map} to call the Google Places API in parallel, once
+#' per unique \code{place_id}, for every place that has not yet been resolved.
+#' A place is resolved once a lookup returned \code{"success"} (even when
+#' Google reports no \code{business_status}, e.g. a street address rather
+#' than a business) or \code{"not_available"}; only never-tried places and
+#' \code{"transient_error"} failures are queried again.
+#'
+#' The cache at \code{file.path(geo_dir, "status_cache.rds")} is one row per
+#' \code{place_id} and is merged (upserted) on every call rather than
+#' overwritten, so callers passing different sets of places (e.g.
+#' \code{\link{add_google_name_variants}} and the final enrichment step in
+#' \code{\link{standardize_schools}}) don't evict each other's results.
 #'
 #' @param df A data frame containing at least a \code{place_id} column.
 #' @param geo_dir Character scalar.  Path to the directory used for
@@ -909,96 +918,119 @@ get_business_status <- function(place_id, google_api_key) {
 #' @return The input data frame with additional columns \code{business_status},
 #'   \code{google_place_name} (Google's current name for the place — the
 #'   signal used elsewhere in the package to detect school renames),
-#'   \code{status_reason}, and \code{business_source}.  The result is also
-#'   written to \code{file.path(geo_dir, "status_cache.rds")}.
+#'   \code{status_reason}, and \code{business_source}.  Newly looked-up places
+#'   are merged into \code{file.path(geo_dir, "status_cache.rds")}.
 #'
 #' @importFrom furrr future_map
 #' @export
 run_school_status_with_cache <- function(df, geo_dir, google_api_key) {
   status_path <- .geocoding_cache_paths(geo_dir)[["status"]]
+  status_cols <- c("business_status", "google_place_name", "status_reason", "business_source")
   df <- df %>% dplyr::mutate(orig_sort_id = dplyr::row_number())
 
-  # ── Merge from cache if it exists ──────────────────────────────────────────
-  if (file.exists(status_path)) {
-    status_cache <- readRDS(status_path)
+  # ── Merge from cache ───────────────────────────────────────────────────────
+  status_cache <- .read_status_cache(status_path)
+  df <- df %>%
+    dplyr::select(-dplyr::any_of(status_cols)) %>%
+    dplyr::left_join(status_cache, by = "place_id")
 
-    if ("business_status" %in% names(status_cache) &&
-        "place_id"        %in% names(status_cache)) {
+  # ── Look up each unresolved place_id once ──────────────────────────────────
+  # "success" and "not_available" are final answers from Google -- a success
+  # with no business_status just means the place_id isn't a business (e.g. a
+  # street address) and re-asking will return the same thing every run.
+  has_id   <- !is.na(df$place_id) & df$place_id != ""
+  resolved <- df$status_reason %in% .status_resolved_reasons
+  ids_to_search <- unique(df$place_id[has_id & !resolved])
 
-      status_cache <- status_cache %>%
-        dplyr::select(place_id, business_status,
-                      dplyr::any_of(c("google_place_name", "status_reason", "business_source"))) %>%
-        dplyr::filter(!is.na(place_id)) %>%
-        dplyr::distinct(place_id, .keep_all = TRUE)
+  message(sprintf(
+    "Place status: %d place_id(s) resolved from cache, %d to look up via Google.",
+    dplyr::n_distinct(df$place_id[has_id & resolved]), length(ids_to_search)
+  ))
 
-      # Handle older cache files missing status_reason
-      if (!"status_reason" %in% names(status_cache)) {
-        status_cache$status_reason <- NA_character_
-      }
-
-      # Handle older cache files missing google_place_name
-      if (!"google_place_name" %in% names(status_cache)) {
-        status_cache$google_place_name <- NA_character_
-      }
-
-      # Handle older cache files missing business_source
-      if (!"business_source" %in% names(status_cache)) {
-        status_cache$business_source <- "cache"
-      } else {
-        status_cache$business_source <- dplyr::coalesce(status_cache$business_source, "cache")
-      }
-
-      df <- df %>%
-        dplyr::select(-dplyr::any_of(c("business_status", "google_place_name",
-                                       "status_reason", "business_source"))) %>%
-        dplyr::left_join(status_cache, by = "place_id")
-    } else {
-      message("Cache file found but missing required columns — skipping cache merge.")
-    }
-  }
-
-  # ── Ensure columns exist before any filtering ──────────────────────────────
-  if (!"business_status"    %in% names(df)) df$business_status    <- NA_character_
-  if (!"google_place_name"  %in% names(df)) df$google_place_name  <- NA_character_
-  if (!"status_reason"      %in% names(df)) df$status_reason      <- NA_character_
-  if (!"business_source"    %in% names(df)) df$business_source    <- NA_character_
-
-  # ── Partition ──────────────────────────────────────────────────────────────
-  # A row still needs a lookup if either business_status or google_place_name
-  # is missing (the latter matters even when status is already known, since
-  # it's the signal that feeds rename detection).
-  needs_lookup <- is.na(df$business_status) | is.na(df$google_place_name)
-  already_done <- df[!needs_lookup, ]
-  no_id        <- df[needs_lookup & (is.na(df$place_id) | df$place_id == ""), ] %>%
-    dplyr::mutate(status_reason   = "missing_place_id",
-                  business_source = NA_character_)
-  to_search    <- df[needs_lookup & !is.na(df$place_id) & df$place_id != "", ]
-
-  if (nrow(to_search) > 0) {
+  if (length(ids_to_search) > 0) {
     search_list <- furrr::future_map(
-      to_search$place_id,
+      ids_to_search,
       ~get_place_details(.x, google_api_key),
       .progress = TRUE
     )
-    results_df <- dplyr::bind_rows(lapply(search_list, tibble::as_tibble))
-    to_search$business_status   <- dplyr::coalesce(results_df$business_status, to_search$business_status)
-    to_search$google_place_name <- dplyr::coalesce(results_df$google_place_name, to_search$google_place_name)
-    to_search$status_reason     <- results_df$status_reason
-    # Tag rows that were actually looked up — NA status means the API couldn't
-    # return anything, but the attempt was still made via Google.
-    to_search$business_source <- dplyr::if_else(
-      results_df$status_reason == "success",
-      "google",
-      NA_character_
+    results_df <- dplyr::bind_rows(lapply(search_list, tibble::as_tibble)) %>%
+      dplyr::mutate(place_id = ids_to_search)
+
+    # Keep any previously known values when this attempt came back empty.
+    prior <- status_cache %>% dplyr::filter(place_id %in% ids_to_search)
+    new_status <- results_df %>%
+      dplyr::left_join(prior, by = "place_id", suffix = c("", ".prior")) %>%
+      dplyr::mutate(
+        business_status   = dplyr::coalesce(business_status, business_status.prior),
+        google_place_name = dplyr::coalesce(google_place_name, google_place_name.prior),
+        # Tag rows that were actually answered by Google — NA status with
+        # "success" means Google has no business status for this place.
+        business_source   = dplyr::if_else(status_reason == "success", "google",
+                                           business_source)
+      ) %>%
+      dplyr::select(place_id, dplyr::all_of(status_cols))
+
+    df <- dplyr::rows_update(df, new_status, by = "place_id", unmatched = "ignore")
+
+    status_cache <- dplyr::bind_rows(
+      new_status,
+      status_cache %>% dplyr::filter(!place_id %in% ids_to_search)
     )
+    saveRDS(status_cache, status_path)
   }
 
-  final_df <- dplyr::bind_rows(already_done, to_search, no_id) %>%
+  df$status_reason[!has_id]   <- "missing_place_id"
+  df$business_source[!has_id] <- NA_character_
+
+  df %>%
     dplyr::arrange(orig_sort_id) %>%
     dplyr::select(-orig_sort_id)
+}
 
-  saveRDS(final_df, status_path)
-  return(final_df)
+# Status lookup outcomes that are final answers from Google and are never
+# re-queried by run_school_status_with_cache().
+.status_resolved_reasons <- c("success", "not_available")
+
+# Internal: read status_cache.rds as one row per place_id with the four
+# status columns. Accepts both the current place_id-keyed format and older
+# caches that saved the whole per-school data frame.
+.read_status_cache <- function(status_path) {
+  empty <- tibble::tibble(
+    place_id          = character(),
+    business_status   = character(),
+    google_place_name = character(),
+    status_reason     = character(),
+    business_source   = character()
+  )
+  if (!file.exists(status_path)) return(empty)
+
+  status_cache <- readRDS(status_path)
+  if (!all(c("place_id", "business_status") %in% names(status_cache))) {
+    message("Cache file found but missing required columns — skipping cache merge.")
+    return(empty)
+  }
+
+  # Caches written before google_place_name or status_reason existed get
+  # status_reason = NA, so each place is re-queried once to fill them in.
+  if (!"google_place_name" %in% names(status_cache) ||
+      !"status_reason" %in% names(status_cache)) {
+    status_cache$status_reason <- NA_character_
+  }
+  if (!"google_place_name" %in% names(status_cache)) {
+    status_cache$google_place_name <- NA_character_
+  }
+  if (!"business_source" %in% names(status_cache)) {
+    status_cache$business_source <- NA_character_
+  }
+
+  status_cache %>%
+    dplyr::select(place_id, business_status, google_place_name,
+                  status_reason, business_source) %>%
+    dplyr::mutate(business_source = dplyr::coalesce(business_source, "cache")) %>%
+    dplyr::filter(!is.na(place_id), place_id != "") %>%
+    # Prefer a resolved row when an old per-school cache repeats a place_id.
+    dplyr::arrange(!status_reason %in% .status_resolved_reasons) %>%
+    dplyr::distinct(place_id, .keep_all = TRUE)
 }
 # ------------------------------------------------------------------------------
 # Re-try Retrieving operational status only for transient errors

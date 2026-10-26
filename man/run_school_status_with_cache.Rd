@@ -19,12 +19,22 @@ read from \code{Sys.getenv("GOOGLEGEO_API_KEY")}).}
 The input data frame with additional columns \code{business_status},
   \code{google_place_name} (Google's current name for the place — the
   signal used elsewhere in the package to detect school renames),
-  \code{status_reason}, and \code{business_source}.  The result is also
-  written to \code{file.path(geo_dir, "status_cache.rds")}.
+  \code{status_reason}, and \code{business_source}.  Newly looked-up places
+  are merged into \code{file.path(geo_dir, "status_cache.rds")}.
 }
 \description{
 Merges any previously saved status cache, then uses
-\code{furrr::future_map} to call the Google Places API in parallel for all
-schools that still need a status.  Results are saved to
-\code{file.path(geo_dir, "status_cache.rds")} before returning.
+\code{furrr::future_map} to call the Google Places API in parallel, once
+per unique \code{place_id}, for every place that has not yet been resolved.
+A place is resolved once a lookup returned \code{"success"} (even when
+Google reports no \code{business_status}, e.g. a street address rather
+than a business) or \code{"not_available"}; only never-tried places and
+\code{"transient_error"} failures are queried again.
+}
+\details{
+The cache at \code{file.path(geo_dir, "status_cache.rds")} is one row per
+\code{place_id} and is merged (upserted) on every call rather than
+overwritten, so callers passing different sets of places (e.g.
+\code{\link{add_google_name_variants}} and the final enrichment step in
+\code{\link{standardize_schools}}) don't evict each other's results.
 }
