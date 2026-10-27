@@ -161,3 +161,104 @@ test_that("standardize_district_name() returns NA for NA input", {
   result <- standardize_district_name(NA_character_)
   expect_true(is.na(result))
 })
+
+# ---- .is_po_box() ------------------------------------------------------------
+
+test_that(".is_po_box() detects PO Box variants and ignores street addresses", {
+  x <- c("PO Box 123", "P.O. Box 9", "p o box 5", "POBOX 7", "Post Office Box 4",
+         "123 Main St", "1 Boxwood Ln", NA, "")
+  expect_equal(.is_po_box(x),
+               c(TRUE, TRUE, TRUE, TRUE, TRUE, FALSE, FALSE, FALSE, FALSE))
+})
+
+# ---- .is_elementary_eligible() / .drop_non_elementary() ---------------------
+
+test_that(".is_elementary_eligible() keeps e/p codes and NA, drops m/h only", {
+  expect_equal(
+    .is_elementary_eligible(c("e", "p,e", "p", "e,m", "m", "h", "m,h", NA)),
+    c(TRUE, TRUE, TRUE, TRUE, FALSE, FALSE, FALSE, TRUE)
+  )
+})
+
+test_that(".drop_non_elementary() drops secondary-only rows and messages", {
+  df <- data.frame(id = 1:4, level_code = c("e", "m,h", NA, "h"),
+                   stringsAsFactors = FALSE)
+  expect_message(out <- .drop_non_elementary(df, "TEST"), "dropped 2")
+  expect_equal(out$id, c(1L, 3L))
+  expect_silent(.drop_non_elementary(df[c(1, 3), ], "TEST"))
+})
+
+# ---- clean_doe_data(elementary_only) -----------------------------------------
+
+test_that("clean_doe_data() drops secondary-only schools only when asked", {
+  doe <- data.frame(
+    school_name = c("Poolesville Elementary School", "Poolesville High School",
+                    "Mystery School"),
+    county = "Montgomery County",
+    grades = c("PK-5", "9-12", NA),
+    street = c("1 A St", "2 B St", "3 C St"),
+    school_type = "public",
+    stringsAsFactors = FALSE
+  )
+  all_rows <- clean_doe_data(doe)
+  expect_equal(nrow(all_rows), 3L)
+  elem <- suppressMessages(clean_doe_data(doe, elementary_only = TRUE))
+  expect_equal(nrow(elem), 2L)
+  expect_false(any(grepl("high", elem$school_name)))
+  expect_equal(elem$data2_id, 1:2)  # ids assigned after filtering
+})
+
+# ---- clean_greatschools_data(po_box_action) ----------------------------------
+
+.fake_gs <- function() {
+  data.frame(
+    name = c("Real Elementary", "Post Office Elementary", "Other School"),
+    county = "Howard County", county2 = NA_character_,
+    schoolType = "public", levelCode = "e",
+    street1 = c("10 Main St", "PO Box 55", "P.O. Box 7"),
+    lat = c(39.2, 39.3, 39.4), lon = c(-76.8, -76.7, -76.6),
+    zip = "21044", stringsAsFactors = FALSE
+  )
+}
+
+# Stand-in for get_geo_info(): no network/tigris needed; errors on NA coords
+# like the real one (sf::st_as_sf) so the tests prove NA rows never reach it.
+.fake_geo <- function(state_abbr, lat, lon, ...) {
+  stopifnot(!anyNA(lat), !anyNA(lon))
+  dplyr::tibble(latitude = lat, longitude = lon,
+                county = rep("Howard County", length(lat)),
+                state_abbr = "MD", zip_code = rep("21044", length(lat)))
+}
+
+test_that("clean_greatschools_data() blanks PO Box rows by default but keeps them", {
+  testthat::local_mocked_bindings(get_geo_info = .fake_geo)
+  out <- suppressMessages(clean_greatschools_data(.fake_gs(), "md"))
+  expect_equal(nrow(out), 3L)
+  expect_equal(out$po_box, c(FALSE, TRUE, TRUE))
+  expect_true(all(is.na(out$lat[out$po_box])))
+  expect_true(all(is.na(out$lon[out$po_box])))
+  expect_true(all(is.na(out$addr_clean[out$po_box])))
+  expect_false(is.na(out$addr_clean[1]))
+  expect_false(is.na(out$lat[1]))
+  # PO Box rows fall back to the GreatSchools county
+  expect_false(anyNA(out$county_std))
+  expect_equal(out$data1_id, 1:3)
+})
+
+test_that("clean_greatschools_data(po_box_action = 'drop') removes PO Box rows", {
+  testthat::local_mocked_bindings(get_geo_info = .fake_geo)
+  out <- suppressMessages(clean_greatschools_data(.fake_gs(), "md", po_box_action = "drop"))
+  expect_equal(nrow(out), 1L)
+  expect_false(any(out$po_box))
+})
+
+test_that("clean_greatschools_data(po_box_action = 'keep') leaves PO Box rows alone", {
+  testthat::local_mocked_bindings(get_geo_info = .fake_geo)
+  out <- suppressMessages(clean_greatschools_data(.fake_gs(), "md", po_box_action = "keep"))
+  expect_equal(nrow(out), 3L)
+  expect_false(anyNA(out$lat))
+})
+
+test_that("clean_greatschools_data() rejects an unknown po_box_action", {
+  expect_error(clean_greatschools_data(.fake_gs(), "md", po_box_action = "nope"))
+})
