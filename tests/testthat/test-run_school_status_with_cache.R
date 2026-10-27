@@ -93,6 +93,34 @@ test_that("transient errors are retried and keep previously known values", {
   expect_equal(out$status_reason, c("transient_error", "not_available"))
 })
 
+test_that("failed lookups preserve enriched input for duplicate place_ids without a cache", {
+  dir <- local_status_env()
+  mock <- mock_place_details()
+  local_mocked_bindings(get_place_details = mock$fn)
+
+  df <- data.frame(
+    school_id = 1:2,
+    place_id = c("A", "A"),
+    business_status = c("OPERATIONAL", "OPERATIONAL"),
+    google_place_name = c("Known School", "Known School"),
+    status_reason = c("transient_error", "transient_error"),
+    business_source = c("google", "google")
+  )
+
+  out <- run_status(df, dir)
+
+  expect_equal(mock$calls(), "A")
+  expect_equal(nrow(out), 2)
+  expect_equal(out$school_id, 1:2)
+  expect_equal(out$business_status, df$business_status)
+  expect_equal(out$google_place_name, df$google_place_name)
+  expect_equal(out$status_reason, df$status_reason)
+  expect_equal(out$business_source, df$business_source)
+  cache <- readRDS(file.path(dir, "status_cache.rds"))
+  expect_equal(cache$business_status, "OPERATIONAL")
+  expect_equal(cache$google_place_name, "Known School")
+})
+
 test_that("an old per-school cache is read, and pre-name caches are refreshed once", {
   dir <- local_status_env()
   # Old format: one row per school, repeated place_ids, no google_place_name.

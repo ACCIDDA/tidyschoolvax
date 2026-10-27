@@ -930,9 +930,16 @@ run_school_status_with_cache <- function(df, geo_dir, google_api_key) {
 
   # ── Merge from cache ───────────────────────────────────────────────────────
   status_cache <- .read_status_cache(status_path)
-  df <- df %>%
-    dplyr::select(-dplyr::any_of(status_cols)) %>%
-    dplyr::left_join(status_cache, by = "place_id")
+  for (col in status_cols) {
+    if (!col %in% names(df)) df[[col]] <- NA_character_
+  }
+  cache_for_join <- status_cache %>%
+    dplyr::rename_with(~ paste0(.x, ".cache"), dplyr::all_of(status_cols))
+  df <- dplyr::left_join(df, cache_for_join, by = "place_id")
+  for (col in status_cols) {
+    df[[col]] <- dplyr::coalesce(df[[paste0(col, ".cache")]], df[[col]])
+  }
+  df <- df %>% dplyr::select(-dplyr::all_of(paste0(status_cols, ".cache")))
 
   # ── Look up each unresolved place_id once ──────────────────────────────────
   # "success" and "not_available" are final answers from Google -- a success
@@ -957,12 +964,23 @@ run_school_status_with_cache <- function(df, geo_dir, google_api_key) {
       dplyr::mutate(place_id = ids_to_search)
 
     # Keep any previously known values when this attempt came back empty.
-    prior <- status_cache %>% dplyr::filter(place_id %in% ids_to_search)
+    prior <- df %>%
+      dplyr::filter(place_id %in% ids_to_search) %>%
+      dplyr::select(place_id, dplyr::all_of(status_cols)) %>%
+      dplyr::group_by(place_id) %>%
+      dplyr::summarise(
+        dplyr::across(dplyr::all_of(status_cols), ~ {
+          values <- .x[!is.na(.x)]
+          if (length(values)) values[[1]] else .x[[1]]
+        }),
+        .groups = "drop"
+      )
     new_status <- results_df %>%
       dplyr::left_join(prior, by = "place_id", suffix = c("", ".prior")) %>%
       dplyr::mutate(
         business_status   = dplyr::coalesce(business_status, business_status.prior),
         google_place_name = dplyr::coalesce(google_place_name, google_place_name.prior),
+        status_reason     = dplyr::coalesce(status_reason, status_reason.prior),
         # Tag rows that were actually answered by Google — NA status with
         # "success" means Google has no business status for this place.
         business_source   = dplyr::if_else(status_reason == "success", "google",
@@ -970,7 +988,14 @@ run_school_status_with_cache <- function(df, geo_dir, google_api_key) {
       ) %>%
       dplyr::select(place_id, dplyr::all_of(status_cols))
 
-    df <- dplyr::rows_update(df, new_status, by = "place_id", unmatched = "ignore")
+    update_idx <- match(df$place_id, new_status$place_id)
+    matched <- !is.na(update_idx)
+    for (col in status_cols) {
+      df[[col]][matched] <- dplyr::coalesce(
+        new_status[[col]][update_idx[matched]],
+        df[[col]][matched]
+      )
+    }
 
     status_cache <- dplyr::bind_rows(
       new_status,
