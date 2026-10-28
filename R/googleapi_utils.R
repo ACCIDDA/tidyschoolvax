@@ -311,6 +311,27 @@ load_and_merge_cache <- function(unique_schools, save_path) {
 # STEP 2: Geocode schools WITH valid address but missing coords or place_id
 # ------------------------------------------------------------------------------
 
+#' Silence tibble "New names:" repair messages from geocoder full results
+#'
+#' \code{tidygeocoder::geocode(full_results = TRUE)} returns many duplicated
+#' nested column names that tibble repairs with a long \code{"New names:"}
+#' message. The repaired names (\code{...N} suffixes) are consumed by
+#' \code{consolidate_api_cols()}, so only the message is muffled; other
+#' messages and warnings pass through.
+#'
+#' @param expr Expression to evaluate.
+#' @return The value of \code{expr}.
+#' @keywords internal
+#' @noRd
+.quiet_name_repair <- function(expr) {
+  withCallingHandlers(
+    expr,
+    message = function(m) {
+      if (grepl("^New names:", conditionMessage(m))) invokeRestart("muffleMessage")
+    }
+  )
+}
+
 #' Geocode a chunk of schools that have a valid street address
 #'
 #' Filters the input chunk to rows that have a street address (starts with a
@@ -340,7 +361,7 @@ geocode_chunk_step2 <- function(chunk_df, google_api_key) {
   Sys.setenv(GOOGLEGEOCODE_API_KEY = google_api_key)
   
   # Build search query: school_name, addr_clean, city, state, zip
-  geocoded <- to_geocode %>%
+  geocoded <- .quiet_name_repair(to_geocode %>%
     dplyr::mutate(
       query = stringr::str_squish(paste(
         dplyr::coalesce(school_name, ""),
@@ -356,7 +377,7 @@ geocode_chunk_step2 <- function(chunk_df, google_api_key) {
       lat = lat_temp,
       long = lon_temp,
       full_results = TRUE
-    )
+    ))
   
   # Consolidate duplicate API columns (place_id...33, formatted_address...34, etc.)
   geocoded <- consolidate_api_cols(geocoded, "place_id")
@@ -416,7 +437,7 @@ geocode_chunk_step3 <- function(chunk_df, google_api_key) {
   Sys.setenv(GOOGLEGEOCODE_API_KEY = google_api_key)
   
   # Build search query: school_name, county_std, state, zip
-  geocoded <- to_geocode %>%
+  geocoded <- .quiet_name_repair(to_geocode %>%
     dplyr::mutate(
       query = stringr::str_squish(paste(
         dplyr::coalesce(school_name, ""),
@@ -431,7 +452,7 @@ geocode_chunk_step3 <- function(chunk_df, google_api_key) {
       lat = lat_temp,
       long = lon_temp,
       full_results = TRUE
-    )
+    ))
   
   # Consolidate duplicate API columns (place_id...33, formatted_address...34, etc.)
   geocoded <- consolidate_api_cols(geocoded, "place_id")

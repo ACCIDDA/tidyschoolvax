@@ -1235,7 +1235,7 @@ clean_kinder_data <- function(kinder_dat) {
         ),
         city_kinder = if ("city" %in% colnames(kinder_dat)) .data$city else NA_character_,
         zip_kinder  = if (any(grepl("zip", colnames(kinder_dat), ignore.case = TRUE))) {
-          as.character(.data[[which(grepl("zip", colnames(kinder_dat), ignore.case = TRUE))[1]]])
+          as.character(.data[[colnames(kinder_dat)[grepl("zip", colnames(kinder_dat), ignore.case = TRUE)][1]]])
         } else {
           NA_character_
         }
