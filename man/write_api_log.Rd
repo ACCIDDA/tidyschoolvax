@@ -18,8 +18,9 @@ write_api_log(log_dir, status = "completed", prices = google_api_prices())
 Invisibly, the path of the dated per-run log file.
 }
 \description{
-Writes a dated CSV, \code{google_api_calls_<state>_<YYYY-MM-DD_HHMMSS>.csv},
-with one row per API and calling function, and appends a one-row-per-API
+Writes a dated CSV, \code{google_api_calls_<state>_<run_id>.csv}, where the
+run ID includes the start time and a collision-resistant identifier, with one
+row per API and calling function, and appends a one-row-per-API
 summary to \code{google_api_calls_all_runs.csv} in the same directory.
 The running history is used to estimate this run's cost after the monthly
 free allowance, counting only runs logged in \code{log_dir}; other usage on

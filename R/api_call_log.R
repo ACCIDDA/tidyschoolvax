@@ -50,9 +50,11 @@ google_api_prices <- function() {
 #' @export
 start_api_log <- function(state = NA_character_, state_dir = NA_character_) {
   sys <- Sys.info()
+  started_at <- Sys.time()
   .api_log$run <- list(
-    run_id          = format(Sys.time(), "%Y-%m-%d_%H%M%S"),
-    started_at      = format(Sys.time(), "%Y-%m-%d %H:%M:%S %Z"),
+    run_id          = paste(format(started_at, "%Y-%m-%d_%H%M%S"),
+                            Sys.getpid(), basename(tempfile("api_run_")), sep = "_"),
+    started_at      = format(started_at, "%Y-%m-%d %H:%M:%S %Z"),
     state           = tolower(state),
     state_dir       = state_dir,
     host            = unname(sys[["nodename"]]),
@@ -130,7 +132,8 @@ api_log_summary <- function(by_caller = FALSE, prices = google_api_prices()) {
 
 #' Write the Google API call log for this run
 #'
-#' Writes a dated CSV, \code{google_api_calls_<state>_<YYYY-MM-DD_HHMMSS>.csv},
+#' Writes a dated CSV, \code{google_api_calls_<state>_<run_id>.csv}, where the
+#' run ID includes the start time and a collision-resistant identifier,
 #' with one row per API and calling function, and appends a one-row-per-API
 #' summary to \code{google_api_calls_all_runs.csv} in the same directory.
 #' The running history is used to estimate this run's cost after the monthly

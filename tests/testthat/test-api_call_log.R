@@ -48,24 +48,28 @@ test_that("write_api_log writes a dated run file and a running history", {
   .log_api_calls("place_details_pro", "run_school_status_with_cache", 80, 80)
   run1 <- suppressMessages(write_api_log(dir, prices = test_prices()))
 
-  expect_match(basename(run1), "^google_api_calls_md_\\d{4}-\\d{2}-\\d{2}_\\d{6}\\.csv$")
+  expect_match(basename(run1), "^google_api_calls_md_\\d{4}-\\d{2}-\\d{2}_\\d{6}_\\d+_api_run_.+\\.csv$")
   detail <- utils::read.csv(run1)
   expect_equal(detail$requests, 80)
   expect_equal(detail$state, "md")
   expect_equal(detail$status, "completed")
 
-  # Second run crosses the 100-call free allowance: 50 of its 70 are billable.
-  Sys.sleep(1)  # distinct run_id
-  start_api_log(state = "ca")
+  # A same-state run started immediately has a distinct file and ID.
+  run1_id <- .api_log$run$run_id
+  start_api_log(state = "md")
+  expect_false(identical(.api_log$run$run_id, run1_id))
   .log_api_calls("place_details_pro", "run_school_status_with_cache", 70, 70)
-  suppressMessages(write_api_log(dir, status = "error", prices = test_prices()))
+  run2 <- suppressMessages(write_api_log(dir, status = "error", prices = test_prices()))
+  expect_false(identical(run1, run2))
+  expect_equal(utils::read.csv(run1)$requests, 80)
+  expect_equal(utils::read.csv(run2)$requests, 70)
 
   history <- utils::read.csv(file.path(dir, "google_api_calls_all_runs.csv"))
   expect_equal(nrow(history), 2)
   expect_equal(history$month_to_date_requests, c(80, 150))
   expect_equal(history$est_cost_after_free_usd, c(0, 0.85))
   expect_equal(history$status, c("completed", "error"))
-  expect_length(list.files(dir, "^google_api_calls_(md|ca)_"), 2)
+  expect_length(list.files(dir, "^google_api_calls_md_"), 2)
 })
 
 test_that("a run with no API calls still writes a log", {
