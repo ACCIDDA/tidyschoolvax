@@ -18,7 +18,8 @@ standardize_schools(
   parallel_cache = TRUE,
   api_qps = 50,
   po_box_action = c("blank", "drop", "keep"),
-  elementary_only_reference = TRUE
+  elementary_only_reference = TRUE,
+  api_log_dir = file.path(dirname(dirname(state_dir)), "api_logs")
 )
 }
 \arguments{
@@ -73,6 +74,13 @@ matching same-named secondary schools. Note it also removes a real school
 that a source mislabels as non-elementary; set \code{FALSE} to keep the
 full reference for exact and place_id matching (fuzzy matching is always
 limited to elementary-eligible schools).}
+
+\item{api_log_dir}{Directory for the Google API call logs written at the
+end of the run (see \code{\link{write_api_log}}), even if the run errors.
+Defaults to an \code{api_logs} folder shared by all states
+(\code{00_preprocessing/api_logs} in the \code{\link{setup_paths}}
+layout), so month-to-date totals cover every state.  \code{NULL} skips
+writing the log.}
 }
 \value{
 The final cleaned \code{data.frame} (invisibly).  The same object is

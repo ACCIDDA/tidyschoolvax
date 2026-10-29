@@ -357,11 +357,12 @@ geocode_chunk_step2 <- function(chunk_df, google_api_key) {
       long = lon_temp,
       full_results = TRUE
     )
-  
+  .log_geocoding_calls(geocoded, "geocode_chunk_step2")
+
   # Consolidate duplicate API columns (place_id...33, formatted_address...34, etc.)
   geocoded <- consolidate_api_cols(geocoded, "place_id")
   geocoded <- consolidate_api_cols(geocoded, "formatted_address")
-  
+
   geocoded <- geocoded %>%
     dplyr::mutate(
       # Use new coords only if existing ones are missing; preserve existing coords if present
@@ -432,11 +433,12 @@ geocode_chunk_step3 <- function(chunk_df, google_api_key) {
       long = lon_temp,
       full_results = TRUE
     )
-  
+  .log_geocoding_calls(geocoded, "geocode_chunk_step3")
+
   # Consolidate duplicate API columns (place_id...33, formatted_address...34, etc.)
   geocoded <- consolidate_api_cols(geocoded, "place_id")
   geocoded <- consolidate_api_cols(geocoded, "formatted_address")
-  
+
   geocoded <- geocoded %>%
     dplyr::mutate(
       lat               = dplyr::coalesce(lat_temp, lat),
@@ -871,13 +873,22 @@ get_place_details <- function(place_id, google_api_key) {
                 status_reason = "transient_error"))
   }
   
-  json <- httr::content(res, as = "parsed", simplifyVector = TRUE)
-  
-  list(
-    business_status   = if (!is.null(json$businessStatus)) json$businessStatus else NA_character_,
-    google_place_name = if (!is.null(json$displayName$text)) json$displayName$text else NA_character_,
-    status_reason     = "success"
+  parsed <- tryCatch(
+    {
+      json <- httr::content(res, as = "parsed", simplifyVector = TRUE)
+      list(
+        business_status   = if (!is.null(json$businessStatus)) json$businessStatus else NA_character_,
+        google_place_name = if (!is.null(json$displayName$text)) json$displayName$text else NA_character_,
+        status_reason     = "success"
+      )
+    },
+    error = function(e) NULL
   )
+  if (is.null(parsed)) {
+    return(list(business_status = NA_character_, google_place_name = NA_character_,
+                status_reason = "transient_error"))
+  }
+  parsed
 }
 
 #' @rdname get_place_details
@@ -962,6 +973,9 @@ run_school_status_with_cache <- function(df, geo_dir, google_api_key) {
     )
     results_df <- dplyr::bind_rows(lapply(search_list, tibble::as_tibble)) %>%
       dplyr::mutate(place_id = ids_to_search)
+    .log_api_calls("place_details_pro", "run_school_status_with_cache",
+                   n_requests  = length(ids_to_search),
+                   n_succeeded = sum(results_df$status_reason %in% .status_resolved_reasons))
 
     # Keep any previously known values when this attempt came back empty.
     prior <- df %>%
@@ -1102,6 +1116,9 @@ retry_transient_errors <- function(df,
     retry_list    <- lapply(df$place_id[retry_idx], get_place_details,
                             google_api_key = google_api_key)
     retry_results <- dplyr::bind_rows(lapply(retry_list, tibble::as_tibble))
+    .log_api_calls("place_details_pro", "retry_transient_errors",
+                   n_requests  = length(retry_idx),
+                   n_succeeded = sum(retry_results$status_reason %in% .status_resolved_reasons))
 
     df$business_status[retry_idx] <- retry_results$business_status
     if (!"google_place_name" %in% names(df)) df$google_place_name <- NA_character_
