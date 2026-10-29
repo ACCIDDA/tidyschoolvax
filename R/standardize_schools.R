@@ -60,6 +60,12 @@
 #' @param api_qps Positive numeric. Passed to \code{\link{run_full_geocoding}}.
 #'   Maximum Google Geocoding API queries per second used to throttle
 #'   sequential API chunks.  Defaults to \code{50}.
+#' @param api_log_dir Directory for the Google API call logs written at the
+#'   end of the run (see \code{\link{write_api_log}}), even if the run errors.
+#'   Defaults to an \code{api_logs} folder shared by all states
+#'   (\code{00_preprocessing/api_logs} in the \code{\link{setup_paths}}
+#'   layout), so month-to-date totals cover every state.  \code{NULL} skips
+#'   writing the log.
 #'
 #' @return The final cleaned \code{data.frame} (invisibly).  The same object is
 #'   also written to \code{temp_data_dir} as
@@ -95,8 +101,16 @@ standardize_schools <- function(state_id,
                                 parallel_cache = TRUE,
                                 api_qps = 50,
                                 po_box_action = c("blank", "drop", "keep"),
-                                elementary_only_reference = TRUE) {
-  
+                                elementary_only_reference = TRUE,
+                                api_log_dir = file.path(dirname(dirname(state_dir)), "api_logs")) {
+
+  # Count every Google API request this run sends; write the log on exit.
+  start_api_log(state = state_id, state_dir = state_dir)
+  run_status <- "error"
+  if (!is.null(api_log_dir)) {
+    on.exit(write_api_log(api_log_dir, status = run_status), add = TRUE)
+  }
+
   # Reviewer-facing QC directory — computed early since Google identity
   # resolution (Parts 1.5/3.5 below) writes school_renames_detected.csv here
   # as soon as renames are found, rather than only at the very end.
@@ -123,7 +137,7 @@ standardize_schools <- function(state_id,
     state_school_dir    = state_school_dir
   )
 
-  .run_school_matching_pipeline(
+  result <- .run_school_matching_pipeline(
     greatschools_dat = greatschools_dat, doe_dat = doe_dat, kinder_dat = kinder_dat,
     kinder_has_addr  = kinder_has_addr, other_dat = other_dat,
     state_id         = state_id, state_geo_dir = state_geo_dir,
@@ -131,6 +145,8 @@ standardize_schools <- function(state_id,
     google_api_key   = google_api_key, addr_source_pref = addr_source_pref,
     parallel         = parallel, parallel_cache = parallel_cache, api_qps = api_qps
   )
+  run_status <- "completed"
+  invisible(result)
 }
 
 
