@@ -183,6 +183,9 @@ write_api_log <- function(log_dir, status = "completed", prices = google_api_pri
 
   # Running history: month-to-date requests per API, before and after this run.
   history_file <- file.path(log_dir, "google_api_calls_all_runs.csv")
+  history_lock <- filelock::lock(file.path(log_dir, "google_api_calls_all_runs.lock"))
+  on.exit(filelock::unlock(history_lock), add = TRUE)
+
   history <- if (file.exists(history_file)) {
     utils::read.csv(history_file, stringsAsFactors = FALSE)
   } else {

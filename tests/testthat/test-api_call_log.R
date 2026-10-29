@@ -72,6 +72,23 @@ test_that("write_api_log writes a dated run file and a running history", {
   expect_length(list.files(dir, "^google_api_calls_md_"), 2)
 })
 
+test_that("concurrent runs serialize month-to-date history updates", {
+  skip_on_os("windows")
+  dir <- local_log_dir()
+
+  parallel::mclapply(c("md", "ca"), function(state) {
+    start_api_log(state = state)
+    .log_api_calls("place_details_pro", "run_school_status_with_cache", 80, 80)
+    suppressMessages(write_api_log(dir, prices = test_prices()))
+  }, mc.cores = 2)
+
+  history <- utils::read.csv(file.path(dir, "google_api_calls_all_runs.csv"))
+  expect_equal(nrow(history), 2)
+  expect_equal(sum(history$requests), 160)
+  expect_equal(max(history$month_to_date_requests), 160)
+  expect_equal(sum(history$est_cost_after_free_usd), 1.02)
+})
+
 test_that("a run with no API calls still writes a log", {
   dir <- local_log_dir()
   start_api_log(state = "md")
