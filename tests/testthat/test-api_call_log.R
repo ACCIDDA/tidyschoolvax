@@ -117,3 +117,28 @@ test_that("run_school_status_with_cache logs the lookups it sends", {
   expect_equal(s$requests, 4)
   expect_equal(s$failed, 2)
 })
+
+test_that("response parsing failures are tallied by lookup and retry callers", {
+  geo_dir <- local_log_dir()
+  dir.create(geo_dir)
+  old_plan <- future::plan(future::sequential)
+  withr::defer(future::plan(old_plan))
+  local_mocked_bindings(
+    GET = function(...) list(),
+    status_code = function(res) 200L,
+    content = function(...) stop("invalid response"),
+    .package = "httr"
+  )
+
+  start_api_log()
+  out <- suppressMessages(run_school_status_with_cache(
+    data.frame(place_id = c("A", "B")), geo_dir, "test"
+  ))
+  expect_equal(out$status_reason, c("transient_error", "transient_error"))
+
+  retry_transient_errors(out, "test", max_attempts = 1)
+
+  s <- api_log_summary()
+  expect_equal(s$requests, 4)
+  expect_equal(s$failed, 4)
+})

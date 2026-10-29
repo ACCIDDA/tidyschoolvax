@@ -873,13 +873,22 @@ get_place_details <- function(place_id, google_api_key) {
                 status_reason = "transient_error"))
   }
   
-  json <- httr::content(res, as = "parsed", simplifyVector = TRUE)
-  
-  list(
-    business_status   = if (!is.null(json$businessStatus)) json$businessStatus else NA_character_,
-    google_place_name = if (!is.null(json$displayName$text)) json$displayName$text else NA_character_,
-    status_reason     = "success"
+  parsed <- tryCatch(
+    {
+      json <- httr::content(res, as = "parsed", simplifyVector = TRUE)
+      list(
+        business_status   = if (!is.null(json$businessStatus)) json$businessStatus else NA_character_,
+        google_place_name = if (!is.null(json$displayName$text)) json$displayName$text else NA_character_,
+        status_reason     = "success"
+      )
+    },
+    error = function(e) NULL
   )
+  if (is.null(parsed)) {
+    return(list(business_status = NA_character_, google_place_name = NA_character_,
+                status_reason = "transient_error"))
+  }
+  parsed
 }
 
 #' @rdname get_place_details
