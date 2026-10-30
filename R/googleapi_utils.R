@@ -327,7 +327,11 @@ load_and_merge_cache <- function(unique_schools, save_path) {
   withCallingHandlers(
     expr,
     message = function(m) {
-      if (grepl("^New names:", conditionMessage(m))) invokeRestart("muffleMessage")
+      if (inherits(m, "rlib_message_name_repair") ||
+          grepl("New names:", conditionMessage(m), fixed = TRUE) ||
+          grepl("` -> `", conditionMessage(m), fixed = TRUE)) {
+        invokeRestart("muffleMessage")
+      }
     }
   )
 }
@@ -539,13 +543,15 @@ clean_geocoded_addresses_step3 <- function(geocoded_df) {
 #' @return The \code{chunk_df} with geocoded rows updated by both steps.
 #' @keywords internal
 process_chunk <- function(chunk_df, google_api_key) {
-  # Step 2: Geocode schools with address
-  chunk_df <- geocode_chunk_step2(chunk_df, google_api_key)
-  
-  # Step 3: Geocode schools without address
-  chunk_df <- geocode_chunk_step3(chunk_df, google_api_key)
-  
-  return(chunk_df)
+  .quiet_name_repair({
+    # Step 2: Geocode schools with address
+    chunk_df <- geocode_chunk_step2(chunk_df, google_api_key)
+
+    # Step 3: Geocode schools without address
+    chunk_df <- geocode_chunk_step3(chunk_df, google_api_key)
+
+    chunk_df
+  })
 }
 
 # Internal: canonical paths for the three geocoding cache files, single-sourced
@@ -755,7 +761,9 @@ run_full_geocoding <- function(unique_schools, geo_dir, google_api_key,
     }
     
     # Combine all chunks in original order – O(n) total
-    results <- dplyr::bind_rows(results_list[as.character(seq_along(chunks))])
+    results <- .quiet_name_repair(
+      dplyr::bind_rows(results_list[as.character(seq_along(chunks))])
+    )
     
     # All chunks processed - clean up progress file
     if (file.exists(progress_path)) {
@@ -788,8 +796,10 @@ run_full_geocoding <- function(unique_schools, geo_dir, google_api_key,
       } else {
         "school_name"
       }
-      results_to_save <- dplyr::bind_rows(results, existing_cache) %>%
-        dplyr::distinct(dplyr::across(dplyr::all_of(key_cols)), .keep_all = TRUE)
+      results_to_save <- .quiet_name_repair(
+        dplyr::bind_rows(results, existing_cache) %>%
+          dplyr::distinct(dplyr::across(dplyr::all_of(key_cols)), .keep_all = TRUE)
+      )
     }
   }
   saveRDS(results_to_save, save_path)
