@@ -171,6 +171,30 @@ test_that(".is_po_box() detects PO Box variants and ignores street addresses", {
                c(TRUE, TRUE, TRUE, TRUE, TRUE, FALSE, FALSE, FALSE, FALSE))
 })
 
+test_that(".is_po_box() also detects rural-route addresses without flagging roads", {
+  np <- c("HCR 1 Box 123", "hcr box 45", "RR 2 Box 99", "RD 1 Box 22", "R.D. #2",
+          "Rural Route 3", "Star Rte 1", "Box 45")
+  expect_true(all(.is_po_box(np)))
+  ok <- c("400 Mill Rd", "1 Box Elder Ln", "22 Orchard Rd Box 3", "55 Railroad St",
+          "100 Hcrest Ave", "RD")
+  expect_false(any(.is_po_box(ok)))
+})
+
+test_that("clean_doe_data() blanks non-physical addresses but keeps the rows", {
+  doe <- data.frame(
+    school_name = c("Rural Elementary School", "Town Elementary School"),
+    county = "Montgomery County",
+    grades = "K-5",
+    street = c("HCR 1 Box 123", "1 A St"),
+    school_type = "public",
+    stringsAsFactors = FALSE
+  )
+  expect_message(out <- clean_doe_data(doe), "non-physical")
+  expect_equal(nrow(out), 2L)
+  expect_true(is.na(out$addr_clean[1]))
+  expect_false(is.na(out$addr_clean[2]))
+})
+
 # ---- .is_elementary_eligible() / .drop_non_elementary() ---------------------
 
 test_that(".is_elementary_eligible() keeps e/p codes and NA, drops m/h only", {
