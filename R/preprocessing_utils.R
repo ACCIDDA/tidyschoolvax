@@ -1240,6 +1240,17 @@ clean_kinder_data <- function(kinder_dat) {
           NA_character_
         }
       )
+
+    # PO Box / rural-route addresses don't locate a school and can be shared by
+    # unrelated schools; blank them so they can't exact-match on address.
+    kinder_np <- .is_po_box(kinder_dat[[kinder_street_col]])
+    if (any(kinder_np)) {
+      message(sprintf(
+        "Kindergarten data: %d row(s) have a non-physical address (PO Box / rural route); address blanked.",
+        sum(kinder_np)))
+      kinder_dat$addr_clean_kinder[kinder_np]         <- NA_character_
+      kinder_dat$addr_clean_kinder_no_unit[kinder_np] <- NA_character_
+    }
   }
 
   return(list(
@@ -1250,17 +1261,30 @@ clean_kinder_data <- function(kinder_dat) {
 
 
 
-#' Detect PO Box street addresses
+#' Detect non-physical street addresses
+#'
+#' Flags street values that do not locate a building: PO Boxes and rural-route
+#' style addresses (\code{HCR}, \code{RR}, \code{RD}, \code{RFD}, rural and
+#' star routes, a bare \code{Box 12}).  Different schools can share one such
+#' string, so exact address matching on them produces false matches.
 #'
 #' @param x Character vector of street addresses.
-#' @return Logical vector; \code{TRUE} where \code{x} is a PO Box address
+#' @return Logical vector; \code{TRUE} where \code{x} is a non-physical address
 #'   (\code{"PO Box"}, \code{"P.O. Box"}, \code{"POBOX"}, \code{"Post Office Box"},
-#'   any case).  \code{NA} addresses give \code{FALSE}.
+#'   \code{"HCR 1 Box 5"}, \code{"RR 2 Box 9"}, \code{"RD 1"}, \code{"Rural Route 3"},
+#'   \code{"Star Rte 1"}, \code{"Box 45"}, any case).  \code{RR}/\code{RD}/\code{RFD}
+#'   count only at the start of the string and followed by a number, so
+#'   \code{"400 Mill Rd"} is not flagged.  \code{NA} addresses give \code{FALSE}.
 #' @keywords internal
 .is_po_box <- function(x) {
   x <- dplyr::coalesce(as.character(x), "")
   stringr::str_detect(
-    x, "(?i)\\bP\\.?\\s*O\\.?\\s*BOX\\b|\\bPOBOX\\b|\\bPOST\\s+OFFICE\\s+BOX\\b"
+    x,
+    paste0(
+      "(?i)(\\bP\\.?\\s*O\\.?\\s*BOX\\b|\\bPOBOX\\b|\\bPOST\\s+OFFICE\\s+BOX\\b|\\bHCR\\b|",
+      "^\\s*(RR|R\\.?R\\.?|RD|R\\.?D\\.?|RFD|R\\.?F\\.?D\\.?)\\s*#?\\s*\\d|",
+      "\\bRURAL\\s+(ROUTE|RTE)\\b|\\bSTAR\\s+(ROUTE|RTE)\\b|^\\s*BOX\\s*#?\\s*\\d)"
+    )
   )
 }
 
@@ -1329,6 +1353,16 @@ clean_doe_data <- function(doe_dat, elementary_only = FALSE) {
       addr_clean         = clean_address(street, target_case = "lower"),
       addr_clean_no_unit = clean_address(street, keep_units = FALSE, keep_directionals = FALSE, target_case = "lower")
     )
+
+  # Non-physical addresses (PO Box / rural route) can't locate a school: blank them.
+  doe_np <- .is_po_box(doe_dat$street)
+  if (any(doe_np)) {
+    message(sprintf(
+      "DOE data: %d row(s) have a non-physical address (PO Box / rural route); address blanked.",
+      sum(doe_np)))
+    doe_dat$addr_clean[doe_np]         <- NA_character_
+    doe_dat$addr_clean_no_unit[doe_np] <- NA_character_
+  }
 
   if (isTRUE(elementary_only)) {
     doe_dat <- .drop_non_elementary(doe_dat, "DOE")
