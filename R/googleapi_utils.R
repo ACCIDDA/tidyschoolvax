@@ -916,16 +916,24 @@ get_business_status <- function(place_id, google_api_key) {
 #'   \code{status_cache.rds}.
 #' @param google_api_key Character scalar.  Google Places API key (typically
 #'   read from \code{Sys.getenv("GOOGLEGEO_API_KEY")}).
+#' @param nces_ref Optional NCES reference from
+#'   \code{\link{load_nces_reference}}.  When supplied, place_ids that match
+#'   an NCES school with a known status (see \code{\link{match_places_to_nces}})
+#'   take their status and name from NCES (\code{status_reason = "nces"},
+#'   \code{business_source = "nces_ccd"} or \code{"nces_pss"}) and are not
+#'   sent to Google.  NCES values are not written to the Google status cache,
+#'   so dropping \code{nces_ref} later falls back to Google cleanly.
 #'
 #' @return The input data frame with additional columns \code{business_status},
-#'   \code{google_place_name} (Google's current name for the place — the
-#'   signal used elsewhere in the package to detect school renames),
-#'   \code{status_reason}, and \code{business_source}.  Newly looked-up places
-#'   are merged into \code{file.path(geo_dir, "status_cache.rds")}.
+#'   \code{google_place_name} (the place's current name, from Google or
+#'   NCES — the signal used elsewhere in the package to detect school
+#'   renames), \code{status_reason}, \code{business_source}, and
+#'   \code{nces_id}.  Newly looked-up places are merged into
+#'   \code{file.path(geo_dir, "status_cache.rds")}.
 #'
 #' @importFrom furrr future_map
 #' @export
-run_school_status_with_cache <- function(df, geo_dir, google_api_key) {
+run_school_status_with_cache <- function(df, geo_dir, google_api_key, nces_ref = NULL) {
   status_path <- .geocoding_cache_paths(geo_dir)[["status"]]
   status_cols <- c("business_status", "google_place_name", "status_reason", "business_source")
   df <- df %>% dplyr::mutate(orig_sort_id = dplyr::row_number())
@@ -942,18 +950,36 @@ run_school_status_with_cache <- function(df, geo_dir, google_api_key) {
     df[[col]] <- dplyr::coalesce(df[[paste0(col, ".cache")]], df[[col]])
   }
   df <- df %>% dplyr::select(-dplyr::all_of(paste0(status_cols, ".cache")))
+  has_id <- !is.na(df$place_id) & df$place_id != ""
+
+  # ── NCES first: schools NCES covers never go to Google ─────────────────────
+  # NCES wins over cached Google values so results don't depend on cache
+  # history.
+  if (!"nces_id" %in% names(df)) df$nces_id <- NA_character_
+  if (!is.null(nces_ref) && any(has_id)) {
+    nces <- .nces_status_for_place_ids(unique(df$place_id[has_id]), df, geo_dir, nces_ref)
+    idx  <- match(df$place_id, nces$place_id)
+    hit  <- !is.na(idx)
+    df$business_status[hit]   <- nces$business_status[idx[hit]]
+    df$google_place_name[hit] <- nces$nces_name[idx[hit]]
+    df$status_reason[hit]     <- "nces"
+    df$business_source[hit]   <- nces$nces_source[idx[hit]]
+    df$nces_id[hit]           <- nces$nces_id[idx[hit]]
+  }
 
   # ── Look up each unresolved place_id once ──────────────────────────────────
   # "success" and "not_available" are final answers from Google -- a success
   # with no business_status just means the place_id isn't a business (e.g. a
   # street address) and re-asking will return the same thing every run.
-  has_id   <- !is.na(df$place_id) & df$place_id != ""
-  resolved <- df$status_reason %in% .status_resolved_reasons
+  from_nces <- df$status_reason %in% "nces"
+  resolved  <- df$status_reason %in% .status_resolved_reasons | from_nces
   ids_to_search <- unique(df$place_id[has_id & !resolved])
 
   message(sprintf(
-    "Place status: %d place_id(s) resolved from cache, %d to look up via Google.",
-    dplyr::n_distinct(df$place_id[has_id & resolved]), length(ids_to_search)
+    "Place status: %d place_id(s) from NCES, %d from cache, %d to look up via Google.",
+    dplyr::n_distinct(df$place_id[has_id & from_nces]),
+    dplyr::n_distinct(df$place_id[has_id & resolved & !from_nces]),
+    length(ids_to_search)
   ))
 
   if (length(ids_to_search) > 0) {
