@@ -910,6 +910,10 @@ get_business_status <- function(place_id, google_api_key) {
 # Internal: one get_place_details() call per place_id, at most places_qps per
 # second. Sequential because workers can't share a rate limit.
 .get_place_details_paced <- function(place_ids, google_api_key, places_qps) {
+  if (!is.numeric(places_qps) || length(places_qps) != 1L ||
+      !is.finite(places_qps) || places_qps <= 0) {
+    stop("`places_qps` must be a positive, finite numeric scalar.", call. = FALSE)
+  }
   min_gap <- 1 / places_qps
   lapply(place_ids, function(id) {
     started <- Sys.time()
