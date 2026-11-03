@@ -1293,6 +1293,28 @@ clean_kinder_data <- function(kinder_dat) {
   df[keep, , drop = FALSE]
 }
 
+#' Drop pre-K-only rows from a reference school table
+#'
+#' Removes preschools and day cares that don't offer kindergarten: rows whose
+#' \code{level_code} is exactly \code{"p"}.  Rows that span pre-K and
+#' elementary (\code{"p,e"}, ...) and rows with an \code{NA} level code are
+#' kept.  Kindergarten vaccination records themselves are never dropped, so a
+#' center that does report kindergarten is still processed from its own
+#' record.
+#'
+#' @param df Reference data frame with a \code{level_code} column.
+#' @param source_label Label used in the message (e.g. \code{"GreatSchools"}).
+#' @return \code{df} without the pre-K-only rows.
+#' @keywords internal
+.drop_prek_only <- function(df, source_label) {
+  drop <- !is.na(df$level_code) & stringr::str_squish(df$level_code) == "p"
+  if (any(drop)) {
+    message(sprintf("%s: dropped %d pre-K-only school(s) (level_code 'p', no kindergarten).",
+                    source_label, sum(drop)))
+  }
+  df[!drop, , drop = FALSE]
+}
+
 #' Clean DOE (Department of Education) school reference data
 #'
 #' Applies standardization steps to a DOE school data frame: lowercases all
@@ -1309,6 +1331,9 @@ clean_kinder_data <- function(kinder_dat) {
 #' @param elementary_only Logical (default \code{FALSE}).  If \code{TRUE}, drop
 #'   schools whose derived \code{level_code} has no elementary or pre-K grades
 #'   (e.g. grades 6-12).  Schools with an unknown grade span are kept.
+#' @param exclude_prek_only Logical (default \code{FALSE}).  If \code{TRUE},
+#'   drop pre-K-only schools (preschools and day cares without kindergarten;
+#'   \code{level_code == "p"}).
 #'
 #' @return The enriched data frame with additional columns:
 #'   \code{school_name_std}, \code{county_std}, \code{district_std},
@@ -1317,7 +1342,7 @@ clean_kinder_data <- function(kinder_dat) {
 #'
 #' @importFrom dplyr mutate row_number
 #' @export
-clean_doe_data <- function(doe_dat, elementary_only = FALSE) {
+clean_doe_data <- function(doe_dat, elementary_only = FALSE, exclude_prek_only = FALSE) {
 
   doe_dat <- doe_dat %>%
     .standardize_school_source(
@@ -1332,6 +1357,9 @@ clean_doe_data <- function(doe_dat, elementary_only = FALSE) {
 
   if (isTRUE(elementary_only)) {
     doe_dat <- .drop_non_elementary(doe_dat, "DOE")
+  }
+  if (isTRUE(exclude_prek_only)) {
+    doe_dat <- .drop_prek_only(doe_dat, "DOE")
   }
 
   doe_dat <- doe_dat %>%
@@ -1379,6 +1407,9 @@ clean_doe_data <- function(doe_dat, elementary_only = FALSE) {
 #' @param elementary_only Logical (default \code{FALSE}).  If \code{TRUE}, drop
 #'   schools whose \code{level_code} has no elementary or pre-K level (e.g.
 #'   \code{"m"}, \code{"h"}, \code{"m,h"}).  Unknown level codes are kept.
+#' @param exclude_prek_only Logical (default \code{FALSE}).  If \code{TRUE},
+#'   drop pre-K-only schools (preschools and day cares without kindergarten;
+#'   \code{level_code == "p"}).
 #'
 #' @return The enriched data frame with additional columns:
 #'   \code{school_name_std}, \code{county_std}, \code{county2_std},
@@ -1393,7 +1424,8 @@ clean_doe_data <- function(doe_dat, elementary_only = FALSE) {
 #' @export
 clean_greatschools_data <- function(gs_dat, state_abbr,
                                     po_box_action = c("blank", "drop", "keep"),
-                                    elementary_only = FALSE) {
+                                    elementary_only = FALSE,
+                                    exclude_prek_only = FALSE) {
 
   if (!is.character(state_abbr) || length(state_abbr) != 1L || is.na(state_abbr) || !grepl("^[A-Za-z]{2}$", state_abbr)) {
     stop("'state_abbr' must be a single two-letter state abbreviation (e.g., \"md\").", call. = FALSE)
@@ -1434,6 +1466,9 @@ clean_greatschools_data <- function(gs_dat, state_abbr,
 
   if (isTRUE(elementary_only)) {
     gs_dat <- .drop_non_elementary(gs_dat, "GreatSchools")
+  }
+  if (isTRUE(exclude_prek_only)) {
+    gs_dat <- .drop_prek_only(gs_dat, "GreatSchools")
   }
 
   # Standardize district from districtName when available

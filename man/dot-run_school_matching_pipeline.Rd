@@ -19,7 +19,8 @@
   addr_source_pref = "greatschools",
   parallel = FALSE,
   parallel_cache = TRUE,
-  api_qps = 50
+  api_qps = 50,
+  nces_ref = NULL
 )
 }
 \arguments{
@@ -34,6 +35,9 @@ source data frames (\code{other_dat} may be \code{NULL}).}
 \code{file.path(state_dir, "01_cleaning", "cleaning_temp")}).}
 
 \item{google_api_key}{Google Geocoding/Places API key.}
+
+\item{nces_ref}{Optional NCES reference (\code{\link{load_nces_reference}})
+used for school status and names before falling back to Google Places.}
 }
 \value{
 The final long-form data frame (invisibly), also written to

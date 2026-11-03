@@ -138,11 +138,13 @@ resolve_school_place_ids <- function(df,
 #'   \code{\link{resolve_school_place_ids}}).
 #' @param geo_dir Path to the directory used for the status/name cache.
 #' @param google_api_key Google Places API key.
+#' @param nces_ref Optional NCES reference (\code{\link{load_nces_reference}});
+#'   schools NCES covers take their current name from NCES instead of Google.
 #'
 #' @return \code{df} with a \code{school_name_std_google} column added
 #'   (\code{NA} where no place name could be resolved).
 #' @export
-add_google_name_variants <- function(df, geo_dir, google_api_key) {
+add_google_name_variants <- function(df, geo_dir, google_api_key, nces_ref = NULL) {
 
   if (!"place_id" %in% names(df) || all(is.na(df$place_id))) {
     df$school_name_std_google <- NA_character_
@@ -151,17 +153,19 @@ add_google_name_variants <- function(df, geo_dir, google_api_key) {
 
   if (!dir.exists(geo_dir)) dir.create(geo_dir, recursive = TRUE)
 
-  place_ids <- df %>%
+  # Coordinates and names let NCES matching use these rows directly; the status
+  # step still looks up each place_id only once.
+  places <- df %>%
     dplyr::filter(!is.na(place_id), place_id != "") %>%
-    dplyr::distinct(place_id)
+    dplyr::select(dplyr::any_of(c("place_id", "lat", "lon", "school_name", "school_name_std")))
 
-  if (nrow(place_ids) == 0) {
+  if (nrow(places) == 0) {
     df$school_name_std_google <- NA_character_
     return(df)
   }
 
   status <- run_school_status_with_cache(
-    place_ids, geo_dir = geo_dir, google_api_key = google_api_key
+    places, geo_dir = geo_dir, google_api_key = google_api_key, nces_ref = nces_ref
   )
 
   lookup <- status %>%

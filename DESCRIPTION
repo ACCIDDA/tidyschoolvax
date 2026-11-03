@@ -30,6 +30,7 @@ Imports:
     readxl,
     rlang,
     sf,
+    stringdist,
     stringi,
     stringr,
     tibble,

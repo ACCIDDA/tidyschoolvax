@@ -4,7 +4,7 @@
 \alias{run_school_status_with_cache}
 \title{Look up school operational status via Google Places, with caching}
 \usage{
-run_school_status_with_cache(df, geo_dir, google_api_key)
+run_school_status_with_cache(df, geo_dir, google_api_key, nces_ref = NULL)
 }
 \arguments{
 \item{df}{A data frame containing at least a \code{place_id} column.}
@@ -14,13 +14,22 @@ run_school_status_with_cache(df, geo_dir, google_api_key)
 
 \item{google_api_key}{Character scalar.  Google Places API key (typically
 read from \code{Sys.getenv("GOOGLEGEO_API_KEY")}).}
+
+\item{nces_ref}{Optional NCES reference from
+\code{\link{load_nces_reference}}.  When supplied, place_ids that match
+an NCES school with a known status (see \code{\link{match_places_to_nces}})
+take their status and name from NCES (\code{status_reason = "nces"},
+\code{business_source = "nces_ccd"} or \code{"nces_pss"}) and are not
+sent to Google.  NCES values are not written to the Google status cache,
+so dropping \code{nces_ref} later falls back to Google cleanly.}
 }
 \value{
 The input data frame with additional columns \code{business_status},
-  \code{google_place_name} (Google's current name for the place — the
-  signal used elsewhere in the package to detect school renames),
-  \code{status_reason}, and \code{business_source}.  Newly looked-up places
-  are merged into \code{file.path(geo_dir, "status_cache.rds")}.
+  \code{google_place_name} (the place's current name, from Google or
+  NCES — the signal used elsewhere in the package to detect school
+  renames), \code{status_reason}, \code{business_source}, and
+  \code{nces_id}.  Newly looked-up places are merged into
+  \code{file.path(geo_dir, "status_cache.rds")}.
 }
 \description{
 Merges any previously saved status cache, then uses
