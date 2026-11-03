@@ -40,6 +40,71 @@ test_that("PSS only confirms schools in the latest edition", {
   expect_null(.summarise_pss(NULL))
 })
 
+test_that("a failed PSS download stops instead of skipping to an older edition", {
+  tried <- 0
+  local_mocked_bindings(.download_pss_zip = function(url, dest) {
+    tried <<- tried + 1
+    stop("timeout")
+  })
+  expect_error(.download_pss_directory("MD", first_year = 2014), "timeout")
+  expect_equal(tried, 1)
+})
+
+test_that(".download_pss_zip separates a missing edition from a failure", {
+  local_mocked_bindings(
+    GET = function(url, ...) structure(list(status_code = 503L), class = "response"),
+    .package = "httr"
+  )
+  expect_error(.download_pss_zip("http://x", tempfile()), "HTTP 503")
+  local_mocked_bindings(
+    GET = function(url, ...) structure(list(status_code = 404L), class = "response"),
+    .package = "httr"
+  )
+  expect_false(.download_pss_zip("http://x", tempfile()))
+})
+
+test_that("a failed PSS download doesn't replace the cache or get cached", {
+  ccd <- tibble::tibble(year = 2024, ncessch = "1", school_name = "A", school_status = 1,
+                        latitude = 39, longitude = -76)
+  local_mocked_bindings(
+    .download_ccd_directory = function(...) ccd,
+    .download_pss_directory = function(...) stop("timeout")
+  )
+  dir <- withr::local_tempdir()
+
+  # No cache: public schools for this run, nothing saved so the next run retries.
+  expect_warning(out <- load_nces_reference("md", dir), "public schools only")
+  expect_equal(out$nces_id, "1")
+  expect_false(file.exists(file.path(dir, "nces_reference_md.rds")))
+
+  # Stale cache: kept as it was, still stale.
+  ref <- nces_fixture()
+  old <- Sys.time() - 365 * 86400
+  attr(ref, "downloaded_at") <- old
+  attr(ref, "first_year") <- 2015
+  saveRDS(ref, file.path(dir, "nces_reference_md.rds"))
+  expect_warning(out <- load_nces_reference("md", dir), "using cached copy")
+  expect_equal(nrow(out), 4)
+  expect_equal(attr(readRDS(file.path(dir, "nces_reference_md.rds")), "downloaded_at"), old)
+})
+
+test_that("a year without coordinates doesn't change a school's status", {
+  ccd <- tibble::tibble(year = c(2023, 2024, 2024), ncessch = c("1", "1", "2"),
+                        school_name = c("A", "A", "No Coordinates"), school_status = 1,
+                        latitude = c(39, NA, NA), longitude = c(-76, NA, NA))
+  s <- .summarise_ccd(ccd)
+  expect_equal(s$nces_id, "1")  # a school never located can't be matched
+  expect_equal(s$business_status, "OPERATIONAL")
+  expect_equal(s$last_seen, 2024L)
+  expect_equal(s$lat, 39)
+
+  pss <- tibble::tibble(ppin = "X", school_name = "X Academy", year = c(2022L, 2024L),
+                        latitude = c(39, NA), longitude = c(-76, NA))
+  p <- .summarise_pss(pss)
+  expect_equal(p$business_status, "OPERATIONAL")
+  expect_equal(p$lat, 39)
+})
+
 test_that("PSS files parse whatever the edition's column names", {
   upper <- tibble::tibble(PPIN = c("X", "Y"), PINST = c("X Academy", "Y School"),
                           PSTABB = c("MD", "VA"), LATITUDE24 = "39", LONGITUDE24 = "-76")
@@ -106,6 +171,45 @@ test_that("run_school_status_with_cache takes NCES matches without calling Googl
   expect_true(all(is.na(out2$nces_id)))
 })
 
+test_that("NCES answers from an earlier call don't carry over", {
+  geo_dir <- withr::local_tempdir()
+  google_calls <- character()
+  local_mocked_bindings(get_place_details = function(place_id, google_api_key) {
+    google_calls <<- c(google_calls, place_id)
+    list(business_status = "OPERATIONAL", google_place_name = "Google Name",
+         status_reason = "success")
+  })
+  old_plan <- future::plan(future::sequential)
+  withr::defer(future::plan(old_plan))
+
+  df <- tibble::tibble(place_id = "g1", lat = 39.0001, lon = -76.0001,
+                       school_name = "Oak Elementary")
+  first <- suppressMessages(run_school_status_with_cache(df, geo_dir, "key", nces_ref = nces_fixture()))
+  expect_equal(first$status_reason, "nces")
+  expect_length(google_calls, 0)
+
+  again <- suppressMessages(run_school_status_with_cache(first, geo_dir, "key"))
+  expect_equal(google_calls, "g1")
+  expect_equal(again$status_reason, "success")
+  expect_equal(again$google_place_name, "Google Name")
+  expect_true(is.na(again$nces_id))
+})
+
+test_that("add_google_name_variants uses its rows' coordinates and names for NCES", {
+  geo_dir <- withr::local_tempdir()  # empty: no geocoding cache to fall back on
+  local_mocked_bindings(get_place_details = function(place_id, google_api_key) {
+    stop("should not call Google")
+  })
+  df <- tibble::tibble(place_id = c("g1", "g1", NA), lat = c(39.0001, 39.0001, NA),
+                       lon = c(-76.0001, -76.0001, NA),
+                       school_name = c("Oak Elementary", "Oak Elementary School", "No Place"))
+  out <- suppressMessages(add_google_name_variants(df, geo_dir, "key", nces_ref = nces_fixture()))
+  expect_equal(nrow(out), 3)
+  expect_equal(out$school_name_std_google[1:2],
+               rep(standardized_school_name("Oak Elementary"), 2))
+  expect_true(is.na(out$school_name_std_google[3]))
+})
+
 test_that("load_nces_reference uses a fresh cache and falls back to a stale one", {
   dir <- withr::local_tempdir()
   ref <- nces_fixture()
@@ -170,13 +274,10 @@ test_that("CCD and PSS downloads go back to first_year", {
   expect_equal(min(ccd_years), 2014)
 
   pss_urls <- character()
-  local_mocked_bindings(
-    download.file = function(url, ...) {
-      pss_urls <<- c(pss_urls, url)
-      stop("offline")
-    },
-    .package = "utils"
-  )
+  local_mocked_bindings(.download_pss_zip = function(url, dest) {
+    pss_urls <<- c(pss_urls, url)
+    FALSE
+  })
   expect_error(.download_pss_directory("MD", first_year = 2014), "no PSS editions")
   expect_equal(sub(".*/(pss[0-9]+)_.*", "\\1", pss_urls[length(pss_urls)]), "pss1314")
 

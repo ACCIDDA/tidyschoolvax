@@ -50,7 +50,9 @@
 #' \code{cache_dir} and re-downloaded once it is older than
 #' \code{max_age_days} (new CCD years are released annually), or when it
 #' doesn't reach back to \code{first_year}. If a download fails, a stale cache is used if one exists; otherwise \code{NULL} is
-#' returned with a warning, so callers fall back to Google.
+#' returned with a warning, so callers fall back to Google.  If only the
+#' private-school download fails and there is no cache, the public schools are
+#' returned but not cached, so the next run tries again.
 #'
 #' @param state_abbr Two-letter state abbreviation (e.g. \code{"md"}).
 #' @param cache_dir Directory for the cached reference file.
@@ -83,11 +85,15 @@ load_nces_reference <- function(state_abbr, cache_dir, first_year = 2015,
   covers_years <- !is.null(cached_first_year) && cached_first_year <= first_year
   if (!refresh && age_days <= max_age_days && covers_years) return(cached)
 
+  pss_failed <- FALSE
   ref <- tryCatch({
     ccd <- .download_ccd_directory(state_abbr, first_year = first_year)
     pss <- tryCatch(.download_pss_directory(state_abbr, first_year = first_year), error = function(e) {
+      # A cached reference that has private schools beats a new one without.
+      if (!is.null(cached)) stop(e)
       warning("NCES private school survey download failed (", conditionMessage(e),
               "); continuing with public schools only.", call. = FALSE)
+      pss_failed <<- TRUE
       NULL
     })
     dplyr::bind_rows(.summarise_ccd(ccd), .summarise_pss(pss))
@@ -99,6 +105,7 @@ load_nces_reference <- function(state_abbr, cache_dir, first_year = 2015,
   })
 
   if (is.null(ref)) return(cached)
+  if (pss_failed) return(ref)
 
   attr(ref, "downloaded_at") <- Sys.time()
   attr(ref, "first_year") <- first_year
@@ -181,9 +188,7 @@ load_nces_reference <- function(state_abbr, cache_dir, first_year = 2015,
   for (start in seq(this_year - (this_year %% 2 == 0), first_year - 1, by = -2)) {
     url <- sprintf(.pss_zip_url, start %% 100, (start + 1) %% 100)
     zip <- file.path(tmp, basename(url))
-    ok <- tryCatch(utils::download.file(url, zip, mode = "wb", quiet = TRUE) == 0,
-                   error = function(e) FALSE, warning = function(w) FALSE)
-    if (!ok) next
+    if (!.download_pss_zip(url, zip)) next
     csv <- utils::unzip(zip, exdir = tmp)
     csv <- csv[grepl("\\.csv$", csv, ignore.case = TRUE)][1]
     x <- readr::read_csv(csv, show_col_types = FALSE, guess_max = 1e5,
@@ -192,6 +197,18 @@ load_nces_reference <- function(state_abbr, cache_dir, first_year = 2015,
   }
   if (length(editions) == 0) stop("no PSS editions found")
   dplyr::bind_rows(editions)
+}
+
+# Internal: TRUE once the zip is on disk, FALSE if NCES doesn't have this edition
+# (404). Any other failure is an error: skipping a published edition would make
+# an older one look like the latest, and schools only in that older edition
+# would be reported as open.
+.download_pss_zip <- function(url, dest) {
+  res <- httr::GET(url, httr::write_disk(dest, overwrite = TRUE), httr::timeout(300))
+  code <- httr::status_code(res)
+  if (code == 404) return(FALSE)
+  if (code != 200) stop("HTTP ", code, " for ", url)
+  TRUE
 }
 
 # Internal: one PSS file reduced to a state's schools. Column names vary by
@@ -210,19 +227,21 @@ load_nces_reference <- function(state_abbr, cache_dir, first_year = 2015,
 
 .summarise_ccd <- function(ccd) {
   latest <- max(ccd$year)
+  # Status and last_seen use every year; only the coordinates skip years that
+  # lack them, so a gap in the latest year can't make an open school look closed.
   ccd %>%
-    dplyr::filter(!is.na(latitude), !is.na(longitude)) %>%
     dplyr::arrange(ncessch, dplyr::desc(year)) %>%
     dplyr::group_by(ncessch) %>%
     dplyr::summarise(
       nces_name   = dplyr::first(school_name),
       nces_names  = paste(unique(school_name), collapse = " | "),
-      lat         = dplyr::first(latitude),
-      lon         = dplyr::first(longitude),
+      lat         = dplyr::first(latitude[!is.na(latitude) & !is.na(longitude)]),
+      lon         = dplyr::first(longitude[!is.na(latitude) & !is.na(longitude)]),
       last_seen   = max(year),
       last_status = dplyr::first(school_status),
       .groups = "drop"
     ) %>%
+    dplyr::filter(!is.na(lat), !is.na(lon)) %>%
     dplyr::mutate(
       business_status = dplyr::case_when(
         last_seen < latest                  ~ "CLOSED_PERMANENTLY",
@@ -241,17 +260,17 @@ load_nces_reference <- function(state_abbr, cache_dir, first_year = 2015,
   if (is.null(pss) || nrow(pss) == 0) return(NULL)
   latest <- max(pss$year)
   pss %>%
-    dplyr::filter(!is.na(latitude), !is.na(longitude)) %>%
     dplyr::arrange(ppin, dplyr::desc(year)) %>%
     dplyr::group_by(ppin) %>%
     dplyr::summarise(
       nces_name  = dplyr::first(school_name),
       nces_names = paste(unique(school_name), collapse = " | "),
-      lat        = dplyr::first(latitude),
-      lon        = dplyr::first(longitude),
+      lat        = dplyr::first(latitude[!is.na(latitude) & !is.na(longitude)]),
+      lon        = dplyr::first(longitude[!is.na(latitude) & !is.na(longitude)]),
       last_seen  = max(year),
       .groups = "drop"
     ) %>%
+    dplyr::filter(!is.na(lat), !is.na(lon)) %>%
     dplyr::transmute(nces_id = ppin, nces_source = "nces_pss", nces_name, nces_names,
                      lat, lon, last_seen = as.integer(last_seen),
                      business_status = dplyr::if_else(last_seen == latest, "OPERATIONAL",
@@ -339,7 +358,8 @@ match_places_to_nces <- function(places, nces_ref, max_dist_m = 300, min_name_si
     x %>%
       dplyr::filter(place_id %in% place_ids) %>%
       dplyr::select(place_id, lat, lon, dplyr::all_of(cols)) %>%
-      dplyr::mutate(dplyr::across(dplyr::all_of(cols), as.character)) %>%
+      dplyr::mutate(lat = as.numeric(lat), lon = as.numeric(lon),
+                    dplyr::across(dplyr::all_of(cols), as.character)) %>%
       tidyr::pivot_longer(dplyr::all_of(cols), names_to = "name_source", values_to = "name") %>%
       dplyr::select(place_id, lat, lon, name)
   }

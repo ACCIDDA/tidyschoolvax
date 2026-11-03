@@ -943,6 +943,11 @@ run_school_status_with_cache <- function(df, geo_dir, google_api_key, nces_ref =
   for (col in status_cols) {
     if (!col %in% names(df)) df[[col]] <- NA_character_
   }
+  # NCES answers from an earlier call don't carry over: only a match made
+  # below counts, so dropping nces_ref really does fall back to Google.
+  inherited <- df$status_reason %in% "nces"
+  df[inherited, status_cols] <- NA_character_
+  df$nces_id <- NA_character_
   cache_for_join <- status_cache %>%
     dplyr::rename_with(~ paste0(.x, ".cache"), dplyr::all_of(status_cols))
   df <- dplyr::left_join(df, cache_for_join, by = "place_id")
@@ -955,7 +960,6 @@ run_school_status_with_cache <- function(df, geo_dir, google_api_key, nces_ref =
   # ── NCES first: schools NCES covers never go to Google ─────────────────────
   # NCES wins over cached Google values so results don't depend on cache
   # history.
-  if (!"nces_id" %in% names(df)) df$nces_id <- NA_character_
   if (!is.null(nces_ref) && any(has_id)) {
     nces <- .nces_status_for_place_ids(unique(df$place_id[has_id]), df, geo_dir, nces_ref)
     idx  <- match(df$place_id, nces$place_id)

@@ -153,17 +153,19 @@ add_google_name_variants <- function(df, geo_dir, google_api_key, nces_ref = NUL
 
   if (!dir.exists(geo_dir)) dir.create(geo_dir, recursive = TRUE)
 
-  place_ids <- df %>%
+  # Coordinates and names let NCES matching use these rows directly; the status
+  # step still looks up each place_id only once.
+  places <- df %>%
     dplyr::filter(!is.na(place_id), place_id != "") %>%
-    dplyr::distinct(place_id)
+    dplyr::select(dplyr::any_of(c("place_id", "lat", "lon", "school_name", "school_name_std")))
 
-  if (nrow(place_ids) == 0) {
+  if (nrow(places) == 0) {
     df$school_name_std_google <- NA_character_
     return(df)
   }
 
   status <- run_school_status_with_cache(
-    place_ids, geo_dir = geo_dir, google_api_key = google_api_key, nces_ref = nces_ref
+    places, geo_dir = geo_dir, google_api_key = google_api_key, nces_ref = nces_ref
   )
 
   lookup <- status %>%

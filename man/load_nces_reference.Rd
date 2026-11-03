@@ -56,5 +56,7 @@ The result is cached as \code{nces_reference_<state>.rds} in
 \code{cache_dir} and re-downloaded once it is older than
 \code{max_age_days} (new CCD years are released annually), or when it
 doesn't reach back to \code{first_year}. If a download fails, a stale cache is used if one exists; otherwise \code{NULL} is
-returned with a warning, so callers fall back to Google.
+returned with a warning, so callers fall back to Google.  If only the
+private-school download fails and there is no cache, the public schools are
+returned but not cached, so the next run tries again.
 }
