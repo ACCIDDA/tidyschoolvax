@@ -4,7 +4,13 @@
 \alias{match_places_to_nces}
 \title{Link Google place_ids to NCES schools by location and name}
 \usage{
-match_places_to_nces(places, nces_ref, max_dist_m = 300, min_name_sim = 0.85)
+match_places_to_nces(
+  places,
+  nces_ref,
+  max_dist_m = 300,
+  min_name_sim = 0.85,
+  min_name_share = 0.5
+)
 }
 \arguments{
 \item{places}{Data frame with \code{place_id}, \code{lat}, \code{lon},
@@ -15,6 +21,9 @@ and \code{name}; may contain several rows per \code{place_id}.}
 \item{max_dist_m}{Maximum distance in metres.}
 
 \item{min_name_sim}{Minimum Jaro-Winkler similarity (0-1).}
+
+\item{min_name_share}{A place's names must match the school in more than this
+share of cases (0-1).}
 }
 \value{
 One row per matched \code{place_id} with \code{nces_id},
@@ -29,7 +38,10 @@ have Jaro-Winkler similarity of at least \code{min_name_sim}. Every name
 NCES has listed for the school counts, so a renamed school still matches on
 its former name. A place may carry several candidate names (one row each,
 e.g. the source-data name and Google's name); the best-scoring pair of names
-is used. When several NCES schools
+is used. More than \code{min_name_share} of a place's names must match the
+school: a county-level result or a district office address can carry many
+different schools, and a match for one of them says nothing about the rest.
+When several NCES schools
 qualify, one with a known open status is preferred (a new school on the
 site of a closed one), then the most similar name, then the nearest.
 }

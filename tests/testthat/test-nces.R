@@ -139,6 +139,39 @@ test_that("places match NCES schools by distance and name, preferring open ones"
   expect_equal(nrow(match_places_to_nces(places, NULL)), 0)
 })
 
+test_that("a place shared by different schools doesn't match one of them", {
+  # A county-level Google result: right beside one school, but carrying several.
+  county <- tibble::tibble(place_id = "county", lat = 39.1, lon = -76.1,
+                           name = c("Pine Elementary", "Unrelated Academy", "Another Christian School"))
+  expect_equal(nrow(match_places_to_nces(county, nces_fixture())), 0)
+
+  # Variants of one school's name still match, as does a place with one odd name out.
+  variants <- tibble::tibble(place_id = "one", lat = 39.1, lon = -76.1,
+                             name = c("Pine Elementary", "Pine Elementary School", "Pine Elem"))
+  expect_equal(match_places_to_nces(variants, nces_fixture())$nces_id, "C3")
+  one_odd <- tibble::tibble(place_id = "odd", lat = 39.1, lon = -76.1,
+                            name = c("Pine Elementary", "Pine Elem Sch", "123 Main Street"))
+  expect_equal(match_places_to_nces(one_odd, nces_fixture())$nces_id, "C3")
+  expect_equal(nrow(match_places_to_nces(one_odd, nces_fixture(), min_name_share = 0.9)), 0)
+})
+
+test_that("schools sharing a generic place go to Google rather than NCES", {
+  geo_dir <- withr::local_tempdir()
+  google_calls <- character()
+  local_mocked_bindings(get_place_details = function(place_id, google_api_key) {
+    google_calls <<- c(google_calls, place_id)
+    list(business_status = NA_character_, google_place_name = "Some County",
+         status_reason = "success")
+  })
+  df <- tibble::tibble(place_id = "county", lat = 39.1, lon = -76.1,
+                       school_name = c("Pine Elementary", "Unrelated Academy", "Another Christian School"))
+  out <- suppressMessages(run_school_status_with_cache(df, geo_dir, "key", nces_ref = nces_fixture(),
+                                                       places_qps = 1000))
+  expect_equal(google_calls, "county")
+  expect_true(all(is.na(out$nces_id)))
+  expect_true(all(out$google_place_name != "Pine Elementary"))
+})
+
 test_that("a former name matches but the current name is returned", {
   ref <- tibble::tibble(
     nces_id = c("A1", "B2"), nces_source = "nces_ccd",

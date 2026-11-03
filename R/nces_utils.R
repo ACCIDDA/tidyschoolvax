@@ -286,7 +286,10 @@ load_nces_reference <- function(state_abbr, cache_dir, first_year = 2015,
 #' NCES has listed for the school counts, so a renamed school still matches on
 #' its former name. A place may carry several candidate names (one row each,
 #' e.g. the source-data name and Google's name); the best-scoring pair of names
-#' is used. When several NCES schools
+#' is used. More than \code{min_name_share} of a place's names must match the
+#' school: a county-level result or a district office address can carry many
+#' different schools, and a match for one of them says nothing about the rest.
+#' When several NCES schools
 #' qualify, one with a known open status is preferred (a new school on the
 #' site of a closed one), then the most similar name, then the nearest.
 #'
@@ -295,13 +298,16 @@ load_nces_reference <- function(state_abbr, cache_dir, first_year = 2015,
 #' @param nces_ref Output of \code{\link{load_nces_reference}}.
 #' @param max_dist_m Maximum distance in metres.
 #' @param min_name_sim Minimum Jaro-Winkler similarity (0-1).
+#' @param min_name_share A place's names must match the school in more than this
+#'   share of cases (0-1).
 #'
 #' @return One row per matched \code{place_id} with \code{nces_id},
 #'   \code{nces_source}, \code{nces_name} (the school's current name, even
 #'   when a former name matched), \code{business_status},
 #'   \code{dist_m}, and \code{name_sim}.
 #' @export
-match_places_to_nces <- function(places, nces_ref, max_dist_m = 300, min_name_sim = 0.85) {
+match_places_to_nces <- function(places, nces_ref, max_dist_m = 300, min_name_sim = 0.85,
+                                 min_name_share = 0.5) {
   empty <- tibble::tibble(place_id = character(), nces_id = character(),
                           nces_source = character(), nces_name = character(),
                           business_status = character(), dist_m = numeric(),
@@ -329,12 +335,18 @@ match_places_to_nces <- function(places, nces_ref, max_dist_m = 300, min_name_si
               nces_name_std, business_status, n_lat, n_lon)]
   if (nrow(cand) == 0) return(empty)
 
+  place_names <- dplyr::summarise(dplyr::group_by(p, place_id), n_names = dplyr::n_distinct(name_std))
+
   tibble::as_tibble(cand) %>%
     dplyr::mutate(
       dist_m   = .haversine_m(lat, lon, n_lat, n_lon),
       name_sim = stringdist::stringsim(name_std, nces_name_std, method = "jw", p = 0.1)
     ) %>%
     dplyr::filter(dist_m <= max_dist_m, name_sim >= min_name_sim) %>%
+    dplyr::left_join(place_names, by = "place_id") %>%
+    dplyr::group_by(place_id, nces_id) %>%
+    dplyr::filter(dplyr::n_distinct(name_std) / n_names > min_name_share) %>%
+    dplyr::ungroup() %>%
     dplyr::arrange(place_id, dplyr::desc(business_status %in% "OPERATIONAL"),
                    dplyr::desc(name_sim), dist_m) %>%
     dplyr::distinct(place_id, .keep_all = TRUE) %>%
