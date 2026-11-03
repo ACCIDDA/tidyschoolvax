@@ -140,11 +140,14 @@ resolve_school_place_ids <- function(df,
 #' @param google_api_key Google Places API key.
 #' @param nces_ref Optional NCES reference (\code{\link{load_nces_reference}});
 #'   schools NCES covers take their current name from NCES instead of Google.
+#' @param places_qps Maximum Google Places requests per second; see
+#'   \code{\link{run_school_status_with_cache}}.
 #'
 #' @return \code{df} with a \code{school_name_std_google} column added
 #'   (\code{NA} where no place name could be resolved).
 #' @export
-add_google_name_variants <- function(df, geo_dir, google_api_key, nces_ref = NULL) {
+add_google_name_variants <- function(df, geo_dir, google_api_key, nces_ref = NULL,
+                                     places_qps = 8) {
 
   if (!"place_id" %in% names(df) || all(is.na(df$place_id))) {
     df$school_name_std_google <- NA_character_
@@ -165,7 +168,8 @@ add_google_name_variants <- function(df, geo_dir, google_api_key, nces_ref = NUL
   }
 
   status <- run_school_status_with_cache(
-    places, geo_dir = geo_dir, google_api_key = google_api_key, nces_ref = nces_ref
+    places, geo_dir = geo_dir, google_api_key = google_api_key, nces_ref = nces_ref,
+    places_qps = places_qps
   )
 
   lookup <- status %>%

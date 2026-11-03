@@ -16,7 +16,7 @@ get_business_status(place_id, google_api_key)
 \item{google_api_key}{Character scalar.  Google Places API key.}
 }
 \value{
-A named list with three elements:
+A named list with four elements:
 \describe{
   \item{business_status}{Character.  One of \code{"OPERATIONAL"},
     \code{"CLOSED_TEMPORARILY"}, \code{"CLOSED_PERMANENTLY"}, or
@@ -26,6 +26,8 @@ A named list with three elements:
   \item{status_reason}{Character.  One of \code{"success"},
     \code{"missing_place_id"}, \code{"transient_error"}, or
     \code{"not_available"}.}
+  \item{http_status}{Integer.  Google's HTTP status code, or
+    \code{NA_integer_} when no response was received.}
 }
 }
 \description{

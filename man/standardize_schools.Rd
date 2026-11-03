@@ -22,6 +22,7 @@ standardize_schools(
   include_prek_only_reference = FALSE,
   use_nces = TRUE,
   nces_cache_dir = file.path(state_geo_dir, "nces"),
+  places_qps = 8,
   api_log_dir = file.path(dirname(dirname(state_dir)), "api_logs")
 )
 }
@@ -96,6 +97,9 @@ before the first year of vaccination data onward.}
 
 \item{nces_cache_dir}{Directory for the cached NCES reference file
 (defaults to an \code{nces} folder inside \code{state_geo_dir}).}
+
+\item{places_qps}{Positive numeric. Maximum Google Places requests per
+second (default \code{8}); see \code{\link{run_school_status_with_cache}}.}
 
 \item{api_log_dir}{Directory for the Google API call logs written at the
 end of the run (see \code{\link{write_api_log}}), even if the run errors.

@@ -4,7 +4,13 @@
 \alias{add_google_name_variants}
 \title{Add Google's current place name as a matching key}
 \usage{
-add_google_name_variants(df, geo_dir, google_api_key, nces_ref = NULL)
+add_google_name_variants(
+  df,
+  geo_dir,
+  google_api_key,
+  nces_ref = NULL,
+  places_qps = 8
+)
 }
 \arguments{
 \item{df}{A data frame with a \code{place_id} column (e.g. the output of
@@ -16,6 +22,9 @@ add_google_name_variants(df, geo_dir, google_api_key, nces_ref = NULL)
 
 \item{nces_ref}{Optional NCES reference (\code{\link{load_nces_reference}});
 schools NCES covers take their current name from NCES instead of Google.}
+
+\item{places_qps}{Maximum Google Places requests per second; see
+\code{\link{run_school_status_with_cache}}.}
 }
 \value{
 \code{df} with a \code{school_name_std_google} column added

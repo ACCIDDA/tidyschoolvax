@@ -4,7 +4,13 @@
 \alias{run_school_status_with_cache}
 \title{Look up school operational status via Google Places, with caching}
 \usage{
-run_school_status_with_cache(df, geo_dir, google_api_key, nces_ref = NULL)
+run_school_status_with_cache(
+  df,
+  geo_dir,
+  google_api_key,
+  nces_ref = NULL,
+  places_qps = 8
+)
 }
 \arguments{
 \item{df}{A data frame containing at least a \code{place_id} column.}
@@ -22,6 +28,11 @@ take their status and name from NCES (\code{status_reason = "nces"},
 \code{business_source = "nces_ccd"} or \code{"nces_pss"}) and are not
 sent to Google.  NCES values are not written to the Google status cache,
 so dropping \code{nces_ref} later falls back to Google cleanly.}
+
+\item{places_qps}{Positive numeric.  Maximum Google Places requests per
+second (default \code{8}, or 480 per minute).  Requests over a project's
+per-minute quota are rejected; raise this only if your quota in the Google
+Cloud console allows it.}
 }
 \value{
 The input data frame with additional columns \code{business_status},
@@ -32,9 +43,9 @@ The input data frame with additional columns \code{business_status},
   \code{file.path(geo_dir, "status_cache.rds")}.
 }
 \description{
-Merges any previously saved status cache, then uses
-\code{furrr::future_map} to call the Google Places API in parallel, once
-per unique \code{place_id}, for every place that has not yet been resolved.
+Merges any previously saved status cache, then calls the Google Places API
+once per unique \code{place_id}, at most \code{places_qps} per second, for
+every place that has not yet been resolved.
 A place is resolved once a lookup returned \code{"success"} (even when
 Google reports no \code{business_status}, e.g. a street address rather
 than a business) or \code{"not_available"}; only never-tried places and

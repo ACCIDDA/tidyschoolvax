@@ -16,7 +16,8 @@ function that sent the requests as well as by API.}
 A tibble with request counts and \code{est_cost_list_usd}, the cost
   at list price before any free allowance.  Failed requests are included in
   the cost, so it is an upper bound (Google doesn't bill some errors, such
-  as rate-limit rejections).
+  as rate-limit rejections).  \code{failure_codes} counts the failed requests
+  by cause where known, e.g. \code{"HTTP 429: 20; no response: 1"}.
 }
 \description{
 Summarise Google API calls logged in this session
