@@ -142,3 +142,72 @@ test_that("response parsing failures are tallied by lookup and retry callers", {
   expect_equal(s$requests, 4)
   expect_equal(s$failed, 4)
 })
+
+test_that("Places lookups are held to places_qps", {
+  calls <- character()
+  local_mocked_bindings(get_place_details = function(place_id, google_api_key) {
+    calls <<- c(calls, place_id)
+    list(status_reason = "success")
+  })
+  elapsed <- system.time(out <- .get_place_details_paced(c("A", "B", "C", "D"), "key", 10))[["elapsed"]]
+  expect_equal(calls, c("A", "B", "C", "D"))
+  expect_length(out, 4)
+  expect_gte(elapsed, 0.35)
+})
+
+test_that("get_place_details reports the HTTP status", {
+  status <- 429L
+  local_mocked_bindings(
+    GET = function(url, ...) structure(list(status_code = status), class = "response"),
+    .package = "httr"
+  )
+  res <- get_place_details("A", "key")
+  expect_equal(res$status_reason, "transient_error")
+  expect_equal(res$http_status, 429L)
+
+  status <- 404L
+  res <- get_place_details("A", "key")
+  expect_equal(res$status_reason, "not_available")
+  expect_equal(res$http_status, 404L)
+
+  local_mocked_bindings(GET = function(url, ...) stop("no connection"), .package = "httr")
+  res <- get_place_details("A", "key")
+  expect_equal(res$status_reason, "transient_error")
+  expect_true(is.na(res$http_status))
+})
+
+test_that("failed lookups are counted by cause in the message and the log", {
+  geo_dir <- local_log_dir()
+  dir.create(geo_dir)
+  local_mocked_bindings(get_place_details = function(place_id, google_api_key) {
+    failed <- list(business_status = NA_character_, google_place_name = NA_character_,
+                   status_reason = "transient_error")
+    switch(place_id,
+           A = c(failed, http_status = 429L),
+           B = c(failed, http_status = 429L),
+           C = c(failed, http_status = NA_integer_),
+           D = c(failed, http_status = 200L),
+           list(business_status = "OPERATIONAL", google_place_name = "E",
+                status_reason = "success", http_status = 200L))
+  })
+
+  start_api_log(state = "md")
+  df <- data.frame(place_id = c("A", "B", "C", "D", "E"))
+  expect_message(run_school_status_with_cache(df, geo_dir, "key", places_qps = 1000),
+                 "4 of 5 Google lookup\\(s\\) failed \\(HTTP 429: 2; no response: 1; unreadable response: 1\\)")
+
+  s <- api_log_summary()
+  expect_equal(s$failed, 4)
+  expect_equal(s$failure_codes, "HTTP 429: 2; no response: 1; unreadable response: 1")
+  expect_equal(api_log_summary(by_caller = TRUE)$failure_codes, s$failure_codes)
+
+  # Reported in the per-run file and the end-of-run block; history keeps its columns.
+  log_dir <- local_log_dir()
+  expect_message(path <- write_api_log(log_dir), "Place Details Pro failures: HTTP 429: 2")
+  expect_equal(utils::read.csv(path)$failure_codes, s$failure_codes)
+  history <- utils::read.csv(file.path(log_dir, "google_api_calls_all_runs.csv"))
+  expect_false("failure_codes" %in% names(history))
+
+  start_api_log()
+  expect_true(all(is.na(api_log_summary()$failure_codes)))
+})

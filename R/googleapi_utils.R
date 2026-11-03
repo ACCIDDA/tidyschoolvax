@@ -813,7 +813,7 @@ run_full_geocoding <- function(unique_schools, geo_dir, google_api_key,
 #' @param place_id Character scalar.  Google Place ID.
 #' @param google_api_key Character scalar.  Google Places API key.
 #'
-#' @return A named list with three elements:
+#' @return A named list with four elements:
 #' \describe{
 #'   \item{business_status}{Character.  One of \code{"OPERATIONAL"},
 #'     \code{"CLOSED_TEMPORARILY"}, \code{"CLOSED_PERMANENTLY"}, or
@@ -823,12 +823,14 @@ run_full_geocoding <- function(unique_schools, geo_dir, google_api_key,
 #'   \item{status_reason}{Character.  One of \code{"success"},
 #'     \code{"missing_place_id"}, \code{"transient_error"}, or
 #'     \code{"not_available"}.}
+#'   \item{http_status}{Integer.  Google's HTTP status code, or
+#'     \code{NA_integer_} when no response was received.}
 #' }
 #' @keywords internal
 get_place_details <- function(place_id, google_api_key) {
   if (is.na(place_id) || place_id == "") {
     return(list(business_status = NA_character_, google_place_name = NA_character_,
-                status_reason = "missing_place_id"))
+                status_reason = "missing_place_id", http_status = NA_integer_))
   }
   
   # Migrated from the legacy REST endpoint (maps.googleapis.com/.../place/details/json)
@@ -855,7 +857,7 @@ get_place_details <- function(place_id, google_api_key) {
   
   if (is.null(res)) {
     return(list(business_status = NA_character_, google_place_name = NA_character_,
-                status_reason = "transient_error"))
+                status_reason = "transient_error", http_status = NA_integer_))
   }
   
   code <- httr::status_code(res)
@@ -866,11 +868,11 @@ get_place_details <- function(place_id, google_api_key) {
   # available" outcome, not a transient failure worth retrying.
   if (code == 404) {
     return(list(business_status = NA_character_, google_place_name = NA_character_,
-                status_reason = "not_available"))
+                status_reason = "not_available", http_status = code))
   }
   if (code != 200) {
     return(list(business_status = NA_character_, google_place_name = NA_character_,
-                status_reason = "transient_error"))
+                status_reason = "transient_error", http_status = code))
   }
   
   parsed <- tryCatch(
@@ -879,14 +881,15 @@ get_place_details <- function(place_id, google_api_key) {
       list(
         business_status   = if (!is.null(json$businessStatus)) json$businessStatus else NA_character_,
         google_place_name = if (!is.null(json$displayName$text)) json$displayName$text else NA_character_,
-        status_reason     = "success"
+        status_reason     = "success",
+        http_status       = code
       )
     },
     error = function(e) NULL
   )
   if (is.null(parsed)) {
     return(list(business_status = NA_character_, google_place_name = NA_character_,
-                status_reason = "transient_error"))
+                status_reason = "transient_error", http_status = code))
   }
   parsed
 }
@@ -901,14 +904,43 @@ get_business_status <- function(place_id, google_api_key) {
   list(business_status = res$business_status, status_reason = res$status_reason)
 }
 # ------------------------------------------------------------------------------
-# Retrieve operational status (parallel)
+# Retrieve operational status
 # ------------------------------------------------------------------------------
+
+# Internal: one get_place_details() call per place_id, at most places_qps per
+# second. Sequential because workers can't share a rate limit.
+.get_place_details_paced <- function(place_ids, google_api_key, places_qps) {
+  if (!is.numeric(places_qps) || length(places_qps) != 1L ||
+      !is.finite(places_qps) || places_qps <= 0) {
+    stop("`places_qps` must be a positive, finite numeric scalar.", call. = FALSE)
+  }
+  min_gap <- 1 / places_qps
+  lapply(place_ids, function(id) {
+    started <- Sys.time()
+    res <- get_place_details(id, google_api_key)
+    wait <- min_gap - as.numeric(difftime(Sys.time(), started, units = "secs"))
+    if (wait > 0) Sys.sleep(wait)
+    res
+  })
+}
+
+# Internal: why each unresolved lookup failed, for the API log and messages.
+.place_failure_codes <- function(results) {
+  failed <- !(results$status_reason %in% .status_resolved_reasons)
+  codes <- if ("http_status" %in% names(results)) results$http_status[failed] else
+    rep(NA_integer_, sum(failed))
+  dplyr::case_when(
+    is.na(codes) ~ "no response",
+    codes == 200 ~ "unreadable response",
+    TRUE         ~ paste("HTTP", codes)
+  )
+}
 
 #' Look up school operational status via Google Places, with caching
 #'
-#' Merges any previously saved status cache, then uses
-#' \code{furrr::future_map} to call the Google Places API in parallel, once
-#' per unique \code{place_id}, for every place that has not yet been resolved.
+#' Merges any previously saved status cache, then calls the Google Places API
+#' once per unique \code{place_id}, at most \code{places_qps} per second, for
+#' every place that has not yet been resolved.
 #' A place is resolved once a lookup returned \code{"success"} (even when
 #' Google reports no \code{business_status}, e.g. a street address rather
 #' than a business) or \code{"not_available"}; only never-tried places and
@@ -932,6 +964,10 @@ get_business_status <- function(place_id, google_api_key) {
 #'   \code{business_source = "nces_ccd"} or \code{"nces_pss"}) and are not
 #'   sent to Google.  NCES values are not written to the Google status cache,
 #'   so dropping \code{nces_ref} later falls back to Google cleanly.
+#' @param places_qps Positive numeric.  Maximum Google Places requests per
+#'   second (default \code{8}, or 480 per minute).  Requests over a project's
+#'   per-minute quota are rejected; raise this only if your quota in the Google
+#'   Cloud console allows it.
 #'
 #' @return The input data frame with additional columns \code{business_status},
 #'   \code{google_place_name} (the place's current name, from Google or
@@ -942,7 +978,8 @@ get_business_status <- function(place_id, google_api_key) {
 #'
 #' @importFrom furrr future_map
 #' @export
-run_school_status_with_cache <- function(df, geo_dir, google_api_key, nces_ref = NULL) {
+run_school_status_with_cache <- function(df, geo_dir, google_api_key, nces_ref = NULL,
+                                         places_qps = 8) {
   status_path <- .geocoding_cache_paths(geo_dir)[["status"]]
   status_cols <- c("business_status", "google_place_name", "status_reason", "business_source")
   df <- df %>% dplyr::mutate(orig_sort_id = dplyr::row_number())
@@ -996,16 +1033,18 @@ run_school_status_with_cache <- function(df, geo_dir, google_api_key, nces_ref =
   ))
 
   if (length(ids_to_search) > 0) {
-    search_list <- furrr::future_map(
-      ids_to_search,
-      ~get_place_details(.x, google_api_key),
-      .progress = TRUE
-    )
+    search_list <- .get_place_details_paced(ids_to_search, google_api_key, places_qps)
     results_df <- dplyr::bind_rows(lapply(search_list, tibble::as_tibble)) %>%
       dplyr::mutate(place_id = ids_to_search)
+    failures <- .place_failure_codes(results_df)
     .log_api_calls("place_details_pro", "run_school_status_with_cache",
                    n_requests  = length(ids_to_search),
-                   n_succeeded = sum(results_df$status_reason %in% .status_resolved_reasons))
+                   n_succeeded = sum(results_df$status_reason %in% .status_resolved_reasons),
+                   failure_codes = failures)
+    if (length(failures) > 0) {
+      message(sprintf("Place status: %d of %d Google lookup(s) failed (%s); they will be tried again next run.",
+                      length(failures), length(ids_to_search), .format_failure_counts(failures)))
+    }
 
     # Keep any previously known values when this attempt came back empty.
     prior <- df %>%
@@ -1118,13 +1157,16 @@ run_school_status_with_cache <- function(df, geo_dir, google_api_key, nces_ref =
 #' @param google_api_key Character scalar.  Google Places API key.
 #' @param max_attempts Integer scalar.  Maximum number of retry passes
 #'   (default \code{5}).
+#' @param places_qps Maximum Google Places requests per second; see
+#'   \code{\link{run_school_status_with_cache}}.
 #'
 #' @return The \code{df} with updated \code{business_status} and
 #'   \code{status_reason} values for previously-failing rows.
 #' @export
 retry_transient_errors <- function(df,
                                    google_api_key,
-                                   max_attempts = 5) {
+                                   max_attempts = 5,
+                                   places_qps = 8) {
   
   attempt <- 1
   
@@ -1143,12 +1185,12 @@ retry_transient_errors <- function(df,
       break
     }
     
-    retry_list    <- lapply(df$place_id[retry_idx], get_place_details,
-                            google_api_key = google_api_key)
+    retry_list    <- .get_place_details_paced(df$place_id[retry_idx], google_api_key, places_qps)
     retry_results <- dplyr::bind_rows(lapply(retry_list, tibble::as_tibble))
     .log_api_calls("place_details_pro", "retry_transient_errors",
                    n_requests  = length(retry_idx),
-                   n_succeeded = sum(retry_results$status_reason %in% .status_resolved_reasons))
+                   n_succeeded = sum(retry_results$status_reason %in% .status_resolved_reasons),
+                   failure_codes = .place_failure_codes(retry_results))
 
     df$business_status[retry_idx] <- retry_results$business_status
     if (!"google_place_name" %in% names(df)) df$google_place_name <- NA_character_

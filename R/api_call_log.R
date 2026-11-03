@@ -12,6 +12,7 @@
 .api_log <- new.env(parent = emptyenv())
 .api_log$run    <- NULL
 .api_log$events <- NULL
+.api_log$failures <- NULL
 
 
 #' Google Maps Platform prices used for API cost estimates
@@ -62,13 +63,28 @@ start_api_log <- function(state = NA_character_, state_dir = NA_character_) {
     package_version = as.character(utils::packageVersion("tidyschoolvax"))
   )
   .api_log$events <- NULL
+  .api_log$failures <- NULL
   invisible(.api_log$run)
 }
 
 
-# Internal: record a batch of `n_requests` sent to `api` by `caller`.
-.log_api_calls <- function(api, caller, n_requests, n_succeeded) {
+# Internal: "HTTP 429: 20; no response: 1", most common first.
+.format_failure_counts <- function(codes) {
+  counts <- sort(table(codes), decreasing = TRUE)
+  paste(names(counts), counts, sep = ": ", collapse = "; ")
+}
+
+
+# Internal: record a batch of `n_requests` sent to `api` by `caller`, with the
+# reason for each failed request if known.
+.log_api_calls <- function(api, caller, n_requests, n_succeeded, failure_codes = character()) {
   if (n_requests == 0) return(invisible(NULL))
+  if (length(failure_codes) > 0) {
+    .api_log$failures <- dplyr::bind_rows(
+      .api_log$failures,
+      tibble::tibble(api = api, caller = caller, failure_code = failure_codes)
+    )
+  }
   .api_log$events <- dplyr::bind_rows(
     .api_log$events,
     tibble::tibble(
@@ -106,7 +122,8 @@ start_api_log <- function(state = NA_character_, state_dir = NA_character_) {
 #' @return A tibble with request counts and \code{est_cost_list_usd}, the cost
 #'   at list price before any free allowance.  Failed requests are included in
 #'   the cost, so it is an upper bound (Google doesn't bill some errors, such
-#'   as rate-limit rejections).
+#'   as rate-limit rejections).  \code{failure_codes} counts the failed requests
+#'   by cause where known, e.g. \code{"HTTP 429: 20; no response: 1"}.
 #' @export
 api_log_summary <- function(by_caller = FALSE, prices = google_api_prices()) {
   events <- .api_log$events
@@ -117,6 +134,15 @@ api_log_summary <- function(by_caller = FALSE, prices = google_api_prices()) {
   }
   group_cols <- if (by_caller) c("api", "caller") else "api"
 
+  failures <- .api_log$failures
+  if (is.null(failures)) {
+    failures <- tibble::tibble(api = character(), caller = character(),
+                               failure_code = character())
+  }
+  failure_codes <- failures %>%
+    dplyr::group_by(dplyr::across(dplyr::all_of(group_cols))) %>%
+    dplyr::summarise(failure_codes = .format_failure_counts(failure_code), .groups = "drop")
+
   events %>%
     dplyr::group_by(dplyr::across(dplyr::all_of(group_cols))) %>%
     dplyr::summarise(
@@ -125,6 +151,7 @@ api_log_summary <- function(by_caller = FALSE, prices = google_api_prices()) {
       failed    = sum(failed),
       .groups   = "drop"
     ) %>%
+    dplyr::left_join(failure_codes, by = group_cols) %>%
     dplyr::left_join(prices, by = "api") %>%
     dplyr::mutate(est_cost_list_usd = round(requests * usd_per_1000 / 1000, 2))
 }
@@ -173,7 +200,7 @@ write_api_log <- function(log_dir, status = "completed", prices = google_api_pri
   if (nrow(detail) == 0) {
     detail <- tibble::tibble(api = NA_character_, caller = NA_character_,
                              requests = 0L, succeeded = 0L, failed = 0L,
-                             google_sku = NA_character_, usd_per_1000 = NA_real_,
+                             failure_codes = NA_character_, google_sku = NA_character_, usd_per_1000 = NA_real_,
                              free_per_month = NA_real_, est_cost_list_usd = 0)
   }
   state_tag <- if (is.na(run$state) || !nzchar(run$state)) "all" else run$state
@@ -240,6 +267,10 @@ write_api_log <- function(log_dir, status = "completed", prices = google_api_pri
         r$est_cost_after_free_usd, as.integer(r$month_to_date_requests),
         as.integer(r$free_per_month)
       ))
+    }
+    failed <- dplyr::filter(api_log_summary(), !is.na(failure_codes))
+    for (i in seq_len(nrow(failed))) {
+      msg <- paste0(msg, sprintf("  %s failures: %s\n", failed$google_sku[i], failed$failure_codes[i]))
     }
     msg <- paste0(msg, sprintf("  Total at list price: $%.2f\n", sum(run_summary$est_cost_list_usd)))
   }

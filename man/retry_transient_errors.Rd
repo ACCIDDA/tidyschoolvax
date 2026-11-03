@@ -4,7 +4,7 @@
 \alias{retry_transient_errors}
 \title{Retry Google Places status lookup for rows with transient errors}
 \usage{
-retry_transient_errors(df, google_api_key, max_attempts = 5)
+retry_transient_errors(df, google_api_key, max_attempts = 5, places_qps = 8)
 }
 \arguments{
 \item{df}{A data frame previously processed by
@@ -15,6 +15,9 @@ retry_transient_errors(df, google_api_key, max_attempts = 5)
 
 \item{max_attempts}{Integer scalar.  Maximum number of retry passes
 (default \code{5}).}
+
+\item{places_qps}{Maximum Google Places requests per second; see
+\code{\link{run_school_status_with_cache}}.}
 }
 \value{
 The \code{df} with updated \code{business_status} and

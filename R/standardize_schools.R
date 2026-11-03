@@ -76,6 +76,8 @@
 #' @param api_qps Positive numeric. Passed to \code{\link{run_full_geocoding}}.
 #'   Maximum Google Geocoding API queries per second used to throttle
 #'   sequential API chunks.  Defaults to \code{50}.
+#' @param places_qps Positive numeric. Maximum Google Places requests per
+#'   second (default \code{8}); see \code{\link{run_school_status_with_cache}}.
 #' @param api_log_dir Directory for the Google API call logs written at the
 #'   end of the run (see \code{\link{write_api_log}}), even if the run errors.
 #'   Defaults to an \code{api_logs} folder shared by all states
@@ -121,7 +123,8 @@ standardize_schools <- function(state_id,
                                 include_prek_only_reference = FALSE,
                                 use_nces = TRUE,
                                 nces_cache_dir = file.path(state_geo_dir, "nces"),
-                                api_log_dir = file.path(dirname(dirname(state_dir)), "api_logs")) {
+                                api_log_dir = file.path(dirname(dirname(state_dir)), "api_logs"),
+                                places_qps = 8) {
 
   # Count every Google API request this run sends; write the log on exit.
   start_api_log(state = state_id, state_dir = state_dir)
@@ -172,7 +175,7 @@ standardize_schools <- function(state_id,
     temp_data_dir    = temp_data_dir, state_dir = state_dir, review_dir = review_dir,
     google_api_key   = google_api_key, addr_source_pref = addr_source_pref,
     parallel         = parallel, parallel_cache = parallel_cache, api_qps = api_qps,
-    nces_ref         = nces_ref
+    nces_ref         = nces_ref, places_qps = places_qps
   )
   run_status <- "completed"
   invisible(result)
@@ -191,7 +194,7 @@ standardize_schools <- function(state_id,
 #' @param greatschools_dat,doe_dat,kinder_dat,other_dat Already-cleaned
 #'   source data frames (\code{other_dat} may be \code{NULL}).
 #' @param kinder_has_addr Logical; see \code{\link{clean_kinder_data}}.
-#' @param state_id,state_geo_dir,temp_data_dir,state_dir,addr_source_pref,parallel,parallel_cache,api_qps
+#' @param state_id,state_geo_dir,temp_data_dir,state_dir,addr_source_pref,parallel,parallel_cache,api_qps,places_qps
 #'   See \code{\link{standardize_schools}}.
 #' @param review_dir Directory QC reports are written to (normally
 #'   \code{file.path(state_dir, "01_cleaning", "cleaning_temp")}).
@@ -208,7 +211,7 @@ standardize_schools <- function(state_id,
                                           state_dir, review_dir, google_api_key,
                                           addr_source_pref = "greatschools",
                                           parallel = FALSE, parallel_cache = TRUE,
-                                          api_qps = 50, nces_ref = NULL) {
+                                          api_qps = 50, nces_ref = NULL, places_qps = 8) {
 
   # ==============================================================================
   # PART 2: Build a location-key table per source
@@ -294,7 +297,7 @@ standardize_schools <- function(state_id,
     # against whichever name Google currently has on file, not just
     # whatever GS/DOE happened to record.
     add_google_name_variants(geo_dir = state_geo_dir, google_api_key = google_api_key,
-                             nces_ref = nces_ref)
+                             nces_ref = nces_ref, places_qps = places_qps)
 
   # ==============================================================================
   # PART 6: Kindergarten — exact match (requiring every geographic variable
@@ -609,7 +612,8 @@ standardize_schools <- function(state_id,
     df             = geocoded_schools_clean,
     geo_dir        = state_geo_dir,
     google_api_key = google_api_key,
-    nces_ref       = nces_ref
+    nces_ref       = nces_ref,
+    places_qps     = places_qps
   )
 
   # Normalise business_status to lowercase for consistency

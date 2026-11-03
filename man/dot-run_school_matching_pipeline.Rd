@@ -20,7 +20,8 @@
   parallel = FALSE,
   parallel_cache = TRUE,
   api_qps = 50,
-  nces_ref = NULL
+  nces_ref = NULL,
+  places_qps = 8
 )
 }
 \arguments{
@@ -29,7 +30,7 @@ source data frames (\code{other_dat} may be \code{NULL}).}
 
 \item{kinder_has_addr}{Logical; see \code{\link{clean_kinder_data}}.}
 
-\item{state_id, state_geo_dir, temp_data_dir, state_dir, addr_source_pref, parallel, parallel_cache, api_qps}{See \code{\link{standardize_schools}}.}
+\item{state_id, state_geo_dir, temp_data_dir, state_dir, addr_source_pref, parallel, parallel_cache, api_qps, places_qps}{See \code{\link{standardize_schools}}.}
 
 \item{review_dir}{Directory QC reports are written to (normally
 \code{file.path(state_dir, "01_cleaning", "cleaning_temp")}).}
