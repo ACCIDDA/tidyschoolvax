@@ -8,7 +8,8 @@ clean_greatschools_data(
   gs_dat,
   state_abbr,
   po_box_action = c("blank", "drop", "keep"),
-  elementary_only = FALSE
+  elementary_only = FALSE,
+  exclude_prek_only = FALSE
 )
 }
 \arguments{
@@ -35,6 +36,10 @@ flags the affected rows (all \code{FALSE} when action is \code{"drop"}).}
 \item{elementary_only}{Logical (default \code{FALSE}).  If \code{TRUE}, drop
 schools whose \code{level_code} has no elementary or pre-K level (e.g.
 \code{"m"}, \code{"h"}, \code{"m,h"}).  Unknown level codes are kept.}
+
+\item{exclude_prek_only}{Logical (default \code{FALSE}).  If \code{TRUE},
+drop pre-K-only schools (preschools and day cares without kindergarten;
+\code{level_code == "p"}).}
 }
 \value{
 The enriched data frame with additional columns:

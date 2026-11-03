@@ -4,7 +4,7 @@
 \alias{add_google_name_variants}
 \title{Add Google's current place name as a matching key}
 \usage{
-add_google_name_variants(df, geo_dir, google_api_key)
+add_google_name_variants(df, geo_dir, google_api_key, nces_ref = NULL)
 }
 \arguments{
 \item{df}{A data frame with a \code{place_id} column (e.g. the output of
@@ -13,6 +13,9 @@ add_google_name_variants(df, geo_dir, google_api_key)
 \item{geo_dir}{Path to the directory used for the status/name cache.}
 
 \item{google_api_key}{Google Places API key.}
+
+\item{nces_ref}{Optional NCES reference (\code{\link{load_nces_reference}});
+schools NCES covers take their current name from NCES instead of Google.}
 }
 \value{
 \code{df} with a \code{school_name_std_google} column added

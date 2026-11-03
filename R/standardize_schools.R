@@ -45,6 +45,22 @@
 #'   that a source mislabels as non-elementary; set \code{FALSE} to keep the
 #'   full reference for exact and place_id matching (fuzzy matching is always
 #'   limited to elementary-eligible schools).
+#' @param include_prek_only_reference Logical (default \code{FALSE}).
+#'   GreatSchools lists many preschools and day cares that don't offer
+#'   kindergarten (\code{level_code == "p"}); by default they are dropped
+#'   from the reference tables, which avoids false matches and the Google
+#'   geocoding and Places lookups they would otherwise trigger.  Centers that
+#'   report kindergarten are unaffected -- their own vaccination records are
+#'   always processed.  Set \code{TRUE} to keep pre-K-only schools.
+#' @param use_nces Logical (default \code{TRUE}).  Take school open/closed
+#'   status and current names from the NCES public (CCD) and private (PSS)
+#'   school directories where a school matches one, and send only the
+#'   remaining places to the paid Google Places API.  See
+#'   \code{\link{load_nces_reference}}; if the NCES download fails the run
+#'   falls back to Google for every school.  NCES data is pulled from the year
+#'   before the first year of vaccination data onward.
+#' @param nces_cache_dir Directory for the cached NCES reference file
+#'   (defaults to an \code{nces} folder inside \code{state_geo_dir}).
 #' @param parallel Logical. If \code{TRUE}, the per-row R post-processing loop
 #'   inside every \code{\link{match_schools_names}} call is dispatched to worker
 #'   processes via \code{\link[furrr:future_map]{furrr::future_map()}}. The
@@ -102,6 +118,9 @@ standardize_schools <- function(state_id,
                                 api_qps = 50,
                                 po_box_action = c("blank", "drop", "keep"),
                                 elementary_only_reference = TRUE,
+                                include_prek_only_reference = FALSE,
+                                use_nces = TRUE,
+                                nces_cache_dir = file.path(state_geo_dir, "nces"),
                                 api_log_dir = file.path(dirname(dirname(state_dir)), "api_logs")) {
 
   # Count every Google API request this run sends; write the log on exit.
@@ -126,16 +145,25 @@ standardize_schools <- function(state_id,
     gs_dat = readRDS(file.path(greatschools_dir, "greatschools_dat.RDS")),
     state_abbr = state_id,
     po_box_action = match.arg(po_box_action),
-    elementary_only = elementary_only_reference
+    elementary_only = elementary_only_reference,
+    exclude_prek_only = !include_prek_only_reference
   )
 
   doe_dat <- clean_doe_data(readRDS(file.path(doe_dir, "doe_dat.rds")),
-                            elementary_only = elementary_only_reference)
+                            elementary_only = elementary_only_reference,
+                            exclude_prek_only = !include_prek_only_reference)
 
   other_dat <- setup_other_sourcedata(
     other_dat_filenames = c("other_dat.csv", "other_dat.xlsx"),
     state_school_dir    = state_school_dir
   )
+
+  nces_ref <- if (isTRUE(use_nces)) {
+    load_nces_reference(state_id, cache_dir = nces_cache_dir,
+                        first_year = .nces_first_year(kinder_dat$year_source))
+  } else {
+    NULL
+  }
 
   result <- .run_school_matching_pipeline(
     greatschools_dat = greatschools_dat, doe_dat = doe_dat, kinder_dat = kinder_dat,
@@ -143,7 +171,8 @@ standardize_schools <- function(state_id,
     state_id         = state_id, state_geo_dir = state_geo_dir,
     temp_data_dir    = temp_data_dir, state_dir = state_dir, review_dir = review_dir,
     google_api_key   = google_api_key, addr_source_pref = addr_source_pref,
-    parallel         = parallel, parallel_cache = parallel_cache, api_qps = api_qps
+    parallel         = parallel, parallel_cache = parallel_cache, api_qps = api_qps,
+    nces_ref         = nces_ref
   )
   run_status <- "completed"
   invisible(result)
@@ -167,6 +196,8 @@ standardize_schools <- function(state_id,
 #' @param review_dir Directory QC reports are written to (normally
 #'   \code{file.path(state_dir, "01_cleaning", "cleaning_temp")}).
 #' @param google_api_key Google Geocoding/Places API key.
+#' @param nces_ref Optional NCES reference (\code{\link{load_nces_reference}})
+#'   used for school status and names before falling back to Google Places.
 #'
 #' @return The final long-form data frame (invisibly), also written to
 #'   \code{temp_data_dir} as \code{kinder_vaccination_clean_02.csv/.rds}.
@@ -177,7 +208,7 @@ standardize_schools <- function(state_id,
                                           state_dir, review_dir, google_api_key,
                                           addr_source_pref = "greatschools",
                                           parallel = FALSE, parallel_cache = TRUE,
-                                          api_qps = 50) {
+                                          api_qps = 50, nces_ref = NULL) {
 
   # ==============================================================================
   # PART 2: Build a location-key table per source
@@ -262,7 +293,8 @@ standardize_schools <- function(state_id,
     # below, so even the last-resort fuzzy pass can match a kinder record
     # against whichever name Google currently has on file, not just
     # whatever GS/DOE happened to record.
-    add_google_name_variants(geo_dir = state_geo_dir, google_api_key = google_api_key)
+    add_google_name_variants(geo_dir = state_geo_dir, google_api_key = google_api_key,
+                             nces_ref = nces_ref)
 
   # ==============================================================================
   # PART 6: Kindergarten — exact match (requiring every geographic variable
@@ -576,7 +608,8 @@ standardize_schools <- function(state_id,
   schools_status <- run_school_status_with_cache(
     df             = geocoded_schools_clean,
     geo_dir        = state_geo_dir,
-    google_api_key = google_api_key
+    google_api_key = google_api_key,
+    nces_ref       = nces_ref
   )
 
   # Normalise business_status to lowercase for consistency

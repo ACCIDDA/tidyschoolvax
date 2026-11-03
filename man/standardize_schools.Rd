@@ -19,6 +19,9 @@ standardize_schools(
   api_qps = 50,
   po_box_action = c("blank", "drop", "keep"),
   elementary_only_reference = TRUE,
+  include_prek_only_reference = FALSE,
+  use_nces = TRUE,
+  nces_cache_dir = file.path(state_geo_dir, "nces"),
   api_log_dir = file.path(dirname(dirname(state_dir)), "api_logs")
 )
 }
@@ -74,6 +77,25 @@ matching same-named secondary schools. Note it also removes a real school
 that a source mislabels as non-elementary; set \code{FALSE} to keep the
 full reference for exact and place_id matching (fuzzy matching is always
 limited to elementary-eligible schools).}
+
+\item{include_prek_only_reference}{Logical (default \code{FALSE}).
+GreatSchools lists many preschools and day cares that don't offer
+kindergarten (\code{level_code == "p"}); by default they are dropped
+from the reference tables, which avoids false matches and the Google
+geocoding and Places lookups they would otherwise trigger.  Centers that
+report kindergarten are unaffected -- their own vaccination records are
+always processed.  Set \code{TRUE} to keep pre-K-only schools.}
+
+\item{use_nces}{Logical (default \code{TRUE}).  Take school open/closed
+status and current names from the NCES public (CCD) and private (PSS)
+school directories where a school matches one, and send only the
+remaining places to the paid Google Places API.  See
+\code{\link{load_nces_reference}}; if the NCES download fails the run
+falls back to Google for every school.  NCES data is pulled from the year
+before the first year of vaccination data onward.}
+
+\item{nces_cache_dir}{Directory for the cached NCES reference file
+(defaults to an \code{nces} folder inside \code{state_geo_dir}).}
 
 \item{api_log_dir}{Directory for the Google API call logs written at the
 end of the run (see \code{\link{write_api_log}}), even if the run errors.
