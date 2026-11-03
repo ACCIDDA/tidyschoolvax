@@ -145,6 +145,9 @@ test_that("a place shared by different schools doesn't match one of them", {
                            name = c("Pine Elementary", "Unrelated Academy", "Another Christian School"))
   expect_equal(nrow(match_places_to_nces(county, nces_fixture())), 0)
 
+  half_matching <- county[1:2, ]
+  expect_equal(nrow(match_places_to_nces(half_matching, nces_fixture())), 0)
+
   # Variants of one school's name still match, as does a place with one odd name out.
   variants <- tibble::tibble(place_id = "one", lat = 39.1, lon = -76.1,
                              name = c("Pine Elementary", "Pine Elementary School", "Pine Elem"))
