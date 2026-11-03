@@ -18,15 +18,18 @@ and \code{name}; may contain several rows per \code{place_id}.}
 }
 \value{
 One row per matched \code{place_id} with \code{nces_id},
-  \code{nces_source}, \code{nces_name}, \code{business_status},
+  \code{nces_source}, \code{nces_name} (the school's current name, even
+  when a former name matched), \code{business_status},
   \code{dist_m}, and \code{name_sim}.
 }
 \description{
 A place matches an NCES school when the two are within \code{max_dist_m}
 metres and their standardized names (\code{\link{standardized_school_name}})
-have Jaro-Winkler similarity of at least \code{min_name_sim}. A place may
-carry several candidate names (one row each, e.g. the source-data name and
-Google's name); the best-scoring name is used. When several NCES schools
+have Jaro-Winkler similarity of at least \code{min_name_sim}. Every name
+NCES has listed for the school counts, so a renamed school still matches on
+its former name. A place may carry several candidate names (one row each,
+e.g. the source-data name and Google's name); the best-scoring pair of names
+is used. When several NCES schools
 qualify, one with a known open status is preferred (a new school on the
 site of a closed one), then the most similar name, then the nearest.
 }

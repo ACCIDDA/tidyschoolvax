@@ -282,9 +282,11 @@ load_nces_reference <- function(state_abbr, cache_dir, first_year = 2015,
 #'
 #' A place matches an NCES school when the two are within \code{max_dist_m}
 #' metres and their standardized names (\code{\link{standardized_school_name}})
-#' have Jaro-Winkler similarity of at least \code{min_name_sim}. A place may
-#' carry several candidate names (one row each, e.g. the source-data name and
-#' Google's name); the best-scoring name is used. When several NCES schools
+#' have Jaro-Winkler similarity of at least \code{min_name_sim}. Every name
+#' NCES has listed for the school counts, so a renamed school still matches on
+#' its former name. A place may carry several candidate names (one row each,
+#' e.g. the source-data name and Google's name); the best-scoring pair of names
+#' is used. When several NCES schools
 #' qualify, one with a known open status is preferred (a new school on the
 #' site of a closed one), then the most similar name, then the nearest.
 #'
@@ -295,7 +297,8 @@ load_nces_reference <- function(state_abbr, cache_dir, first_year = 2015,
 #' @param min_name_sim Minimum Jaro-Winkler similarity (0-1).
 #'
 #' @return One row per matched \code{place_id} with \code{nces_id},
-#'   \code{nces_source}, \code{nces_name}, \code{business_status},
+#'   \code{nces_source}, \code{nces_name} (the school's current name, even
+#'   when a former name matched), \code{business_status},
 #'   \code{dist_m}, and \code{name_sim}.
 #' @export
 match_places_to_nces <- function(places, nces_ref, max_dist_m = 300, min_name_sim = 0.85) {
@@ -313,9 +316,12 @@ match_places_to_nces <- function(places, nces_ref, max_dist_m = 300, min_name_si
 
   # Bounding-box pre-filter (non-equi join on latitude), then exact distance.
   dlat <- max_dist_m / 111320
-  n <- data.table::as.data.table(nces_ref)[
-    , `:=`(lat_lo = lat - dlat, lat_hi = lat + dlat,
-           nces_name_std = standardized_school_name(nces_name))]
+  # One row per name the school has had; nces_name stays the current name.
+  school_names <- strsplit(dplyr::coalesce(nces_ref$nces_names, nces_ref$nces_name), " | ",
+                           fixed = TRUE)
+  n <- data.table::as.data.table(nces_ref)[rep(seq_len(nrow(nces_ref)), lengths(school_names))]
+  n[, `:=`(lat_lo = lat - dlat, lat_hi = lat + dlat,
+           nces_name_std = standardized_school_name(unlist(school_names)))]
   data.table::setnames(n, c("lat", "lon"), c("n_lat", "n_lon"))
   pdt <- data.table::as.data.table(p)
   cand <- n[pdt, on = .(lat_lo <= lat, lat_hi >= lat), nomatch = 0L, allow.cartesian = TRUE,

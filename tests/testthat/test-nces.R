@@ -139,6 +139,26 @@ test_that("places match NCES schools by distance and name, preferring open ones"
   expect_equal(nrow(match_places_to_nces(places, NULL)), 0)
 })
 
+test_that("a former name matches but the current name is returned", {
+  ref <- tibble::tibble(
+    nces_id = c("A1", "B2"), nces_source = "nces_ccd",
+    nces_name = c("Belair-Edison School", "Pine Elementary"),
+    nces_names = c("Belair-Edison School | Brehms Lane Elementary", NA),
+    lat = c(39, 39.1), lon = c(-76, -76.1), last_seen = 2024L, business_status = "OPERATIONAL"
+  )
+  places <- tibble::tibble(place_id = c("g1", "g2", "g3"), lat = c(39, 39, 39.1),
+                           lon = c(-76, -76, -76.1),
+                           name = c("Brehms Lane Elementary", "Unrelated Academy",
+                                    "Pine Elementary"))
+  m <- match_places_to_nces(places, ref)
+  # g3's school has no name history: its current name is still used.
+  expect_setequal(m$place_id, c("g1", "g3"))
+  expect_equal(m$nces_id[m$place_id == "g1"], "A1")
+  expect_equal(m$nces_name[m$place_id == "g1"], "Belair-Edison School")
+  expect_equal(m$name_sim[m$place_id == "g1"], 1)
+  expect_equal(anyDuplicated(m$place_id), 0)
+})
+
 test_that("run_school_status_with_cache takes NCES matches without calling Google", {
   geo_dir <- withr::local_tempdir()
   google_calls <- character()
