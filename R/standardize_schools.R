@@ -123,8 +123,8 @@ standardize_schools <- function(state_id,
                                 include_prek_only_reference = FALSE,
                                 use_nces = TRUE,
                                 nces_cache_dir = file.path(state_geo_dir, "nces"),
-                                places_qps = 8,
-                                api_log_dir = file.path(dirname(dirname(state_dir)), "api_logs")) {
+                                api_log_dir = file.path(dirname(dirname(state_dir)), "api_logs"),
+                                places_qps = 8) {
 
   # Count every Google API request this run sends; write the log on exit.
   start_api_log(state = state_id, state_dir = state_dir)
