@@ -17,6 +17,7 @@ dqa_check_too_high(df, state_dir = NULL, state = "state")
 A list with components \code{data} (unchanged) and \code{n_flagged}.
 }
 \description{
-Flags rows where \code{current}, \code{med_exempt}, or \code{rel_exempt}
-individually exceed \code{enrollment} and optionally exports them to a CSV.
+Flags rows where \code{current}, \code{med_exempt}, \code{rel_exempt}, or
+\code{total_exempt} (if present) individually exceed \code{enrollment} and
+optionally exports them to a CSV.
 }

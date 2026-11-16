@@ -275,13 +275,23 @@ dplyr::left_join(
 
 
 # =============================================================================
-# 04_final_formatting.R. `med_exempt_col` and `rel_exempt_col` are required
-# arguments to `standardize_kinder_format()`. If your state does not provide
-# one or both exemption columns, this template creates placeholder NA columns
-# below so the required mappings can still be passed safely.
-
+# PART 5. STANDARDIZE COLUMN FORMAT
+# =============================================================================
 # GENERIC — map state-specific column names to the standard set expected by
 # 04_final_formatting.R.
+#
+# Exemptions: `med_exempt_col` and `rel_exempt_col` are required arguments to
+# `standardize_kinder_format()`.
+#   - If your state reports medical and religious exemptions separately, map
+#     them below as usual.
+#   - If your state reports only a COMBINED exemption count (e.g. MA), leave
+#     the placeholder NA med/rel columns created below and also pass
+#     `total_exempt_col` (uncomment that line). Records with a non-missing
+#     total_exempt are then kept in 04_final_formatting.R even though
+#     med_exempt / rel_exempt are NA. total_exempt must be a COUNT, not a rate.
+#   - If your state reports no exemption data, the placeholders below let the
+#     required mappings still be passed safely.
+
 # GENERIC — ensure required exemption columns exist even when the state does
 # not report them.
 if (!"med_exempt" %in% names(kinder_dat)) {
@@ -291,14 +301,8 @@ if (!"rel_exempt" %in% names(kinder_dat)) {
   kinder_dat$rel_exempt <- NA_real_
 }
 
-#
 # CUSTOMIZE: Update each *_col argument to match THIS state's actual column
-# names.  med_exempt_col and rel_exempt_col are required by
-# standardize_kinder_format().  If the state does not provide exemption counts,
-# create placeholder NA columns before calling this function:
-#   kinder_dat$med_exempt <- NA_integer_
-  med_exempt_col      = "med_exempt",        # CUSTOMIZE if column name differs
-  rel_exempt_col      = "rel_exempt",        # CUSTOMIZE if column name differs
+# names.
 kinder_dat <- standardize_kinder_format(
   df                  = kinder_dat,
   school_id_col       = "school_id",        # CUSTOMIZE if column name differs
@@ -307,6 +311,7 @@ kinder_dat <- standardize_kinder_format(
   current_col         = "count",             # CUSTOMIZE: e.g. "count_vacc" for MD
   med_exempt_col      = "med_exempt",        # CUSTOMIZE: column of medical exemption counts
   rel_exempt_col      = "rel_exempt",        # CUSTOMIZE: column of religious exemption counts
+  # total_exempt_col  = "total_exempt",      # CUSTOMIZE: combined exemption counts (only if no med/rel split)
   school_name_col     = "school_name_orig",
   county_name_col     = "county_std",
   vaccine_type_col    = "category",          # CUSTOMIZE if column name differs

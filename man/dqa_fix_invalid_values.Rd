@@ -11,6 +11,7 @@ dqa_fix_invalid_values(
   current_col = "current",
   med_exempt_col = "med_exempt",
   rel_exempt_col = "rel_exempt",
+  total_exempt_col = "total_exempt",
   delayed_col = "delayed",
   note_col = "excluded_note",
   temp_data_dir,
@@ -33,6 +34,9 @@ dqa_fix_invalid_values(
 
 \item{rel_exempt_col}{Name of the religious-exemption column (default
 \code{"rel_exempt"}).}
+
+\item{total_exempt_col}{Name of the optional combined-exemption column
+(default \code{"total_exempt"}).  Checked only if present in \code{df}.}
 
 \item{delayed_col}{Name of the delayed-vaccination column (default
 \code{"delayed"}).  Used only for NA-count reporting.}
@@ -57,6 +61,9 @@ Applies automatic corrections for impossible count values:
   \item \code{current > enrollment} — set \code{current} to \code{NA}
   \item any single exemption count or the sum of exemptions exceeds
         \code{enrollment} — set both exemption columns to \code{NA}
+  \item \code{total_exempt > enrollment} (only when the
+        \code{total_exempt} column is present) — set \code{total_exempt}
+        to \code{NA}
 }
 Before modifying, affected rows are exported as a CSV to \code{temp_data_dir}
 for audit purposes.

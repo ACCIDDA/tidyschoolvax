@@ -18,5 +18,6 @@ A list with components \code{data} (unchanged) and \code{n_flagged}.
 }
 \description{
 Flags rows containing negative values in \code{current}, \code{med_exempt},
-\code{rel_exempt}, or \code{enrollment} and optionally exports them to a CSV.
+\code{rel_exempt}, \code{total_exempt} (if present), or \code{enrollment}
+and optionally exports them to a CSV.
 }
