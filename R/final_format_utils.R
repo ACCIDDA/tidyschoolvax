@@ -1118,10 +1118,10 @@ print_dqa_summary <- function(dqa_report) {
 #' Run Final Formatting and DQA Checks
 #'
 #' @description
-#' State-agnostic wrapper that:
+#' State-agnostic wrapper that, for each vaccine series requested:
 #' \enumerate{
 #'   \item Loads the state-specific cleaned data from step 03.
-#'   \item Optionally filters to a single vaccine type.
+#'   \item Filters to that vaccine type.
 #'   \item Applies automatic DQA corrections (zero enrollment, invalid counts).
 #'   \item Selects and type-coerces columns to the canonical format.
 #'   \item Saves \code{cleaned_data.rds} and \code{cleaned_data.csv} to
@@ -1132,10 +1132,38 @@ print_dqa_summary <- function(dqa_report) {
 #'   \item Saves all model-input tables to \code{outputs_data_dir}.
 #' }
 #'
+#' @details
+#' \strong{One series versus several.} The formatting and DQA steps work on a
+#' single vaccine series at a time: the duplicate removal keys on school, year
+#' and name, and checks such as the deviation of \code{current} from a school's
+#' mean compare every row of a school with every other row. Putting two series
+#' (e.g. \code{"mmr"} and an all-vaccines rate) through one pass would collapse
+#' one into the other and raise false flags. So when several types are
+#' requested, each is run through the same single-series pipeline, into its own
+#' subfolder, and the cleaned tables are then stacked into one labelled file.
+#'
+#' With a single type the behaviour and output layout are unchanged. With
+#' several types (or \code{NULL}), for every type \code{<t>} the outputs go to
+#' \code{<dir>/<t>/} for \code{temp_data_dir}, \code{clean_data_dir},
+#' \code{state_dir} and \code{outputs_data_dir}, and
+#' \code{cleaned_data_all_types.rds} / \code{.csv} (all series stacked, with a
+#' \code{vaccine_type} column) is written to \code{clean_data_dir}. Folder
+#' names are the lower-cased type with non-alphanumeric runs replaced by
+#' \code{"_"}.
+#'
+#' \strong{VaxView.} The CDC VaxView observations appended to \code{obs} are
+#' MMR coverage, so by default they are only added to a series whose name
+#' contains \code{"mmr"} when several types are requested. A single type keeps
+#' the previous behaviour (always added); set \code{include_vaxview} to override
+#' either way.
+#'
 #' @param state Two-letter state abbreviation (e.g., \code{"md"}).
-#' @param vaccine_type_to_keep Vaccine type string used to filter the
-#'   \code{vaccine_type} column (e.g., \code{"mmr"}).  The comparison is
-#'   case-insensitive.  If the column is absent the filter is skipped.
+#' @param vaccine_type_to_keep Which vaccine type(s) of the \code{vaccine_type}
+#'   column to process (comparison is case-insensitive). One string (e.g.
+#'   \code{"mmr"}) processes that series into the given directories. A character
+#'   vector of several types, or \code{NULL} for every type present in the data,
+#'   processes each into its own subfolder (see Details). With one string and no
+#'   \code{vaccine_type} column the filter is skipped, as before.
 #' @param temp_data_dir Path to the directory containing
 #'   \code{kinder_vaccination_clean_03.rds} and used for intermediate outputs.
 #' @param clean_data_dir Path to the directory where the final
@@ -1147,9 +1175,17 @@ print_dqa_summary <- function(dqa_report) {
 #'   output files.
 #' @param outputs_data_dir Path to the directory where model-input tables
 #'   (\code{obs}, \code{locations}, \code{obs_populations}) are written.
+#' @param include_vaxview \code{NULL} (default), \code{TRUE} or \code{FALSE}:
+#'   whether to append the VaxView MMR observations to \code{obs} and
+#'   \code{obs_populations}. \code{NULL} means \code{TRUE} for a single type and,
+#'   for several types, \code{TRUE} only for series whose name contains
+#'   \code{"mmr"}. \code{vax_view.parquet} must exist either way.
 #'
-#' @return A named list with components \code{kinder_dat}, \code{obs},
-#'   \code{locations}, and \code{obs_populations}, returned invisibly.
+#' @return For a single type, a named list with components \code{kinder_dat},
+#'   \code{obs}, \code{locations}, and \code{obs_populations}, returned
+#'   invisibly. For several types (or \code{NULL}), invisibly a list with
+#'   \code{by_type} (one such list per type, named by type) and
+#'   \code{cleaned_data_all_types} (the stacked cleaned tables).
 #'
 #' @importFrom dplyr filter mutate group_by ungroup if_any if_all across everything reframe slice_max arrange select bind_rows row_number case_when
 #' @importFrom data.table as.data.table data.table rbindlist setorder
@@ -1163,16 +1199,194 @@ run_final_formatting <- function(state,
                                  vaxview_dir,
                                  general_data_dir,
                                  state_dir,
-                                 outputs_data_dir) {
-  
+                                 outputs_data_dir,
+                                 include_vaxview = NULL) {
+
   if (!requireNamespace("arrow", quietly = TRUE)) {
     stop("Package 'arrow' is required for reading Parquet files. ",
          "Install with: install.packages('arrow')")
   }
-  
+  if (!is.null(include_vaxview) &&
+      !(is.logical(include_vaxview) && length(include_vaxview) == 1L && !is.na(include_vaxview))) {
+    stop("include_vaxview must be NULL, TRUE or FALSE.", call. = FALSE)
+  }
+
   # ---- Load inputs ------------------------------------------------------------
   kinder_dat <- readRDS(file.path(temp_data_dir, "kinder_vaccination_clean_03.rds"))
-  
+
+  # ---- One series: unchanged behaviour and output layout ----------------------
+  if (is.character(vaccine_type_to_keep) && length(vaccine_type_to_keep) == 1L &&
+      !is.na(vaccine_type_to_keep)) {
+    return(invisible(.run_final_formatting_one(
+      kinder_dat           = kinder_dat,
+      state                = state,
+      vaccine_type_to_keep = vaccine_type_to_keep,
+      temp_data_dir        = temp_data_dir,
+      clean_data_dir       = clean_data_dir,
+      vaxview_dir          = vaxview_dir,
+      general_data_dir     = general_data_dir,
+      state_dir            = state_dir,
+      outputs_data_dir     = outputs_data_dir,
+      include_vaxview      = if (is.null(include_vaxview)) TRUE else include_vaxview
+    )))
+  }
+
+  # ---- Several series: one single-series run each, into its own subfolder -----
+  types   <- .resolve_vaccine_types(kinder_dat, vaccine_type_to_keep)
+  subdirs <- .vaccine_type_dirnames(types)
+
+  by_type <- list()
+  for (i in seq_along(types)) {
+    vt <- types[[i]]
+    message("\n######## Vaccine type: ", vt, " ########")
+    dirs <- lapply(
+      list(temp = temp_data_dir, clean = clean_data_dir,
+           state = state_dir, outputs = outputs_data_dir),
+      function(d) {
+        out <- file.path(d, subdirs[[i]])
+        dir.create(out, recursive = TRUE, showWarnings = FALSE)
+        out
+      }
+    )
+    by_type[[vt]] <- .run_final_formatting_one(
+      kinder_dat           = kinder_dat,
+      state                = state,
+      vaccine_type_to_keep = vt,
+      temp_data_dir        = dirs$temp,
+      clean_data_dir       = dirs$clean,
+      vaxview_dir          = vaxview_dir,
+      general_data_dir     = general_data_dir,
+      state_dir            = dirs$state,
+      outputs_data_dir     = dirs$outputs,
+      include_vaxview      = if (is.null(include_vaxview)) {
+        grepl("mmr", vt, ignore.case = TRUE)
+      } else {
+        include_vaxview
+      }
+    )
+  }
+
+  # ---- Stack the cleaned tables into one labelled file ------------------------
+  cleaned_all <- dplyr::bind_rows(lapply(seq_along(types), function(i) {
+    readRDS(file.path(clean_data_dir, subdirs[[i]], "cleaned_data.rds")) %>%
+      dplyr::mutate(vaccine_type = types[[i]], .before = 1)
+  }))
+  saveRDS(cleaned_all, file.path(clean_data_dir, "cleaned_data_all_types.rds"))
+  readr::write_csv(cleaned_all, file.path(clean_data_dir, "cleaned_data_all_types.csv"))
+  message("\nStacked cleaned data for ", length(types), " vaccine type(s) (",
+          paste(types, collapse = ", "), "): ", nrow(cleaned_all), " rows -> ",
+          file.path(clean_data_dir, "cleaned_data_all_types.rds"))
+
+  invisible(list(by_type = by_type, cleaned_data_all_types = cleaned_all))
+}
+
+
+#' Repeat each row \code{n} times, numbered by \code{row_num}
+#'
+#' \code{group_by(everything()) \%>\% reframe(row_num = seq_len(n))}, which
+#' errors on a zero-row input (as when VaxView is switched off); the empty case
+#' just gets an empty \code{row_num} column.
+#'
+#' @param df A data frame.
+#' @param n Number of copies of each row.
+#' @return \code{df} with a \code{row_num} column.
+#' @keywords internal
+#' @noRd
+.expand_rows <- function(df, n) {
+  if (nrow(df) == 0L) {
+    return(dplyr::mutate(df, row_num = integer(0)))
+  }
+  # Spliced in with !! so a column of df called `n` (VaxView has one: the
+  # sample size) cannot mask the argument inside reframe().
+  copies <- seq_len(n)
+  df %>%
+    dplyr::group_by(dplyr::across(dplyr::everything())) %>%
+    dplyr::reframe(row_num = !!copies)
+}
+
+
+#' Resolve the vaccine types to process
+#'
+#' @param kinder_dat Step-03 data frame.
+#' @param vaccine_type_to_keep \code{NULL} (all types present) or a character
+#'   vector of requested types.
+#' @return Character vector of lower-cased, unique types present in the data,
+#'   in the order requested (or of first appearance for \code{NULL}).
+#' @keywords internal
+#' @noRd
+.resolve_vaccine_types <- function(kinder_dat, vaccine_type_to_keep) {
+  if (!"vaccine_type" %in% names(kinder_dat)) {
+    stop("Processing several vaccine types (or NULL) needs a 'vaccine_type' ",
+         "column in kinder_vaccination_clean_03.rds.", call. = FALSE)
+  }
+  present <- unique(tolower(trimws(stats::na.omit(as.character(kinder_dat$vaccine_type)))))
+  if (is.null(vaccine_type_to_keep)) {
+    if (length(present) == 0L) {
+      stop("vaccine_type_to_keep = NULL but no vaccine_type values were found.",
+           call. = FALSE)
+    }
+    return(present)
+  }
+  if (!is.character(vaccine_type_to_keep) || anyNA(vaccine_type_to_keep)) {
+    stop("vaccine_type_to_keep must be NULL or a character vector without NA.",
+         call. = FALSE)
+  }
+  wanted  <- unique(tolower(trimws(vaccine_type_to_keep)))
+  missing <- setdiff(wanted, present)
+  if (length(missing) > 0L) {
+    warning("Requested vaccine type(s) not in the data and skipped: ",
+            paste(missing, collapse = ", "), call. = FALSE)
+  }
+  keep <- intersect(wanted, present)
+  if (length(keep) == 0L) {
+    stop("None of the requested vaccine types are in the data. Present: ",
+         paste(present, collapse = ", "), call. = FALSE)
+  }
+  keep
+}
+
+
+#' Folder names for vaccine types
+#'
+#' Lower-cases, replaces runs of non-alphanumerics with \code{"_"}, and makes the
+#' result unique.
+#'
+#' @param types Character vector of vaccine types.
+#' @return Character vector of folder names, same length as \code{types}.
+#' @keywords internal
+#' @noRd
+.vaccine_type_dirnames <- function(types) {
+  d <- gsub("^_+|_+$", "", gsub("[^a-z0-9]+", "_", tolower(types)))
+  d[!nzchar(d)] <- "type"
+  make.unique(d, sep = "_")
+}
+
+
+#' Run final formatting for one vaccine series
+#'
+#' The single-series pipeline behind \code{\link{run_final_formatting}}: PART 0
+#' (filter to one vaccine type) through the model-input tables.
+#'
+#' @param kinder_dat Step-03 data frame (already read from
+#'   \code{kinder_vaccination_clean_03.rds}).
+#' @inheritParams run_final_formatting
+#' @param vaccine_type_to_keep A single vaccine type string.
+#' @param include_vaxview Logical; append VaxView MMR observations.
+#' @return Invisibly, a list with \code{kinder_dat}, \code{obs},
+#'   \code{locations} and \code{obs_populations}.
+#' @keywords internal
+#' @noRd
+.run_final_formatting_one <- function(kinder_dat,
+                                      state,
+                                      vaccine_type_to_keep,
+                                      temp_data_dir,
+                                      clean_data_dir,
+                                      vaxview_dir,
+                                      general_data_dir,
+                                      state_dir,
+                                      outputs_data_dir,
+                                      include_vaxview = TRUE) {
+
   # ---- PART 0: Vaccine type filter --------------------------------------------
   if ("vaccine_type" %in% names(kinder_dat)) {
     kinder_dat <- kinder_dat %>%
@@ -1182,7 +1396,7 @@ run_final_formatting <- function(state,
   } else {
     message("Column 'vaccine_type' not found — skipping filter")
   }
-  
+
   # ---- PART 1: Automatic DQA corrections -------------------------------------
   message("\n=== PART 1: Running data quality checks ===")
   
@@ -1417,6 +1631,12 @@ run_final_formatting <- function(state,
     dplyr::filter(!stringr::str_detect(vaccine, stringr::regex("PAC", ignore_case = TRUE))) %>%
     dplyr::filter(!age_range %in% c("13 Months", "19 Months")) %>%
     dplyr::filter(!is.na(n), !is.na(p))
+
+  # VaxView coverage here is MMR-only, so it does not belong with other series.
+  if (!include_vaxview) {
+    vaxview <- vaxview[0, ]
+    message("VaxView observations not added (include_vaxview = FALSE).")
+  }
   
   # ---- Expand rows: child = 2 rows per year, teen = 6 rows per year ----
   row_id_start <- if ("row_id" %in% names(obs) &&
@@ -1430,16 +1650,14 @@ run_final_formatting <- function(state,
   vaxview_child <- vaxview %>%
     dplyr::filter(pop == "child") %>%
     dplyr::mutate(row_id = row_id_start + dplyr::row_number()) %>%
-    dplyr::group_by(dplyr::across(dplyr::everything())) %>%
-    dplyr::reframe(row_num = 1:2)
+    .expand_rows(2L)
   
   n_child <- nrow(vaxview %>% dplyr::filter(pop == "child"))
   
   vaxview_teen <- vaxview %>%
     dplyr::filter(pop == "teen") %>%
     dplyr::mutate(row_id = row_id_start + n_child + dplyr::row_number()) %>%
-    dplyr::group_by(dplyr::across(dplyr::everything())) %>%
-    dplyr::reframe(row_num = 1:6)
+    .expand_rows(6L)
   
   n_teen <- nrow(vaxview %>% dplyr::filter(pop == "teen"))
   

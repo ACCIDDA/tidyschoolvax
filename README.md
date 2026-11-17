@@ -109,6 +109,12 @@ run_final_formatting(
 )
 ```
 
+`vaccine_type_to_keep` also takes several types (e.g. `c("mmr", "all_required")`) or `NULL` for
+every type in the data. Each is then formatted separately into its own subfolder (the series are
+never merged, since duplicate removal and the DQA checks assume one series), and a stacked,
+labelled `cleaned_data_all_types.rds` is written to `clean_data_dir`. VaxView, which is MMR-only,
+is added only to series named `mmr*` unless `include_vaxview` says otherwise.
+
 See `vignette("preprocessing-orchestration", package = "tidyschoolvax")` for a complete, annotated walkthrough.
 
 ## Key Functions
