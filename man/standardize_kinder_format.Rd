@@ -13,7 +13,6 @@ standardize_kinder_format(
   current_col,
   med_exempt_col,
   rel_exempt_col,
-  total_exempt_col = NULL,
   delayed_col = NULL,
   school_name_col = NULL,
   county_name_col = NULL,
@@ -28,7 +27,8 @@ standardize_kinder_format(
   state_col = NULL,
   business_status_col = NULL,
   lat_col = NULL,
-  lon_col = NULL
+  lon_col = NULL,
+  total_exempt_col = NULL
 )
 }
 \arguments{
@@ -50,13 +50,6 @@ standardize_kinder_format(
 If the state does not report medical and religious exemptions separately,
 pass placeholder all-\code{NA} columns here and supply
 \code{total_exempt_col} instead.}
-
-\item{total_exempt_col}{Column name for combined (total) exemption count
-(optional).  Use for states that report only a combined exemption count.
-When supplied, the output gains a \code{total_exempt} column, and records
-with a non-missing \code{total_exempt} are kept by
-\code{\link{run_final_formatting}} even if \code{med_exempt} /
-\code{rel_exempt} are \code{NA}.}
 
 \item{delayed_col}{Column name for delayed-vaccination count (optional).}
 
@@ -87,6 +80,13 @@ with a non-missing \code{total_exempt} are kept by
 \item{lat_col}{Column name for latitude (optional).}
 
 \item{lon_col}{Column name for longitude (optional).}
+
+\item{total_exempt_col}{Column name for combined (total) exemption count
+(optional).  Use for states that report only a combined exemption count.
+When supplied, the output gains a \code{total_exempt} column, and records
+with a non-missing \code{total_exempt} are kept by
+\code{\link{run_final_formatting}} even if \code{med_exempt} /
+\code{rel_exempt} are \code{NA}.}
 }
 \value{
 A \code{data.table} with canonical column names.

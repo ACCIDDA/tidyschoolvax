@@ -29,12 +29,6 @@
 #'   If the state does not report medical and religious exemptions separately,
 #'   pass placeholder all-\code{NA} columns here and supply
 #'   \code{total_exempt_col} instead.
-#' @param total_exempt_col Column name for combined (total) exemption count
-#'   (optional).  Use for states that report only a combined exemption count.
-#'   When supplied, the output gains a \code{total_exempt} column, and records
-#'   with a non-missing \code{total_exempt} are kept by
-#'   \code{\link{run_final_formatting}} even if \code{med_exempt} /
-#'   \code{rel_exempt} are \code{NA}.
 #' @param delayed_col Column name for delayed-vaccination count (optional).
 #' @param school_name_col Column name for school name (optional).
 #' @param county_name_col Column name for county name (optional).
@@ -50,6 +44,12 @@
 #' @param business_status_col Column name for business/operational status (optional).
 #' @param lat_col Column name for latitude (optional).
 #' @param lon_col Column name for longitude (optional).
+#' @param total_exempt_col Column name for combined (total) exemption count
+#'   (optional).  Use for states that report only a combined exemption count.
+#'   When supplied, the output gains a \code{total_exempt} column, and records
+#'   with a non-missing \code{total_exempt} are kept by
+#'   \code{\link{run_final_formatting}} even if \code{med_exempt} /
+#'   \code{rel_exempt} are \code{NA}.
 #'
 #' @return A \code{data.table} with canonical column names.
 #'
@@ -64,7 +64,6 @@ standardize_kinder_format <- function(
     current_col,
     med_exempt_col,
     rel_exempt_col,
-    total_exempt_col = NULL,
     delayed_col      = NULL,
     school_name_col  = NULL,
     county_name_col  = NULL,
@@ -79,7 +78,8 @@ standardize_kinder_format <- function(
     state_col        = NULL,
     business_status_col = NULL,
     lat_col          = NULL,
-    lon_col          = NULL
+    lon_col          = NULL,
+    total_exempt_col = NULL
 ) {
   req <- c(
     school_id_col, year_col, enrollment_col,
@@ -302,8 +302,6 @@ dqa_remove_zero_current <- function(df, dqa_report = NULL) {
 #'   \code{"med_exempt"}).
 #' @param rel_exempt_col Name of the religious-exemption column (default
 #'   \code{"rel_exempt"}).
-#' @param total_exempt_col Name of the optional combined-exemption column
-#'   (default \code{"total_exempt"}).  Checked only if present in \code{df}.
 #' @param delayed_col Name of the delayed-vaccination column (default
 #'   \code{"delayed"}).  Used only for NA-count reporting.
 #' @param note_col Name of the notes column (created if absent; default
@@ -312,6 +310,8 @@ dqa_remove_zero_current <- function(df, dqa_report = NULL) {
 #' @param state State abbreviation used in the output file name.
 #' @param export_prefix Prefix for the export file name (default
 #'   \code{"invalid_values_fixed"}).
+#' @param total_exempt_col Name of the optional combined-exemption column
+#'   (default \code{"total_exempt"}).  Checked only if present in \code{df}.
 #'
 #' @return A list with components \code{data} and \code{report}.
 #'
@@ -324,12 +324,12 @@ dqa_fix_invalid_values <- function(
     current_col = "current",
     med_exempt_col = "med_exempt",
     rel_exempt_col = "rel_exempt",
-    total_exempt_col = "total_exempt",
     delayed_col = "delayed",
     note_col = "excluded_note",
     temp_data_dir,
     state = "state",
-    export_prefix = "invalid_values_fixed"
+    export_prefix = "invalid_values_fixed",
+    total_exempt_col = "total_exempt"
 ) {
   req <- c(enrollment_col, current_col, med_exempt_col, rel_exempt_col)
   missing <- setdiff(req, names(df))

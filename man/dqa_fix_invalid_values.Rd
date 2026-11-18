@@ -11,12 +11,12 @@ dqa_fix_invalid_values(
   current_col = "current",
   med_exempt_col = "med_exempt",
   rel_exempt_col = "rel_exempt",
-  total_exempt_col = "total_exempt",
   delayed_col = "delayed",
   note_col = "excluded_note",
   temp_data_dir,
   state = "state",
-  export_prefix = "invalid_values_fixed"
+  export_prefix = "invalid_values_fixed",
+  total_exempt_col = "total_exempt"
 )
 }
 \arguments{
@@ -35,9 +35,6 @@ dqa_fix_invalid_values(
 \item{rel_exempt_col}{Name of the religious-exemption column (default
 \code{"rel_exempt"}).}
 
-\item{total_exempt_col}{Name of the optional combined-exemption column
-(default \code{"total_exempt"}).  Checked only if present in \code{df}.}
-
 \item{delayed_col}{Name of the delayed-vaccination column (default
 \code{"delayed"}).  Used only for NA-count reporting.}
 
@@ -50,6 +47,9 @@ dqa_fix_invalid_values(
 
 \item{export_prefix}{Prefix for the export file name (default
 \code{"invalid_values_fixed"}).}
+
+\item{total_exempt_col}{Name of the optional combined-exemption column
+(default \code{"total_exempt"}).  Checked only if present in \code{df}.}
 }
 \value{
 A list with components \code{data} and \code{report}.
