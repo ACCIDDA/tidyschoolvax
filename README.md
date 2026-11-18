@@ -137,6 +137,7 @@ See `vignette("preprocessing-orchestration", package = "tidyschoolvax")` for a c
 | `clean_greatschools_data()` | Clean GreatSchools.org data |
 | `standardize_kinder_format()` | Standardize column formats for kindergarten data |
 | `run_final_formatting()` | Apply final formatting rules and DQA checks |
+| `estimate_api_cost()` | Estimate a run's Google API requests and cost beforehand by running `standardize_schools()` in dry-run mode (nothing is sent or cached); the actual cost of a run is logged to `api_logs/` |
 
 ### Data Quality Assurance (DQA)
 

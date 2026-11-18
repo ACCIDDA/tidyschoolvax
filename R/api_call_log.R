@@ -13,6 +13,7 @@
 .api_log$run    <- NULL
 .api_log$events <- NULL
 .api_log$failures <- NULL
+.api_log$dry_run  <- FALSE
 
 
 #' Google Maps Platform prices used for API cost estimates
@@ -35,6 +36,21 @@ google_api_prices <- function() {
     usd_per_1000   = c(5, 17),
     free_per_month = c(10000, 5000)
   )
+}
+
+
+# Internal: is this a dry run? In a dry run the Google call sites count the requests
+# they would send, through the same logger as a real run, but send nothing, return
+# synthetic place_ids, and write no cache. See estimate_api_cost().
+.api_dry_run <- function() isTRUE(.api_log$dry_run)
+
+
+# Internal: run `code` with dry-run mode on, restoring the previous setting after.
+.with_api_dry_run <- function(code) {
+  previous <- .api_log$dry_run
+  .api_log$dry_run <- TRUE
+  on.exit(.api_log$dry_run <- previous, add = TRUE)
+  force(code)
 }
 
 
@@ -219,14 +235,7 @@ write_api_log <- function(log_dir, status = "completed", prices = google_api_pri
     NULL
   }
   run_month <- substr(run$started_at, 1, 7)
-  prior_mtd <- if (!is.null(history) && nrow(history) > 0) {
-    history %>%
-      dplyr::filter(substr(started_at, 1, 7) == run_month) %>%
-      dplyr::group_by(api) %>%
-      dplyr::summarise(prior_requests = sum(requests), .groups = "drop")
-  } else {
-    tibble::tibble(api = character(), prior_requests = numeric())
-  }
+  prior_mtd <- .prior_month_requests(history, run_month)
 
   run_summary <- api_log_summary(prices = prices) %>%
     dplyr::left_join(prior_mtd, by = "api") %>%
@@ -250,6 +259,19 @@ write_api_log <- function(log_dir, status = "completed", prices = google_api_pri
 
   .print_api_log_summary(run_summary, run_file)
   invisible(run_file)
+}
+
+
+# Internal: requests per API already logged in `month` ("YYYY-MM") in the
+# running history, i.e. what counts against that month's free allowance.
+.prior_month_requests <- function(history, month) {
+  if (is.null(history) || nrow(history) == 0) {
+    return(tibble::tibble(api = character(), prior_requests = numeric()))
+  }
+  history %>%
+    dplyr::filter(substr(started_at, 1, 7) == month) %>%
+    dplyr::group_by(api) %>%
+    dplyr::summarise(prior_requests = sum(requests), .groups = "drop")
 }
 
 
