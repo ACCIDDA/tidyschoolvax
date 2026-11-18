@@ -189,6 +189,22 @@ test_that(".run_school_matching_pipeline() resolves exact and place_id matches; 
   expect_equal(nrow(mystery), 1L)
   expect_true(is.na(mystery$school_id))
 
+  # An unmatched record has no reference record to take school_name_orig from;
+  # it falls back to the kinder record's own name instead of staying NA, and
+  # matched records keep the reference name.
+  expect_false(is.na(mystery$school_name_orig))
+  expect_equal(mystery$school_name_orig, mystery$school_name)
+  expect_false(anyNA(result$school_name_orig))
+  expect_equal(north$school_name_orig, "Robert E Lee Elementary")
+
+  # ...and a review table lists it with a likely explanation for the reviewer.
+  expect_true(file.exists(file.path(review_dir, "unmatched_school_review.csv")))
+  review <- read.csv(file.path(review_dir, "unmatched_school_review.csv"))
+  expect_equal(nrow(review), 1L)
+  expect_true(grepl("mystery", review$school_name, ignore.case = TRUE))
+  expect_false(is.na(review$likely_explanation))
+  expect_true(all(c("reviewer_decision", "matched_reference_name") %in% names(review)))
+
   # Exact match against a non-elementary (level_code "m") master row: must
   # still resolve, since exact/place_id matching is deterministic and
   # doesn't get safer by excluding real schools GreatSchools/DOE classify

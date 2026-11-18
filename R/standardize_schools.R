@@ -630,6 +630,24 @@ standardize_schools <- function(state_id,
   report_closed_schools(school_vax_joined, out_dir = review_dir,
                         year_col = "year2")
   report_unique_missing_addresses(school_vax_joined, out_dir = review_dir)
+
+  # Closest reference candidates for kinder schools that matched nothing. A
+  # review aid only, so a failure here must never fail the run.
+  tryCatch({
+    unmatched_review <- review_unmatched_schools(
+      school_vax_joined,
+      reference_sources = Filter(Negate(is.null), list(
+        doe = doe_dat, greatschools = greatschools_dat, other = other_dat
+      )),
+      nces_ref = nces_ref
+    )
+    if (nrow(unmatched_review) > 0L) {
+      write_report(unmatched_review, report_name = "unmatched_school_review", out_dir = review_dir)
+    }
+  }, error = function(e) {
+    warning("Could not build the unmatched-school review table: ", conditionMessage(e),
+            call. = FALSE)
+  })
   
   # ---- Save outputs ----------------------------------------------------------
   final_csv <- file.path(temp_data_dir, "kinder_vaccination_clean_02.csv")
@@ -1927,6 +1945,14 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
     dt_f[, c(".addr_modal", ".city_modal", ".zip_modal") := NULL]
 
     vacc_data_final <- as.data.frame(dt_f)
+  }
+
+  # school_name_orig is the matched REFERENCE school's name, so it is NA for kinder
+  # records that matched no reference school (school_id is NA). Fall back to the
+  # kinder record's own name so every row has a name for downstream steps.
+  if (all(c("school_name_orig", "school_name") %in% names(vacc_data_final))) {
+    vacc_data_final$school_name_orig <- dplyr::coalesce(vacc_data_final$school_name_orig,
+                                                        vacc_data_final$school_name)
   }
 
   vacc_data_final
