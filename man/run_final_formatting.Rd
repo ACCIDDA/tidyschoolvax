@@ -12,15 +12,19 @@ run_final_formatting(
   vaxview_dir,
   general_data_dir,
   state_dir,
-  outputs_data_dir
+  outputs_data_dir,
+  include_vaxview = NULL
 )
 }
 \arguments{
 \item{state}{Two-letter state abbreviation (e.g., \code{"md"}).}
 
-\item{vaccine_type_to_keep}{Vaccine type string used to filter the
-\code{vaccine_type} column (e.g., \code{"mmr"}).  The comparison is
-case-insensitive.  If the column is absent the filter is skipped.}
+\item{vaccine_type_to_keep}{Which vaccine type(s) of the \code{vaccine_type}
+column to process (comparison is case-insensitive). One string (e.g.
+\code{"mmr"}) processes that series into the given directories. A character
+vector of several types, or \code{NULL} for every type present in the data,
+processes each into its own subfolder (see Details). With one string and no
+\code{vaccine_type} column the filter is skipped, as before.}
 
 \item{temp_data_dir}{Path to the directory containing
 \code{kinder_vaccination_clean_03.rds} and used for intermediate outputs.}
@@ -38,16 +42,25 @@ output files.}
 
 \item{outputs_data_dir}{Path to the directory where model-input tables
 (\code{obs}, \code{locations}, \code{obs_populations}) are written.}
+
+\item{include_vaxview}{\code{NULL} (default), \code{TRUE} or \code{FALSE}:
+whether to append the VaxView MMR observations to \code{obs} and
+\code{obs_populations}. \code{NULL} means \code{TRUE} for a single type and,
+for several types, \code{TRUE} only for series whose name contains
+\code{"mmr"}. \code{vax_view.parquet} must exist either way.}
 }
 \value{
-A named list with components \code{kinder_dat}, \code{obs},
-  \code{locations}, and \code{obs_populations}, returned invisibly.
+For a single type, a named list with components \code{kinder_dat},
+  \code{obs}, \code{locations}, and \code{obs_populations}, returned
+  invisibly. For several types (or \code{NULL}), invisibly a list with
+  \code{by_type} (one such list per type, named by type) and
+  \code{cleaned_data_all_types} (the stacked cleaned tables).
 }
 \description{
-State-agnostic wrapper that:
+State-agnostic wrapper that, for each vaccine series requested:
 \enumerate{
   \item Loads the state-specific cleaned data from step 03.
-  \item Optionally filters to a single vaccine type.
+  \item Filters to that vaccine type.
   \item Applies automatic DQA corrections (zero enrollment, invalid counts).
   \item Selects and type-coerces columns to the canonical format.
   \item Saves \code{cleaned_data.rds} and \code{cleaned_data.csv} to
@@ -57,4 +70,29 @@ State-agnostic wrapper that:
         tables for the modelling pipeline, incorporating CDC VaxView data.
   \item Saves all model-input tables to \code{outputs_data_dir}.
 }
+}
+\details{
+\strong{One series versus several.} The formatting and DQA steps work on a
+single vaccine series at a time: the duplicate removal keys on school, year
+and name, and checks such as the deviation of \code{current} from a school's
+mean compare every row of a school with every other row. Putting two series
+(e.g. \code{"mmr"} and an all-vaccines rate) through one pass would collapse
+one into the other and raise false flags. So when several types are
+requested, each is run through the same single-series pipeline, into its own
+subfolder, and the cleaned tables are then stacked into one labelled file.
+
+With a single type the behaviour and output layout are unchanged. With
+several types (or \code{NULL}), for every type \code{<t>} the outputs go to
+\code{<dir>/<t>/} for \code{temp_data_dir}, \code{clean_data_dir},
+\code{state_dir} and \code{outputs_data_dir}, and
+\code{cleaned_data_all_types.rds} / \code{.csv} (all series stacked, with a
+\code{vaccine_type} column) is written to \code{clean_data_dir}. Folder
+names are the lower-cased type with non-alphanumeric runs replaced by
+\code{"_"}.
+
+\strong{VaxView.} The CDC VaxView observations appended to \code{obs} are
+MMR coverage, so by default they are only added to a series whose name
+contains \code{"mmr"} when several types are requested. A single type keeps
+the previous behaviour (always added); set \code{include_vaxview} to override
+either way.
 }
