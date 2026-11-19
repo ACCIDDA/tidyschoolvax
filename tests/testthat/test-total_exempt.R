@@ -121,7 +121,7 @@ test_that("run_final_formatting() keeps total_exempt-only rows and drops the res
   dirs <- make_final_formatting_dirs(kinder)
   run_quietly(dirs)
 
-  cleaned <- readRDS(file.path(dirs[["clean"]], "cleaned_data.rds"))
+  cleaned <- read_cleaned_data(file.path(dirs[["clean"]], "cleaned_data.csv"))
   expect_equal(sort(as.integer(cleaned$school_id)), c(1L, 4L))
   expect_true("total_exempt" %in% names(cleaned))
   expect_equal(cleaned$total_exempt[cleaned$school_id == 1], 5L)
@@ -140,7 +140,7 @@ test_that("run_final_formatting() output is unchanged for states without total_e
   dirs <- make_final_formatting_dirs(kinder)
   run_quietly(dirs)
 
-  cleaned <- readRDS(file.path(dirs[["clean"]], "cleaned_data.rds"))
+  cleaned <- read_cleaned_data(file.path(dirs[["clean"]], "cleaned_data.csv"))
   expect_equal(sort(as.integer(cleaned$school_id)), c(1L, 3L))   # row 2 has NA med_exempt
   expect_false("total_exempt" %in% names(cleaned))
 })

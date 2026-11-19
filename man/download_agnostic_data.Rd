@@ -42,8 +42,7 @@ identical logic for all states, parameterized by state:
 \details{
 The function saves the following files:
 \itemize{
-  \item \code{<greatschools_dir>/greatschools_dat.csv}
-  \item \code{<greatschools_dir>/greatschools_dat.rds}
+  \item \code{<greatschools_dir>/greatschools_dat.parquet}
   \item \code{<vaxview_dir>/ChildVaxView.csv}
   \item \code{<vaxview_dir>/SchoolVaxView.csv}
   \item \code{<vaxview_dir>/TeenVaxView.csv}

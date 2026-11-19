@@ -8,9 +8,9 @@ summarise_years_by_school(cleaned_data, vaccine_type = NULL)
 }
 \arguments{
 \item{cleaned_data}{A data frame with at least \code{school_id} and
-\code{year}, such as \code{cleaned_data.rds} from
+\code{year}, such as \code{cleaned_data} from
 \code{\link{run_final_formatting}} or the stacked
-\code{cleaned_data_all_types.rds}. A \code{vaccine_type} column is used if
+\code{cleaned_data_all_types}. A \code{vaccine_type} column is used if
 present. Descriptive columns \code{school_name}, \code{county_name},
 \code{city} and \code{school_type} are carried over from each school's most
 recent row when present. Rows with a missing \code{school_id} are left out.}

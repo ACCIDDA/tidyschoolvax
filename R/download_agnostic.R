@@ -24,8 +24,7 @@
 #' @details
 #' The function saves the following files:
 #' \itemize{
-#'   \item \code{<greatschools_dir>/greatschools_dat.csv}
-#'   \item \code{<greatschools_dir>/greatschools_dat.rds}
+#'   \item \code{<greatschools_dir>/greatschools_dat.parquet}
 #'   \item \code{<vaxview_dir>/ChildVaxView.csv}
 #'   \item \code{<vaxview_dir>/SchoolVaxView.csv}
 #'   \item \code{<vaxview_dir>/TeenVaxView.csv}
@@ -57,8 +56,7 @@ download_agnostic_data <- function(state,
   greatschools_dat <- scrape_greatschools_schools(state_abbr = state, workers = workers)
   greatschools_dat <- clean_school_types(greatschools_dat, "schoolType")
 
-  readr::write_csv(greatschools_dat, file.path(greatschools_dir, "greatschools_dat.csv"))
-  saveRDS(greatschools_dat, file.path(greatschools_dir, "greatschools_dat.rds"))
+  write_pipeline_table(greatschools_dat, file.path(greatschools_dir, "greatschools_dat"), "parquet")
 
   message("GreatSchools data saved to: ", greatschools_dir)
 
