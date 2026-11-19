@@ -159,7 +159,7 @@ test_that(".run_school_matching_pipeline() resolves exact and place_id matches; 
 
   expect_s3_class(result, "data.frame")
   expect_true(nrow(result) > 0)
-  expect_true(file.exists(file.path(temp_dir, "kinder_vaccination_clean_02.csv")))
+  expect_true(file.exists(file.path(temp_dir, "kinder_vaccination_clean_02.parquet")))
 
   by_name <- function(x) result[result$school_name_std_vacc == x, , drop = FALSE]
 

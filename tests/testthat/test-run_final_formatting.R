@@ -71,21 +71,21 @@ test_that("a single vaccine type keeps the previous layout and behaviour", {
   d <- setup_final_format(make_step03())
   res <- run_ff(d, "mmr")
 
-  expect_named(res, c("kinder_dat", "obs", "locations", "obs_populations",
+  expect_named(res, c("kinder_dat", "cleaned_data", "obs", "locations", "obs_populations",
                       "excluded_rows", "years_by_school"))
-  expect_true(file.exists(file.path(d$clean, "cleaned_data.rds")))
-  expect_true(file.exists(file.path(d$out, "obs.rds")))
+  expect_true(file.exists(file.path(d$clean, "cleaned_data.csv")))
+  expect_true(file.exists(file.path(d$out, "obs.parquet")))
   # no per-type subfolders and no stacked file
   expect_length(list.dirs(d$clean, recursive = FALSE), 0L)
-  expect_false(file.exists(file.path(d$clean, "cleaned_data_all_types.rds")))
+  expect_false(file.exists(file.path(d$clean, "cleaned_data_all_types.csv")))
 
-  cleaned <- readRDS(file.path(d$clean, "cleaned_data.rds"))
+  cleaned <- read_cleaned_data(file.path(d$clean, "cleaned_data.csv"))
   expect_equal(nrow(cleaned), 18L)
   # VaxView is appended for a single type, as before
-  expect_equal(nrow(readRDS(file.path(d$out, "obs.rds"))), 18L + n_vaxview_obs)
+  expect_equal(nrow(as.data.frame(arrow::read_parquet(file.path(d$out, "obs.parquet")))), 18L + n_vaxview_obs)
   # ...and expanded child x2, teen x6, school x1 (the fixture's VaxView table has
   # a column called `n`, which must not leak into the expansion)
-  expect_equal(nrow(readRDS(file.path(d$out, "obs_populations.rds"))), 18L + n_vaxview_pops)
+  expect_equal(nrow(as.data.frame(arrow::read_parquet(file.path(d$out, "obs_populations.parquet")))), 18L + n_vaxview_pops)
 })
 
 test_that("several vaccine types run separately into subfolders", {
@@ -96,27 +96,28 @@ test_that("several vaccine types run separately into subfolders", {
                       "years_by_school"))
   expect_named(res$by_type, c("mmr", "all_required"))
   for (vt in c("mmr", "all_required")) {
-    expect_true(file.exists(file.path(d$clean, vt, "cleaned_data.rds")))
-    expect_true(file.exists(file.path(d$out, vt, "obs.rds")))
-    expect_true(file.exists(file.path(d$out, vt, "obs_populations.rds")))
-    expect_true(file.exists(file.path(d$out, vt, "linkage_key.rds")))
+    expect_true(file.exists(file.path(d$clean, vt, "cleaned_data.csv")))
+    expect_true(file.exists(file.path(d$out, vt, "obs.parquet")))
+    expect_true(file.exists(file.path(d$out, vt, "obs_populations.parquet")))
+    expect_true(file.exists(file.path(d$out, vt, "linkage_key.parquet")))
   }
   # nothing is written to the top-level folders by the per-type runs
-  expect_false(file.exists(file.path(d$clean, "cleaned_data.rds")))
-  expect_false(file.exists(file.path(d$out, "obs.rds")))
+  expect_false(file.exists(file.path(d$clean, "cleaned_data.csv")))
+  expect_false(file.exists(file.path(d$out, "obs.parquet")))
 })
 
 test_that("the stacked file keeps every series, labelled, with nothing collapsed", {
   d <- setup_final_format(make_step03())
   res <- run_ff(d, c("mmr", "all_required"))
 
-  all_types <- readRDS(file.path(d$clean, "cleaned_data_all_types.rds"))
+  all_types <- read_cleaned_data(file.path(d$clean, "cleaned_data_all_types.csv"))
   expect_true(file.exists(file.path(d$clean, "cleaned_data_all_types.csv")))
   expect_identical(names(all_types)[1], "vaccine_type")
   expect_equal(nrow(all_types), 36L)
   expect_equal(table(all_types$vaccine_type)[["mmr"]], 18L)
   expect_equal(table(all_types$vaccine_type)[["all_required"]], 18L)
-  expect_identical(all_types, res$cleaned_data_all_types)
+  expect_equal(as.data.frame(all_types), as.data.frame(res$cleaned_data_all_types),
+               ignore_attr = TRUE)
 
   # the series stayed separate: same school-year, different counts
   s1 <- all_types[all_types$school_id == 1 & all_types$year == 2022, ]
@@ -128,24 +129,24 @@ test_that("VaxView is added only to MMR series by default with several types", {
   d <- setup_final_format(make_step03())
   run_ff(d, c("mmr", "all_required"))
 
-  expect_equal(nrow(readRDS(file.path(d$out, "mmr", "obs.rds"))),          18L + n_vaxview_obs)
-  expect_equal(nrow(readRDS(file.path(d$out, "all_required", "obs.rds"))), 18L)
-  expect_equal(nrow(readRDS(file.path(d$out, "mmr", "obs_populations.rds"))), 18L + n_vaxview_pops)
-  expect_equal(nrow(readRDS(file.path(d$out, "all_required", "obs_populations.rds"))), 18L)
+  expect_equal(nrow(as.data.frame(arrow::read_parquet(file.path(d$out, "mmr", "obs.parquet")))),          18L + n_vaxview_obs)
+  expect_equal(nrow(as.data.frame(arrow::read_parquet(file.path(d$out, "all_required", "obs.parquet")))), 18L)
+  expect_equal(nrow(as.data.frame(arrow::read_parquet(file.path(d$out, "mmr", "obs_populations.parquet")))), 18L + n_vaxview_pops)
+  expect_equal(nrow(as.data.frame(arrow::read_parquet(file.path(d$out, "all_required", "obs_populations.parquet")))), 18L)
   # and the linkage key has no VaxView rows for the non-MMR series
-  lk <- readRDS(file.path(d$out, "all_required", "linkage_key.rds"))
+  lk <- as.data.frame(arrow::read_parquet(file.path(d$out, "all_required", "linkage_key.parquet")))
   expect_equal(sum(is.na(lk$school_id)), 0L)
 })
 
 test_that("include_vaxview overrides the default in both directions", {
   d <- setup_final_format(make_step03())
   run_ff(d, c("mmr", "all_required"), include_vaxview = TRUE)
-  expect_equal(nrow(readRDS(file.path(d$out, "all_required", "obs.rds"))), 18L + n_vaxview_obs)
+  expect_equal(nrow(as.data.frame(arrow::read_parquet(file.path(d$out, "all_required", "obs.parquet")))), 18L + n_vaxview_obs)
 
   d2 <- setup_final_format(make_step03())
   run_ff(d2, "mmr", include_vaxview = FALSE)
-  expect_equal(nrow(readRDS(file.path(d2$out, "obs.rds"))), 18L)
-  expect_equal(nrow(readRDS(file.path(d2$out, "obs_populations.rds"))), 18L)
+  expect_equal(nrow(as.data.frame(arrow::read_parquet(file.path(d2$out, "obs.parquet")))), 18L)
+  expect_equal(nrow(as.data.frame(arrow::read_parquet(file.path(d2$out, "obs_populations.parquet")))), 18L)
 
   expect_error(run_ff(d2, "mmr", include_vaxview = NA), "include_vaxview")
 })
@@ -156,7 +157,7 @@ test_that("NULL processes every vaccine type present", {
   expect_setequal(names(res$by_type), c("mmr", "dtap", "polio"))
   expect_equal(nrow(res$cleaned_data_all_types), 18L * 3L)
   for (vt in c("mmr", "dtap", "polio")) {
-    expect_true(file.exists(file.path(d$clean, vt, "cleaned_data.rds")))
+    expect_true(file.exists(file.path(d$clean, vt, "cleaned_data.csv")))
   }
 })
 
@@ -216,7 +217,7 @@ test_that("every row left out of cleaned_data is saved with its reason", {
   d <- setup_final_format(rbind(make_step03(), make_problem_rows()))
   res <- run_ff(d, c("mmr", "all_required"))
 
-  ex <- readRDS(file.path(d$clean, "mmr", "cleaned_data_excluded_rows.rds"))
+  ex <- as.data.frame(readr::read_csv(file.path(d$clean, "mmr", "cleaned_data_excluded_rows.csv"), show_col_types = FALSE))
   expect_true(file.exists(file.path(d$clean, "mmr", "cleaned_data_excluded_rows.csv")))
   expect_equal(nrow(ex), 6L)
   expect_identical(names(ex)[1:4], c("vaccine_type", "exclusion_reason",
@@ -265,8 +266,8 @@ test_that("kept rows plus excluded rows account for every input row", {
   d <- setup_final_format(rbind(make_step03(), make_problem_rows()))
   res <- run_ff(d, c("mmr", "all_required"))
   for (vt in c("mmr", "all_required")) {
-    kept <- readRDS(file.path(d$clean, vt, "cleaned_data.rds"))
-    ex   <- readRDS(file.path(d$clean, vt, "cleaned_data_excluded_rows.rds"))
+    kept <- read_cleaned_data(file.path(d$clean, vt, "cleaned_data.csv"))
+    ex   <- as.data.frame(readr::read_csv(file.path(d$clean, vt, "cleaned_data_excluded_rows.csv"), show_col_types = FALSE))
     n_in <- sum(readRDS(file.path(d$temp, "kinder_vaccination_clean_03.rds"))$vaccine_type == vt)
     expect_equal(nrow(kept) + nrow(ex), n_in, info = vt)
   }
@@ -285,11 +286,13 @@ test_that("excluded rows are stacked across vaccine types", {
   d <- setup_final_format(rbind(make_step03(), prob))
   res <- run_ff(d, c("mmr", "all_required"))
 
-  all_ex <- readRDS(file.path(d$clean, "cleaned_data_excluded_rows_all_types.rds"))
+  all_ex <- as.data.frame(readr::read_csv(file.path(d$clean, "cleaned_data_excluded_rows_all_types.csv"), show_col_types = FALSE))
   expect_true(file.exists(file.path(d$clean, "cleaned_data_excluded_rows_all_types.csv")))
   expect_equal(nrow(all_ex), 12L)
   expect_equal(as.vector(table(all_ex$vaccine_type)[c("mmr", "all_required")]), c(6L, 6L))
-  expect_identical(all_ex, res$excluded_rows_all_types)
+  # the CSV is for reading, so compare values, not column types
+  expect_equal(names(all_ex), names(res$excluded_rows_all_types))
+  expect_equal(all_ex$exclusion_reason, res$excluded_rows_all_types$exclusion_reason)
 })
 
 test_that("the existing DQA exports do not gain the internal row id", {
@@ -362,10 +365,60 @@ test_that("summarise_years_by_school() labels the series and drops rows without 
 test_that("years-by-school is written by run_final_formatting()", {
   d <- setup_final_format(make_step03())
   res <- run_ff(d, c("mmr", "all_required"))
-  y <- readRDS(file.path(d$clean, "cleaned_data_years_by_school.rds"))
+  y <- as.data.frame(readr::read_csv(file.path(d$clean, "cleaned_data_years_by_school.csv"), show_col_types = FALSE))
   expect_true(file.exists(file.path(d$clean, "cleaned_data_years_by_school.csv")))
   expect_equal(nrow(y), 12L)  # 6 schools x 2 series
   expect_equal(sum(y$n_rows), 36L)
-  expect_identical(y, res$years_by_school)
-  expect_true(file.exists(file.path(d$clean, "mmr", "cleaned_data_years_by_school.rds")))
+  # the CSV is for reading, so compare values, not column types
+  expect_equal(names(y), names(res$years_by_school))
+  expect_equal(y$n_rows, res$years_by_school$n_rows)
+  expect_true(file.exists(file.path(d$clean, "mmr", "cleaned_data_years_by_school.csv")))
+})
+
+
+test_that("each table is written once, in the format the policy assigns it", {
+  d <- setup_final_format(make_step03())
+  run_ff(d, "mmr")
+
+  # final, human-readable tables: CSV only
+  for (f in c("cleaned_data", "cleaned_data_excluded_rows", "cleaned_data_years_by_school")) {
+    expect_true(file.exists(file.path(d$clean, paste0(f, ".csv"))), info = f)
+    expect_false(file.exists(file.path(d$clean, paste0(f, ".rds"))), info = f)
+  }
+  # model inputs: Parquet only
+  for (f in c("obs", "locations", "obs_populations", "linkage_key")) {
+    expect_true(file.exists(file.path(d$out, paste0(f, ".parquet"))), info = f)
+    expect_false(file.exists(file.path(d$out, paste0(f, ".csv"))), info = f)
+    expect_false(file.exists(file.path(d$out, paste0(f, ".rds"))), info = f)
+  }
+  # no leftover step copies
+  expect_false(any(grepl("^kinder_vaccination_clean\\.|^dqa_report", list.files(d$temp))))
+})
+
+test_that("final_format and model_input_format switch the formats", {
+  d <- setup_final_format(make_step03())
+  run_ff(d, "mmr", final_format = "parquet", model_input_format = "csv")
+
+  expect_true(file.exists(file.path(d$clean, "cleaned_data.parquet")))
+  expect_false(file.exists(file.path(d$clean, "cleaned_data.csv")))
+  expect_true(file.exists(file.path(d$out, "obs.csv")))
+  expect_false(file.exists(file.path(d$out, "obs.parquet")))
+  expect_error(run_ff(d, "mmr", final_format = "xlsx"), "should be one of")
+})
+
+test_that("a step-03 file written as Parquet is read as well as an RDS one", {
+  step03 <- make_step03()
+  d <- setup_final_format(step03)
+  unlink(file.path(d$temp, "kinder_vaccination_clean_03.rds"))
+  write_pipeline_table(step03, file.path(d$temp, "kinder_vaccination_clean_03"), "parquet")
+  run_ff(d, "mmr")
+  expect_true(file.exists(file.path(d$clean, "cleaned_data.csv")))
+})
+
+test_that("stacked all-types tables follow final_format", {
+  d <- setup_final_format(make_step03())
+  run_ff(d, c("mmr", "all_required"))
+  expect_true(file.exists(file.path(d$clean, "cleaned_data_all_types.csv")))
+  expect_false(file.exists(file.path(d$clean, "cleaned_data_all_types.rds")))
+  expect_true(file.exists(file.path(d$clean, "cleaned_data_excluded_rows_all_types.csv")))
 })

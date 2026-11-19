@@ -1187,8 +1187,8 @@ print_dqa_summary <- function(dqa_report) {
 #'   \item Filters to that vaccine type.
 #'   \item Applies automatic DQA corrections (zero enrollment, invalid counts).
 #'   \item Selects and type-coerces columns to the canonical format.
-#'   \item Saves \code{cleaned_data.rds} and \code{cleaned_data.csv} to
-#'         \code{clean_data_dir}, with \code{cleaned_data_excluded_rows}
+#'   \item Saves \code{cleaned_data} (a CSV by default, see \code{final_format})
+#'         to \code{clean_data_dir}, with \code{cleaned_data_excluded_rows}
 #'         (every row left out, with the reason) and
 #'         \code{cleaned_data_years_by_school} (see
 #'         \code{\link{summarise_years_by_school}}).
@@ -1212,7 +1212,7 @@ print_dqa_summary <- function(dqa_report) {
 #' several types (or \code{NULL}), for every type \code{<t>} the outputs go to
 #' \code{<dir>/<t>/} for \code{temp_data_dir}, \code{clean_data_dir},
 #' \code{state_dir} and \code{outputs_data_dir}, and
-#' \code{cleaned_data_all_types.rds} / \code{.csv} (all series stacked, with a
+#' \code{cleaned_data_all_types} (all series stacked, with a
 #' \code{vaccine_type} column) is written to \code{clean_data_dir}. Folder
 #' names are the lower-cased type with non-alphanumeric runs replaced by
 #' \code{"_"}.
@@ -1243,21 +1243,35 @@ print_dqa_summary <- function(dqa_report) {
 #'   processes each into its own subfolder (see Details). With one string and no
 #'   \code{vaccine_type} column the filter is skipped, as before.
 #' @param temp_data_dir Path to the directory containing
-#'   \code{kinder_vaccination_clean_03.rds} and used for intermediate outputs.
+#'   \code{kinder_vaccination_clean_03.parquet} (or \code{.rds} from an earlier
+#'   run) and used for intermediate outputs.
 #' @param clean_data_dir Path to the directory where the final
-#'   \code{cleaned_data.rds} / \code{cleaned_data.csv} are written.
+#'   \code{cleaned_data}, \code{cleaned_data_excluded_rows} and
+#'   \code{cleaned_data_years_by_school} are written.
 #' @param vaxview_dir Path to the directory containing
 #'   \code{vax_view.parquet}.
 #' @param general_data_dir Path to the shared data directory.
 #' @param state_dir State-specific root directory, used for DQA diagnostic
 #'   output files.
 #' @param outputs_data_dir Path to the directory where model-input tables
-#'   (\code{obs}, \code{locations}, \code{obs_populations}) are written.
+#'   (\code{obs}, \code{locations}, \code{obs_populations},
+#'   \code{linkage_key}) are written.
 #' @param include_vaxview \code{NULL} (default), \code{TRUE} or \code{FALSE}:
 #'   whether to append the VaxView MMR observations to \code{obs} and
 #'   \code{obs_populations}. \code{NULL} means \code{TRUE} for a single type and,
 #'   for several types, \code{TRUE} only for series whose name contains
 #'   \code{"mmr"}. \code{vax_view.parquet} must exist either way.
+#' @param final_format Format of the final, human-readable tables
+#'   (\code{cleaned_data}, \code{cleaned_data_excluded_rows},
+#'   \code{cleaned_data_years_by_school} and their stacked versions):
+#'   \code{"csv"} (default), \code{"parquet"} or \code{"rds"}. One file is
+#'   written, never a pair. Read a CSV back with \code{\link{read_cleaned_data}},
+#'   which restores the column types (a plain CSV read turns \code{zip} into a
+#'   number).
+#' @param model_input_format Format of the model-input tables \code{obs},
+#'   \code{locations}, \code{obs_populations} and \code{linkage_key}:
+#'   \code{"parquet"} (default, keeps column types), \code{"csv"} or
+#'   \code{"rds"}. Read with \code{\link{read_pipeline_table}}.
 #'
 #' @return For a single type, a named list with components \code{kinder_dat},
 #'   \code{obs}, \code{locations}, \code{obs_populations},
@@ -1280,7 +1294,12 @@ run_final_formatting <- function(state,
                                  general_data_dir,
                                  state_dir,
                                  outputs_data_dir,
-                                 include_vaxview = NULL) {
+                                 include_vaxview = NULL,
+                                 final_format = c("csv", "parquet", "rds"),
+                                 model_input_format = c("parquet", "csv", "rds")) {
+
+  final_format       <- match.arg(final_format)
+  model_input_format <- match.arg(model_input_format)
 
   if (!requireNamespace("arrow", quietly = TRUE)) {
     stop("Package 'arrow' is required for reading Parquet files. ",
@@ -1292,7 +1311,7 @@ run_final_formatting <- function(state,
   }
 
   # ---- Load inputs ------------------------------------------------------------
-  kinder_dat <- readRDS(file.path(temp_data_dir, "kinder_vaccination_clean_03.rds"))
+  kinder_dat <- read_pipeline_table(file.path(temp_data_dir, "kinder_vaccination_clean_03"))
 
   # ---- One series: unchanged behaviour and output layout ----------------------
   if (is.character(vaccine_type_to_keep) && length(vaccine_type_to_keep) == 1L &&
@@ -1307,7 +1326,9 @@ run_final_formatting <- function(state,
       general_data_dir     = general_data_dir,
       state_dir            = state_dir,
       outputs_data_dir     = outputs_data_dir,
-      include_vaxview      = if (is.null(include_vaxview)) TRUE else include_vaxview
+      include_vaxview      = if (is.null(include_vaxview)) TRUE else include_vaxview,
+      final_format         = final_format,
+      model_input_format   = model_input_format
     )))
   }
 
@@ -1342,20 +1363,22 @@ run_final_formatting <- function(state,
         grepl("mmr", vt, ignore.case = TRUE)
       } else {
         include_vaxview
-      }
+      },
+      final_format         = final_format,
+      model_input_format   = model_input_format
     )
   }
 
   # ---- Stack the cleaned tables into one labelled file ------------------------
   cleaned_all <- dplyr::bind_rows(lapply(seq_along(types), function(i) {
-    readRDS(file.path(clean_data_dir, subdirs[[i]], "cleaned_data.rds")) %>%
+    by_type[[types[[i]]]]$cleaned_data %>%
       dplyr::mutate(vaccine_type = types[[i]], .before = 1)
   }))
-  saveRDS(cleaned_all, file.path(clean_data_dir, "cleaned_data_all_types.rds"))
-  readr::write_csv(cleaned_all, file.path(clean_data_dir, "cleaned_data_all_types.csv"))
+  cleaned_all_path <- write_pipeline_table(
+    cleaned_all, file.path(clean_data_dir, "cleaned_data_all_types"), final_format)
   message("\nStacked cleaned data for ", length(types), " vaccine type(s) (",
           paste(types, collapse = ", "), "): ", nrow(cleaned_all), " rows -> ",
-          file.path(clean_data_dir, "cleaned_data_all_types.rds"))
+          cleaned_all_path)
 
   # ---- Stack the excluded rows, and tabulate years across all types -----------
   excluded_all <- dplyr::bind_rows(lapply(seq_along(types), function(i) {
@@ -1363,12 +1386,12 @@ run_final_formatting <- function(state,
     if (!"vaccine_type" %in% names(x)) x <- dplyr::mutate(x, vaccine_type = types[[i]], .before = 1)
     x
   }))
-  saveRDS(excluded_all, file.path(clean_data_dir, "cleaned_data_excluded_rows_all_types.rds"))
-  readr::write_csv(excluded_all, file.path(clean_data_dir, "cleaned_data_excluded_rows_all_types.csv"))
+  write_pipeline_table(excluded_all,
+                       file.path(clean_data_dir, "cleaned_data_excluded_rows_all_types"), final_format)
 
   years_all <- summarise_years_by_school(cleaned_all)
-  saveRDS(years_all, file.path(clean_data_dir, "cleaned_data_years_by_school.rds"))
-  readr::write_csv(years_all, file.path(clean_data_dir, "cleaned_data_years_by_school.csv"))
+  write_pipeline_table(years_all,
+                       file.path(clean_data_dir, "cleaned_data_years_by_school"), final_format)
 
   invisible(list(by_type = by_type, cleaned_data_all_types = cleaned_all,
                  excluded_rows_all_types = excluded_all, years_by_school = years_all))
@@ -1546,9 +1569,9 @@ run_final_formatting <- function(state,
 #' has in each year, and flags schools with duplicate or missing years.
 #'
 #' @param cleaned_data A data frame with at least \code{school_id} and
-#'   \code{year}, such as \code{cleaned_data.rds} from
+#'   \code{year}, such as \code{cleaned_data} from
 #'   \code{\link{run_final_formatting}} or the stacked
-#'   \code{cleaned_data_all_types.rds}. A \code{vaccine_type} column is used if
+#'   \code{cleaned_data_all_types}. A \code{vaccine_type} column is used if
 #'   present. Descriptive columns \code{school_name}, \code{county_name},
 #'   \code{city} and \code{school_type} are carried over from each school's most
 #'   recent row when present. Rows with a missing \code{school_id} are left out.
@@ -1641,7 +1664,7 @@ summarise_years_by_school <- function(cleaned_data, vaccine_type = NULL) {
 #' (filter to one vaccine type) through the model-input tables.
 #'
 #' @param kinder_dat Step-03 data frame (already read from
-#'   \code{kinder_vaccination_clean_03.rds}).
+#'   \code{kinder_vaccination_clean_03.parquet}).
 #' @inheritParams run_final_formatting
 #' @param vaccine_type_to_keep A single vaccine type string.
 #' @param include_vaxview Logical; append VaxView MMR observations.
@@ -1658,7 +1681,9 @@ summarise_years_by_school <- function(cleaned_data, vaccine_type = NULL) {
                                       general_data_dir,
                                       state_dir,
                                       outputs_data_dir,
-                                      include_vaxview = TRUE) {
+                                      include_vaxview = TRUE,
+                                      final_format = "csv",
+                                      model_input_format = "parquet") {
 
   # ---- PART 0: Vaccine type filter --------------------------------------------
   if ("vaccine_type" %in% names(kinder_dat)) {
@@ -1766,19 +1791,19 @@ summarise_years_by_school <- function(cleaned_data, vaccine_type = NULL) {
   
   kinder_dat <- format_fix_column_classes(kinder_dat)
   
-  saveRDS(kinder_dat, file.path(clean_data_dir, "cleaned_data.rds"))
-  readr::write_csv(kinder_dat, file.path(clean_data_dir, "cleaned_data.csv"))
+  cleaned_data <- kinder_dat
+  write_pipeline_table(cleaned_data, file.path(clean_data_dir, "cleaned_data"), final_format)
 
   # ---- Rows left out of the cleaned data, and years of data by school ---------
-  saveRDS(excluded_rows, file.path(clean_data_dir, "cleaned_data_excluded_rows.rds"))
-  readr::write_csv(excluded_rows, file.path(clean_data_dir, "cleaned_data_excluded_rows.csv"))
+  write_pipeline_table(excluded_rows,
+                       file.path(clean_data_dir, "cleaned_data_excluded_rows"), final_format)
   message("Rows left out of the cleaned data: ", nrow(excluded_rows), " (",
           paste(names(table(excluded_rows$exclusion_reason)),
                 table(excluded_rows$exclusion_reason), sep = ": ", collapse = "; "), ")")
 
   years_by_school <- summarise_years_by_school(kinder_dat, vaccine_type = vaccine_type_to_keep)
-  saveRDS(years_by_school, file.path(clean_data_dir, "cleaned_data_years_by_school.rds"))
-  readr::write_csv(years_by_school, file.path(clean_data_dir, "cleaned_data_years_by_school.csv"))
+  write_pipeline_table(years_by_school,
+                       file.path(clean_data_dir, "cleaned_data_years_by_school"), final_format)
   
   # ---- PART 4: Additional flagging DQA checks ---------------------------------
   message("\n=== PART 4: Additional data quality checks ===")
@@ -1880,7 +1905,6 @@ summarise_years_by_school <- function(cleaned_data, vaccine_type = NULL) {
   message("========================================")
   message("Check CSVs in ", temp_data_dir, " for detailed results.")
   
-  saveRDS(dqa_report, file.path(temp_data_dir, "dqa_report.rds"))
   
   # ---- Build observation tables for modelling pipeline ------------------------
   
@@ -1941,9 +1965,6 @@ summarise_years_by_school <- function(cleaned_data, vaccine_type = NULL) {
     weight   = 1L
   )]
   
-  readr::write_csv(kinder_dat,
-                   file.path(temp_data_dir, "kinder_vaccination_clean.csv"))
-  saveRDS(kinder_dat, file.path(temp_data_dir, "kinder_vaccination_clean.rds"))
   
 
   
@@ -2116,8 +2137,7 @@ summarise_years_by_school <- function(cleaned_data, vaccine_type = NULL) {
   ), fill = TRUE)
   
   # ---- Save ----
-  saveRDS(linkage_key, file.path(outputs_data_dir, "linkage_key.rds"))
-  readr::write_csv(linkage_key, file.path(outputs_data_dir, "linkage_key.csv"))
+  write_pipeline_table(linkage_key, file.path(outputs_data_dir, "linkage_key"), model_input_format)
   
   message("Linkage key saved: ", nrow(linkage_key), " rows")
   message("  School rows: ", sum(!is.na(linkage_key$school_id)))
@@ -2134,15 +2154,13 @@ summarise_years_by_school <- function(cleaned_data, vaccine_type = NULL) {
     rename(loc_id = id) 
   
   # ----- Export ----
-  saveRDS(obs, file.path(outputs_data_dir, "obs.rds"))
-  saveRDS(locations, file.path(outputs_data_dir, "locations.rds"))
-  saveRDS(obs_populations, file.path(outputs_data_dir, "obs_populations.rds"))
-  readr::write_csv(obs, file.path(outputs_data_dir, "obs.csv"))
-  readr::write_csv(locations, file.path(outputs_data_dir, "locations.csv"))
-  readr::write_csv(obs_populations, file.path(outputs_data_dir, "obs_populations.csv"))
+  write_pipeline_table(obs, file.path(outputs_data_dir, "obs"), model_input_format)
+  write_pipeline_table(locations, file.path(outputs_data_dir, "locations"), model_input_format)
+  write_pipeline_table(obs_populations, file.path(outputs_data_dir, "obs_populations"), model_input_format)
   
   invisible(list(
     kinder_dat       = kinder_dat,
+    cleaned_data     = cleaned_data,
     obs              = obs,
     locations        = locations,
     obs_populations  = obs_populations,

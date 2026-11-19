@@ -13,7 +13,9 @@ run_final_formatting(
   general_data_dir,
   state_dir,
   outputs_data_dir,
-  include_vaxview = NULL
+  include_vaxview = NULL,
+  final_format = c("csv", "parquet", "rds"),
+  model_input_format = c("parquet", "csv", "rds")
 )
 }
 \arguments{
@@ -27,10 +29,12 @@ processes each into its own subfolder (see Details). With one string and no
 \code{vaccine_type} column the filter is skipped, as before.}
 
 \item{temp_data_dir}{Path to the directory containing
-\code{kinder_vaccination_clean_03.rds} and used for intermediate outputs.}
+\code{kinder_vaccination_clean_03.parquet} (or \code{.rds} from an earlier
+run) and used for intermediate outputs.}
 
 \item{clean_data_dir}{Path to the directory where the final
-\code{cleaned_data.rds} / \code{cleaned_data.csv} are written.}
+\code{cleaned_data}, \code{cleaned_data_excluded_rows} and
+\code{cleaned_data_years_by_school} are written.}
 
 \item{vaxview_dir}{Path to the directory containing
 \code{vax_view.parquet}.}
@@ -41,13 +45,27 @@ processes each into its own subfolder (see Details). With one string and no
 output files.}
 
 \item{outputs_data_dir}{Path to the directory where model-input tables
-(\code{obs}, \code{locations}, \code{obs_populations}) are written.}
+(\code{obs}, \code{locations}, \code{obs_populations},
+\code{linkage_key}) are written.}
 
 \item{include_vaxview}{\code{NULL} (default), \code{TRUE} or \code{FALSE}:
 whether to append the VaxView MMR observations to \code{obs} and
 \code{obs_populations}. \code{NULL} means \code{TRUE} for a single type and,
 for several types, \code{TRUE} only for series whose name contains
 \code{"mmr"}. \code{vax_view.parquet} must exist either way.}
+
+\item{final_format}{Format of the final, human-readable tables
+(\code{cleaned_data}, \code{cleaned_data_excluded_rows},
+\code{cleaned_data_years_by_school} and their stacked versions):
+\code{"csv"} (default), \code{"parquet"} or \code{"rds"}. One file is
+written, never a pair. Read a CSV back with \code{\link{read_cleaned_data}},
+which restores the column types (a plain CSV read turns \code{zip} into a
+number).}
+
+\item{model_input_format}{Format of the model-input tables \code{obs},
+\code{locations}, \code{obs_populations} and \code{linkage_key}:
+\code{"parquet"} (default, keeps column types), \code{"csv"} or
+\code{"rds"}. Read with \code{\link{read_pipeline_table}}.}
 }
 \value{
 For a single type, a named list with components \code{kinder_dat},
@@ -65,8 +83,8 @@ State-agnostic wrapper that, for each vaccine series requested:
   \item Filters to that vaccine type.
   \item Applies automatic DQA corrections (zero enrollment, invalid counts).
   \item Selects and type-coerces columns to the canonical format.
-  \item Saves \code{cleaned_data.rds} and \code{cleaned_data.csv} to
-        \code{clean_data_dir}, with \code{cleaned_data_excluded_rows}
+  \item Saves \code{cleaned_data} (a CSV by default, see \code{final_format})
+        to \code{clean_data_dir}, with \code{cleaned_data_excluded_rows}
         (every row left out, with the reason) and
         \code{cleaned_data_years_by_school} (see
         \code{\link{summarise_years_by_school}}).
@@ -90,7 +108,7 @@ With a single type the behaviour and output layout are unchanged. With
 several types (or \code{NULL}), for every type \code{<t>} the outputs go to
 \code{<dir>/<t>/} for \code{temp_data_dir}, \code{clean_data_dir},
 \code{state_dir} and \code{outputs_data_dir}, and
-\code{cleaned_data_all_types.rds} / \code{.csv} (all series stacked, with a
+\code{cleaned_data_all_types} (all series stacked, with a
 \code{vaccine_type} column) is written to \code{clean_data_dir}. Folder
 names are the lower-cased type with non-alphanumeric runs replaced by
 \code{"_"}.

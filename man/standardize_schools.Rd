@@ -29,11 +29,14 @@ standardize_schools(
 \arguments{
 \item{state_id}{Character.  Two-letter state abbreviation (e.g., \code{"md"}).}
 
-\item{kinder_dir}{Path to directory containing \code{kinder_dat.rds}.}
+\item{kinder_dir}{Path to directory containing \code{kinder_dat.parquet}
+(or \code{kinder_dat.rds} from an earlier run).}
 
-\item{greatschools_dir}{Path to directory containing \code{greatschools_dat.RDS}.}
+\item{greatschools_dir}{Path to directory containing
+\code{greatschools_dat.parquet} (or \code{.rds}).}
 
-\item{doe_dir}{Path to directory containing \code{doe_dat.rds}.}
+\item{doe_dir}{Path to directory containing \code{doe_dat.parquet} (or
+\code{.rds}).}
 
 \item{state_school_dir}{Path to directory for the optional third data source.}
 
@@ -111,8 +114,7 @@ second (default \code{8}); see \code{\link{run_school_status_with_cache}}.}
 \value{
 The final cleaned \code{data.frame} (invisibly).  The same object is
   also written to \code{temp_data_dir} as
-  \code{kinder_vaccination_clean_02.csv} and
-  \code{kinder_vaccination_clean_02.rds}.
+  \code{kinder_vaccination_clean_02.parquet}.
 }
 \description{
 Orchestrates all steps of school name standardization for a given state:

@@ -23,9 +23,12 @@
 #' schools, produces QC reports, and saves the final dataset.
 #'
 #' @param state_id Character.  Two-letter state abbreviation (e.g., \code{"md"}).
-#' @param kinder_dir Path to directory containing \code{kinder_dat.rds}.
-#' @param greatschools_dir Path to directory containing \code{greatschools_dat.RDS}.
-#' @param doe_dir Path to directory containing \code{doe_dat.rds}.
+#' @param kinder_dir Path to directory containing \code{kinder_dat.parquet}
+#'   (or \code{kinder_dat.rds} from an earlier run).
+#' @param greatschools_dir Path to directory containing
+#'   \code{greatschools_dat.parquet} (or \code{.rds}).
+#' @param doe_dir Path to directory containing \code{doe_dat.parquet} (or
+#'   \code{.rds}).
 #' @param state_school_dir Path to directory for the optional third data source.
 #' @param temp_data_dir Path for temporary output files.
 #' @param state_geo_dir Path for geocoding cache files.
@@ -87,8 +90,7 @@
 #'
 #' @return The final cleaned \code{data.frame} (invisibly).  The same object is
 #'   also written to \code{temp_data_dir} as
-#'   \code{kinder_vaccination_clean_02.csv} and
-#'   \code{kinder_vaccination_clean_02.rds}.
+#'   \code{kinder_vaccination_clean_02.parquet}.
 #'
 #' @details
 #' All preprocessing utility functions (\code{clean_kinder_data},
@@ -140,19 +142,19 @@ standardize_schools <- function(state_id,
   google_api_key <- Sys.getenv("GOOGLEGEO_API_KEY")
 
   # ---- PART 1: Load and clean all data sources --------------------------------
-  kinder_result   <- clean_kinder_data(readRDS(file.path(kinder_dir, "kinder_dat.rds")))
+  kinder_result   <- clean_kinder_data(read_pipeline_table(file.path(kinder_dir, "kinder_dat")))
   kinder_dat      <- kinder_result$data
   kinder_has_addr <- kinder_result$kinder_has_addr
 
   greatschools_dat <- clean_greatschools_data(
-    gs_dat = readRDS(file.path(greatschools_dir, "greatschools_dat.RDS")),
+    gs_dat = read_pipeline_table(file.path(greatschools_dir, "greatschools_dat")),
     state_abbr = state_id,
     po_box_action = match.arg(po_box_action),
     elementary_only = elementary_only_reference,
     exclude_prek_only = !include_prek_only_reference
   )
 
-  doe_dat <- clean_doe_data(readRDS(file.path(doe_dir, "doe_dat.rds")),
+  doe_dat <- clean_doe_data(read_pipeline_table(file.path(doe_dir, "doe_dat")),
                             elementary_only = elementary_only_reference,
                             exclude_prek_only = !include_prek_only_reference)
 
@@ -203,7 +205,7 @@ standardize_schools <- function(state_id,
 #'   used for school status and names before falling back to Google Places.
 #'
 #' @return The final long-form data frame (invisibly), also written to
-#'   \code{temp_data_dir} as \code{kinder_vaccination_clean_02.csv/.rds}.
+#'   \code{temp_data_dir} as \code{kinder_vaccination_clean_02.parquet}.
 #' @keywords internal
 .run_school_matching_pipeline <- function(greatschools_dat, doe_dat, kinder_dat,
                                           kinder_has_addr, other_dat,
@@ -650,14 +652,12 @@ standardize_schools <- function(state_id,
   })
   
   # ---- Save outputs ----------------------------------------------------------
-  final_csv <- file.path(temp_data_dir, "kinder_vaccination_clean_02.csv")
-  final_rds <- file.path(temp_data_dir, "kinder_vaccination_clean_02.rds")
-  utils::write.csv(school_vax_joined, final_csv, row.names = FALSE)
-  saveRDS(school_vax_joined, final_rds)
-  
+  final_path <- write_pipeline_table(
+    school_vax_joined, file.path(temp_data_dir, "kinder_vaccination_clean_02"), "parquet"
+  )
+
   message("Master processing complete for state: ", state_id)
-  message("Final CSV: ", final_csv)
-  message("Final RDS: ", final_rds)
+  message("Step-2 output (Parquet): ", final_path)
   
   invisible(school_vax_joined)
 }
