@@ -138,6 +138,7 @@ See `vignette("preprocessing-orchestration", package = "tidyschoolvax")` for a c
 | Function | Description |
 |---|---|
 | `standardize_schools()` | Match school names across sources, assign IDs, and geocode |
+| `review_unmatched_schools()` | List the closest reference candidates for kindergarten schools that matched nothing, with a likely explanation (also written by `standardize_schools()` as `unmatched_school_review.csv`) |
 | `clean_kinder_data()` | Clean and standardize kindergarten vaccination data |
 | `clean_doe_data()` | Clean Department of Education school roster data |
 | `clean_greatschools_data()` | Clean GreatSchools.org data |
