@@ -34,6 +34,10 @@ A named list with the following components:
     \item{doe_dir}{Department of Education data directory}
     \item{greatschools_dir}{GreatSchools.org data directory}
     \item{vaxview_dir}{CDC VaxView data directory}
+    \item{nces_dir}{NCES public (CCD) and private (PSS) school directories
+      (\code{raw_data_dir/nces}), downloaded by
+      \code{\link{download_agnostic_data}} and read by
+      \code{\link{standardize_schools}}}
     \item{state_school_dir}{Any additional state school data directory}
   }
 }

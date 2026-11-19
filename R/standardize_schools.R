@@ -59,8 +59,12 @@
 #'   \code{\link{load_nces_reference}}; if the NCES download fails the run
 #'   falls back to Google for every school.  NCES data is pulled from the year
 #'   before the first year of vaccination data onward.
-#' @param nces_cache_dir Directory for the cached NCES reference file
-#'   (defaults to an \code{nces} folder inside \code{state_geo_dir}).
+#' @param nces_cache_dir Directory holding the NCES directories downloaded in
+#'   step 1 by \code{\link{download_agnostic_data}} (see
+#'   \code{\link{download_nces_directories}}).  Defaults to the \code{nces}
+#'   folder next to \code{kinder_dir}, which is \code{setup_paths()$nces_dir}.
+#'   If the files are missing or don't reach back far enough, they are
+#'   downloaded here.
 #' @param parallel Logical. If \code{TRUE}, the per-row R post-processing loop
 #'   inside every \code{\link{match_schools_names}} call is dispatched to worker
 #'   processes via \code{\link[furrr:future_map]{furrr::future_map()}}. The
@@ -122,7 +126,7 @@ standardize_schools <- function(state_id,
                                 elementary_only_reference = TRUE,
                                 include_prek_only_reference = FALSE,
                                 use_nces = TRUE,
-                                nces_cache_dir = file.path(state_geo_dir, "nces"),
+                                nces_cache_dir = file.path(dirname(kinder_dir), "nces"),
                                 api_log_dir = file.path(dirname(dirname(state_dir)), "api_logs"),
                                 places_qps = 8) {
 

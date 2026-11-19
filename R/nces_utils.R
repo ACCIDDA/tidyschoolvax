@@ -25,16 +25,140 @@
 # 7 ("future") is left NA so Google decides.
 .ccd_open_codes   <- c(1, 3, 4, 5, 8)  # open, new, added, changed agency, reopened
 .ccd_closed_codes <- 2
+
+# Directory columns kept from the CCD API: status/matching fields, plus the
+# state's own school code, grades, enrollment and address for later steps.
+.ccd_keep_cols <- c("year", "ncessch", "seasch", "school_name", "school_status",
+                    "charter", "school_level", "lowest_grade_offered",
+                    "highest_grade_offered", "enrollment", "street_location",
+                    "city_location", "zip_location", "county_code",
+                    "latitude", "longitude")
 .ccd_inactive_codes <- 6
+
+
+#' Download the NCES public and private school directories for a state
+#'
+#' Downloads (or reads from cache) every year of the NCES directories that
+#' has school coordinates -- the Common Core of Data public-school directory
+#' from 2000-01 and every Private School Survey edition from 2013-14 (the
+#' first with a CSV file) -- up to the latest available, the same way the
+#' other state-agnostic sources are pulled in full.  They are saved as they
+#' are, one row per school per year, in \code{nces_dir}:
+#' \itemize{
+#'   \item \code{nces_ccd_directory_<state>.rds}: \code{year},
+#'     \code{ncessch}, \code{seasch} (the state's own school code),
+#'     \code{school_name}, \code{school_status}, \code{charter}, grades
+#'     offered, \code{enrollment}, address and county columns, and
+#'     \code{latitude}/\code{longitude}.
+#'   \item \code{nces_pss_directory_<state>.rds}: \code{year} (the spring year
+#'     of the edition), \code{ppin}, \code{school_name}, address (physical
+#'     location where reported, else mailing), \code{county_fips}, and
+#'     \code{latitude}/\code{longitude}.
+#' }
+#' This is the one NCES download the pipeline makes:
+#' \code{\link{download_agnostic_data}} calls it in step 1, and
+#' \code{\link{standardize_schools}} (through \code{\link{load_nces_reference}})
+#' reads the same files in step 2.
+#'
+#' Each file is re-downloaded once it is older than \code{max_age_days} (new
+#' CCD years are released annually).  If a download fails, a stale copy is used when there is
+#' one.  If only the private-school download fails and there is no copy, the
+#' public schools are still saved and returned, and the private schools are
+#' tried again next time.
+#'
+#' @param state_abbr Two-letter state abbreviation (e.g. \code{"md"}).
+#' @param nces_dir Directory for the saved directories
+#'   (\code{setup_paths()$nces_dir}).
+#' @param max_age_days Re-download when a saved file is older than this.
+#' @param refresh Logical; force a re-download.
+#'
+#' @return Invisibly, a list with \code{ccd} and \code{pss} (\code{NULL} when
+#'   unavailable); \code{NULL} if no public-school directory could be loaded.
+#' @export
+download_nces_directories <- function(state_abbr, nces_dir,
+                                      max_age_days = 180, refresh = FALSE) {
+  .download_nces_directories(state_abbr, nces_dir, first_year = .nces_first_coord_year,
+                             max_age_days = max_age_days, refresh = refresh)
+}
+
+# First CCD year with school coordinates; earlier years can't be matched to
+# places, so a full download starts here.
+.nces_first_coord_year <- 2000L
+# First PSS edition (fall year) published as a CSV zip; earlier ones are 404s.
+.pss_first_csv_edition <- 2013L
+
+# Internal: download_nces_directories() for an explicit first year. Files that
+# already reach back to first_year are reused; only a state whose vaccination
+# data starts before 2001 asks for earlier years than the full download has.
+.download_nces_directories <- function(state_abbr, nces_dir, first_year,
+                                       max_age_days = 180, refresh = FALSE) {
+  state_abbr <- toupper(state_abbr)
+  first_year <- min(first_year, .nces_first_coord_year)
+  paths <- .nces_directory_paths(nces_dir, state_abbr)
+
+  usable <- function(x) {
+    if (is.null(x) || refresh) return(FALSE)
+    age <- as.numeric(difftime(Sys.time(), attr(x, "downloaded_at"), units = "days"))
+    covers <- !is.null(attr(x, "first_year")) && attr(x, "first_year") <= first_year
+    length(age) == 1 && age <= max_age_days && covers
+  }
+  read_cached <- function(path) if (file.exists(path)) readRDS(path) else NULL
+  save_dir <- function(x, path) {
+    attr(x, "downloaded_at") <- Sys.time()
+    attr(x, "first_year") <- first_year
+    if (!dir.exists(nces_dir)) dir.create(nces_dir, recursive = TRUE)
+    saveRDS(x, path)
+    x
+  }
+
+  # Public schools (CCD)
+  ccd <- read_cached(paths[["ccd"]])
+  if (!usable(ccd)) {
+    fresh <- tryCatch(.download_ccd_directory(state_abbr, first_year = first_year),
+                      error = function(e) {
+      warning("NCES directory download failed (", conditionMessage(e), ")",
+              if (!is.null(ccd)) "; using cached copy." else
+                "; school status will come from Google only.", call. = FALSE)
+      NULL
+    })
+    if (!is.null(fresh)) ccd <- save_dir(fresh, paths[["ccd"]])
+  }
+  if (is.null(ccd)) return(invisible(NULL))
+
+  # Private schools (PSS)
+  pss <- read_cached(paths[["pss"]])
+  if (!usable(pss)) {
+    fresh <- tryCatch(.download_pss_directory(state_abbr, first_year = first_year),
+                      error = function(e) {
+      if (!is.null(pss)) {
+        warning("NCES private school survey download failed (", conditionMessage(e),
+                "); using cached copy.", call. = FALSE)
+      } else {
+        warning("NCES private school survey download failed (", conditionMessage(e),
+                "); continuing with public schools only.", call. = FALSE)
+      }
+      NULL
+    })
+    if (!is.null(fresh)) pss <- save_dir(fresh, paths[["pss"]])
+  }
+
+  message(sprintf("NCES directories for %s: %d public, %d private school-years (in %s).",
+                  state_abbr, nrow(ccd), if (is.null(pss)) 0L else nrow(pss), nces_dir))
+  invisible(list(ccd = ccd, pss = pss))
+}
+
+.nces_directory_paths <- function(nces_dir, state_abbr) {
+  st <- tolower(state_abbr)
+  c(ccd = file.path(nces_dir, sprintf("nces_ccd_directory_%s.rds", st)),
+    pss = file.path(nces_dir, sprintf("nces_pss_directory_%s.rds", st)))
+}
 
 
 #' Load NCES public and private school directories for a state
 #'
-#' Downloads (or reads from cache) the NCES Common Core of Data public-school
-#' directory for every school year from \code{first_year} to the latest
-#' available, plus every Private School Survey edition covering those years,
-#' and reduces them to one row per NCES school with a Google-style
-#' \code{business_status}:
+#' Reads the NCES directories saved by \code{\link{download_nces_directories}}
+#' (downloading them first if they are missing or stale) and reduces the years from \code{first_year} on to one
+#' row per NCES school with a Google-style \code{business_status}:
 #' \itemize{
 #'   \item Public (CCD): \code{OPERATIONAL} if listed as open in the latest
 #'     year; \code{CLOSED_PERMANENTLY} if marked closed, or missing from the
@@ -44,25 +168,20 @@
 #'     otherwise \code{NA} (PSS can't distinguish closure from non-response).
 #' }
 #' Rows with \code{NA} status still match place_ids but leave the status
-#' lookup to Google.
+#' lookup to Google.  Only years from \code{first_year} on are used.
 #'
-#' The result is cached as \code{nces_reference_<state>.rds} in
-#' \code{cache_dir} and re-downloaded once it is older than
-#' \code{max_age_days} (new CCD years are released annually), or when it
-#' doesn't reach back to \code{first_year}. If a download fails, a stale cache is used if one exists; otherwise \code{NULL} is
-#' returned with a warning, so callers fall back to Google.  If only the
-#' private-school download fails and there is no cache, the public schools are
-#' returned but not cached, so the next run tries again.
+#' If nothing can be loaded, \code{NULL} is returned with a warning, so
+#' callers fall back to Google.
 #'
 #' @param state_abbr Two-letter state abbreviation (e.g. \code{"md"}).
-#' @param cache_dir Directory for the cached reference file.
-#' @param first_year First school year to download (fall year, e.g.
+#' @param cache_dir Directory holding the saved NCES directories
+#'   (\code{setup_paths()$nces_dir}).
+#' @param first_year First school year to use (fall year, e.g.
 #'   \code{2015} for 2015-16). Older years add closed schools and former names.
-#'   CCD coordinates start around 2000 and the PSS files around 2013-14, so
-#'   earlier years add little. \code{\link{standardize_schools}} sets this to
-#'   the year before the first year of vaccination data.
-#' @param max_age_days Re-download when the cache is older than this.
-#' @param refresh Logical; force a re-download.
+#'   \code{\link{standardize_schools}} sets this to the year before the first
+#'   year of vaccination data.
+#' @param max_age_days,refresh Passed to
+#'   \code{\link{download_nces_directories}}.
 #'
 #' @return A tibble with one row per NCES school: \code{nces_id},
 #'   \code{nces_source} (\code{"nces_ccd"} or \code{"nces_pss"}),
@@ -72,49 +191,11 @@
 #' @export
 load_nces_reference <- function(state_abbr, cache_dir, first_year = 2015,
                                 max_age_days = 180, refresh = FALSE) {
-  state_abbr <- toupper(state_abbr)
-  cache_path <- file.path(cache_dir, sprintf("nces_reference_%s.rds", tolower(state_abbr)))
-
-  cached <- if (file.exists(cache_path)) readRDS(cache_path) else NULL
-  age_days <- if (!is.null(cached)) {
-    as.numeric(difftime(Sys.time(), attr(cached, "downloaded_at"), units = "days"))
-  } else {
-    Inf
-  }
-  cached_first_year <- attr(cached, "first_year")
-  covers_years <- !is.null(cached_first_year) && cached_first_year <= first_year
-  if (!refresh && age_days <= max_age_days && covers_years) return(cached)
-
-  pss_failed <- FALSE
-  ref <- tryCatch({
-    ccd <- .download_ccd_directory(state_abbr, first_year = first_year)
-    pss <- tryCatch(.download_pss_directory(state_abbr, first_year = first_year), error = function(e) {
-      # A cached reference that has private schools beats a new one without.
-      if (!is.null(cached)) stop(e)
-      warning("NCES private school survey download failed (", conditionMessage(e),
-              "); continuing with public schools only.", call. = FALSE)
-      pss_failed <<- TRUE
-      NULL
-    })
-    dplyr::bind_rows(.summarise_ccd(ccd), .summarise_pss(pss))
-  }, error = function(e) {
-    warning("NCES directory download failed (", conditionMessage(e), ")",
-            if (!is.null(cached)) "; using cached copy." else
-              "; school status will come from Google only.", call. = FALSE)
-    NULL
-  })
-
-  if (is.null(ref)) return(cached)
-  if (pss_failed) return(ref)
-
-  attr(ref, "downloaded_at") <- Sys.time()
-  attr(ref, "first_year") <- first_year
-  if (!dir.exists(cache_dir)) dir.create(cache_dir, recursive = TRUE)
-  saveRDS(ref, cache_path)
-  message(sprintf("NCES reference for %s: %d public, %d private schools (cached to %s).",
-                  state_abbr, sum(ref$nces_source == "nces_ccd"),
-                  sum(ref$nces_source == "nces_pss"), cache_path))
-  ref
+  dirs <- .download_nces_directories(state_abbr, cache_dir, first_year = first_year,
+                                     max_age_days = max_age_days, refresh = refresh)
+  if (is.null(dirs)) return(NULL)
+  from_first <- function(x) if (is.null(x)) NULL else x[x$year >= first_year, , drop = FALSE]
+  dplyr::bind_rows(.summarise_ccd(from_first(dirs$ccd)), .summarise_pss(from_first(dirs$pss)))
 }
 
 
@@ -163,8 +244,7 @@ load_nces_reference <- function(state_abbr, cache_dir, first_year = 2015,
     j <- jsonlite::fromJSON(url)
     if (length(j$results) > 0) {
       pages[[length(pages) + 1]] <- j$results %>%
-        dplyr::select(dplyr::any_of(c("year", "ncessch", "school_name", "school_status",
-                                      "latitude", "longitude")))
+        dplyr::select(dplyr::any_of(.ccd_keep_cols))
     }
     url <- j[["next"]]
   }
@@ -185,7 +265,8 @@ load_nces_reference <- function(state_abbr, cache_dir, first_year = 2015,
   editions <- list()
   # PSS editions start in odd fall years (2021-22, 2023-24, ...), so going back
   # to first_year - 1 includes the edition in effect during first_year.
-  for (start in seq(this_year - (this_year %% 2 == 0), first_year - 1, by = -2)) {
+  last_start <- max(first_year - 1, .pss_first_csv_edition)
+  for (start in seq(this_year - (this_year %% 2 == 0), last_start, by = -2)) {
     url <- sprintf(.pss_zip_url, start %% 100, (start + 1) %% 100)
     zip <- file.path(tmp, basename(url))
     if (!.download_pss_zip(url, zip)) next
@@ -218,8 +299,16 @@ load_nces_reference <- function(state_abbr, cache_dir, first_year = 2015,
   lat_col <- grep("^LATITUDE", names(x), value = TRUE)[1]
   lon_col <- grep("^LONGITUDE", names(x), value = TRUE)[1]
   x <- x[x$PSTABB %in% state_abbr, , drop = FALSE]
+  # Physical location where the edition reports it (PL_*), else mailing address.
+  col <- function(...) {
+    out <- rep(NA_character_, nrow(x))
+    for (nm in c(...)) if (nm %in% names(x)) out <- dplyr::coalesce(out, dplyr::na_if(x[[nm]], ""))
+    out
+  }
   tibble::tibble(
     ppin = x$PPIN, school_name = x$PINST,
+    address = col("PL_ADD", "PADDRS"), city = col("PL_CIT", "PCITY"),
+    zip = col("PL_ZIP", "PZIP"), county_fips = col("PCNTY"),
     latitude = as.numeric(x[[lat_col]]), longitude = as.numeric(x[[lon_col]]),
     year = start + 1L
   )
