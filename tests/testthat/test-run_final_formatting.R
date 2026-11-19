@@ -473,3 +473,11 @@ test_that("several types do not write per-series excluded-rows or years files", 
   expect_true(file.exists(file.path(d$clean, "cleaned_data_excluded_rows_all_types.csv")))
   expect_true(file.exists(file.path(d$clean, "cleaned_data_years_by_school.csv")))
 })
+
+test_that("with review_dir no empty per-series temp or state folders are created", {
+  d <- setup_final_format(make_step03())
+  review <- file.path(dirname(d$out), "review")
+  run_ff(d, c("mmr", "all_required"), review_dir = review)
+  expect_false(dir.exists(file.path(d$temp, "mmr")))
+  expect_false(dir.exists(file.path(d$state, "mmr")))
+})

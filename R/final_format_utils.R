@@ -1365,9 +1365,14 @@ run_final_formatting <- function(state,
     vt <- types[[i]]
     message("\n######## Vaccine type: ", vt, " ########")
     dirs <- lapply(
-      Filter(Negate(is.null), list(temp = temp_data_dir, clean = clean_data_dir,
-                                   state = state_dir, outputs = outputs_data_dir,
-                                   review = review_dir)),
+      # with review_dir, the flag files go there and temp/state folders are not needed
+      Filter(Negate(is.null), list(
+        temp    = if (is.null(review_dir)) temp_data_dir,
+        clean   = clean_data_dir,
+        state   = if (is.null(review_dir)) state_dir,
+        outputs = outputs_data_dir,
+        review  = review_dir
+      )),
       function(d) {
         out <- file.path(d, subdirs[[i]])
         dir.create(out, recursive = TRUE, showWarnings = FALSE)
