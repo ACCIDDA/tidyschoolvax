@@ -17,5 +17,8 @@ dqa_check_over_coverage(df, state_dir = NULL, state = "state")
 A list with components \code{data} (unchanged) and \code{n_flagged}.
 }
 \description{
-Flags rows where \code{current + med_exempt + rel_exempt > enrollment}.
+Flags rows where \code{current} plus exemptions exceeds \code{enrollment}.
+Exemptions are \code{med_exempt + rel_exempt} when both are present;
+otherwise \code{total_exempt} is used if that column exists.  Rows are
+flagged only, not modified.
 }

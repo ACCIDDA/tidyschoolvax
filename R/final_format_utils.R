@@ -26,6 +26,9 @@
 #' @param current_col Column name for current-vaccination count (required).
 #' @param med_exempt_col Column name for medical-exemption count (required).
 #' @param rel_exempt_col Column name for religious-exemption count (required).
+#'   If the state does not report medical and religious exemptions separately,
+#'   pass placeholder all-\code{NA} columns here and supply
+#'   \code{total_exempt_col} instead.
 #' @param delayed_col Column name for delayed-vaccination count (optional).
 #' @param school_name_col Column name for school name (optional).
 #' @param county_name_col Column name for county name (optional).
@@ -41,6 +44,12 @@
 #' @param business_status_col Column name for business/operational status (optional).
 #' @param lat_col Column name for latitude (optional).
 #' @param lon_col Column name for longitude (optional).
+#' @param total_exempt_col Column name for combined (total) exemption count
+#'   (optional).  Use for states that report only a combined exemption count.
+#'   When supplied, the output gains a \code{total_exempt} column, and records
+#'   with a non-missing \code{total_exempt} are kept by
+#'   \code{\link{run_final_formatting}} even if \code{med_exempt} /
+#'   \code{rel_exempt} are \code{NA}.
 #'
 #' @return A \code{data.table} with canonical column names.
 #'
@@ -69,11 +78,13 @@ standardize_kinder_format <- function(
     state_col        = NULL,
     business_status_col = NULL,
     lat_col          = NULL,
-    lon_col          = NULL
+    lon_col          = NULL,
+    total_exempt_col = NULL
 ) {
   req <- c(
     school_id_col, year_col, enrollment_col,
-    current_col, med_exempt_col, rel_exempt_col
+    current_col, med_exempt_col, rel_exempt_col,
+    total_exempt_col
   )
   missing <- setdiff(req, names(df))
   if (length(missing) > 0) {
@@ -122,6 +133,10 @@ standardize_kinder_format <- function(
     rel_exempt = to_int(df[[rel_exempt_col]])
   )
   
+  if (!is.null(total_exempt_col)) {
+    cleaned_data[, total_exempt := to_int(df[[total_exempt_col]])]
+  }
+  
   if (!is.null(cnty_id_col) && cnty_id_col %in% names(df)) {
     cleaned_data[, cnty_id := to_id(df[[cnty_id_col]])]
   }
@@ -152,8 +167,11 @@ standardize_kinder_format <- function(
     cleaned_data[, lon := suppressWarnings(as.numeric(df[[lon_col]]))]
   }
   
-  base_cols  <- c("school_id", "year", "enrollment", "current",
-                  "med_exempt", "rel_exempt")
+  base_cols  <- intersect(
+    c("school_id", "year", "enrollment", "current",
+      "med_exempt", "rel_exempt", "total_exempt"),
+    names(cleaned_data)
+  )
   extra_cols <- intersect(
     c("school_name", "county_name", "cnty_id",
       "vaccine_type", "school_type", "school_level", "level_code",
@@ -268,6 +286,9 @@ dqa_remove_zero_current <- function(df, dqa_report = NULL) {
 #'   \item \code{current > enrollment} — set \code{current} to \code{NA}
 #'   \item any single exemption count or the sum of exemptions exceeds
 #'         \code{enrollment} — set both exemption columns to \code{NA}
+#'   \item \code{total_exempt > enrollment} (only when the
+#'         \code{total_exempt} column is present) — set \code{total_exempt}
+#'         to \code{NA}
 #' }
 #' Before modifying, affected rows are exported as a CSV to \code{temp_data_dir}
 #' for audit purposes.
@@ -289,6 +310,8 @@ dqa_remove_zero_current <- function(df, dqa_report = NULL) {
 #' @param state State abbreviation used in the output file name.
 #' @param export_prefix Prefix for the export file name (default
 #'   \code{"invalid_values_fixed"}).
+#' @param total_exempt_col Name of the optional combined-exemption column
+#'   (default \code{"total_exempt"}).  Checked only if present in \code{df}.
 #'
 #' @return A list with components \code{data} and \code{report}.
 #'
@@ -305,7 +328,8 @@ dqa_fix_invalid_values <- function(
     note_col = "excluded_note",
     temp_data_dir,
     state = "state",
-    export_prefix = "invalid_values_fixed"
+    export_prefix = "invalid_values_fixed",
+    total_exempt_col = "total_exempt"
 ) {
   req <- c(enrollment_col, current_col, med_exempt_col, rel_exempt_col)
   missing <- setdiff(req, names(df))
@@ -319,12 +343,17 @@ dqa_fix_invalid_values <- function(
   
   if (!note_col %in% names(df)) df[[note_col]] <- NA_character_
   
+  has_total <- total_exempt_col %in% names(df)
+  
   na_before <- list(
     enrollment = sum(is.na(df[[enrollment_col]])),
     current    = sum(is.na(df[[current_col]])),
     med_exempt = sum(is.na(df[[med_exempt_col]])),
     rel_exempt = sum(is.na(df[[rel_exempt_col]]))
   )
+  if (has_total) {
+    na_before$total_exempt <- sum(is.na(df[[total_exempt_col]]))
+  }
   if (delayed_col %in% names(df)) {
     na_before$delayed <- sum(is.na(df[[delayed_col]]))
   }
@@ -343,7 +372,14 @@ dqa_fix_invalid_values <- function(
   
   invalid_exemptions <- ex_med_gt_enr | ex_rel_gt_enr | ex_sum_gt_enr
   
-  rows_changed <- neg_current | current_gt_enr | invalid_exemptions
+  if (has_total) {
+    total <- df[[total_exempt_col]]
+    invalid_total <- !is.na(enroll) & !is.na(total) & total > enroll
+  } else {
+    invalid_total <- rep(FALSE, nrow(df))
+  }
+  
+  rows_changed <- neg_current | current_gt_enr | invalid_exemptions | invalid_total
   
   if (any(rows_changed, na.rm = TRUE)) {
     changed_rows <- df[rows_changed, , drop = FALSE]
@@ -362,7 +398,7 @@ dqa_fix_invalid_values <- function(
   
   n_neg_current        <- sum(neg_current, na.rm = TRUE)
   n_current_gt_enr     <- sum(current_gt_enr, na.rm = TRUE)
-  n_invalid_exemptions <- sum(invalid_exemptions, na.rm = TRUE)
+  n_invalid_exemptions <- sum(invalid_exemptions | invalid_total, na.rm = TRUE)
   
   if (!is.null(dqa_report)) {
     dqa_report$negative_current <- list(
@@ -389,13 +425,16 @@ dqa_fix_invalid_values <- function(
   df[[note_col]] <- ifelse(current_gt_enr,
                            append_note(df[[note_col]], "current > enrollment"),
                            df[[note_col]])
-  df[[note_col]] <- ifelse(invalid_exemptions,
+  df[[note_col]] <- ifelse(invalid_exemptions | invalid_total,
                            append_note(df[[note_col]], "exemptions > enrollment"),
                            df[[note_col]])
   
   df[[current_col]]    <- ifelse(neg_current | current_gt_enr, NA, df[[current_col]])
   df[[med_exempt_col]] <- ifelse(invalid_exemptions, NA, df[[med_exempt_col]])
   df[[rel_exempt_col]] <- ifelse(invalid_exemptions, NA, df[[rel_exempt_col]])
+  if (has_total) {
+    df[[total_exempt_col]] <- ifelse(invalid_total, NA, df[[total_exempt_col]])
+  }
   
   na_after <- list(
     enrollment = sum(is.na(df[[enrollment_col]])),
@@ -403,6 +442,9 @@ dqa_fix_invalid_values <- function(
     med_exempt = sum(is.na(df[[med_exempt_col]])),
     rel_exempt = sum(is.na(df[[rel_exempt_col]]))
   )
+  if (has_total) {
+    na_after$total_exempt <- sum(is.na(df[[total_exempt_col]]))
+  }
   if (delayed_col %in% names(df)) {
     na_after$delayed <- sum(is.na(df[[delayed_col]]))
   }
@@ -492,7 +534,8 @@ dqa_check_duplicates <- function(df, state_dir = NULL, state = "state") {
 #'
 #' @description
 #' Flags rows containing negative values in \code{current}, \code{med_exempt},
-#' \code{rel_exempt}, or \code{enrollment} and optionally exports them to a CSV.
+#' \code{rel_exempt}, \code{total_exempt} (if present), or \code{enrollment}
+#' and optionally exports them to a CSV.
 #'
 #' @param df A data frame with numeric vaccination count columns.
 #' @param state_dir State-specific directory for exporting flagged rows.
@@ -504,8 +547,11 @@ dqa_check_duplicates <- function(df, state_dir = NULL, state = "state") {
 #' @importFrom readr write_csv
 #' @export
 dqa_check_negatives <- function(df, state_dir = NULL, state = "state") {
+  total_neg <- if ("total_exempt" %in% names(df)) df$total_exempt < 0 else FALSE
+  
   negatives <- df %>%
-    dplyr::filter(current < 0 | med_exempt < 0 | rel_exempt < 0 | enrollment < 0)
+    dplyr::filter(current < 0 | med_exempt < 0 | rel_exempt < 0 | enrollment < 0 |
+                    .env$total_neg)
   
   if (nrow(negatives) > 0) {
     warning("Found negative values in ", nrow(negatives), " rows.")
@@ -522,8 +568,9 @@ dqa_check_negatives <- function(df, state_dir = NULL, state = "state") {
 #' Check for Values Exceeding Enrollment
 #'
 #' @description
-#' Flags rows where \code{current}, \code{med_exempt}, or \code{rel_exempt}
-#' individually exceed \code{enrollment} and optionally exports them to a CSV.
+#' Flags rows where \code{current}, \code{med_exempt}, \code{rel_exempt}, or
+#' \code{total_exempt} (if present) individually exceed \code{enrollment} and
+#' optionally exports them to a CSV.
 #'
 #' @param df A data frame with numeric vaccination count columns.
 #' @param state_dir State-specific directory for exporting flagged rows.
@@ -535,8 +582,11 @@ dqa_check_negatives <- function(df, state_dir = NULL, state = "state") {
 #' @importFrom readr write_csv
 #' @export
 dqa_check_too_high <- function(df, state_dir = NULL, state = "state") {
+  total_high <- if ("total_exempt" %in% names(df)) df$total_exempt > df$enrollment else FALSE
+  
   too_high <- df %>%
-    dplyr::filter(current > enrollment | med_exempt > enrollment | rel_exempt > enrollment)
+    dplyr::filter(current > enrollment | med_exempt > enrollment | rel_exempt > enrollment |
+                    .env$total_high)
   
   if (nrow(too_high) > 0) {
     warning("Found higher-than-enrollment values for current/exempt in ", nrow(too_high), " rows.")
@@ -588,7 +638,10 @@ dqa_check_coverage_outliers <- function(df, state_dir = NULL, state = "state") {
 #' Check for Over-Coverage
 #'
 #' @description
-#' Flags rows where \code{current + med_exempt + rel_exempt > enrollment}.
+#' Flags rows where \code{current} plus exemptions exceeds \code{enrollment}.
+#' Exemptions are \code{med_exempt + rel_exempt} when both are present;
+#' otherwise \code{total_exempt} is used if that column exists.  Rows are
+#' flagged only, not modified.
 #'
 #' @param df A data frame with vaccination count columns.
 #' @param state_dir State-specific directory for exporting flagged rows.
@@ -600,8 +653,13 @@ dqa_check_coverage_outliers <- function(df, state_dir = NULL, state = "state") {
 #' @importFrom readr write_csv
 #' @export
 dqa_check_over_coverage <- function(df, state_dir = NULL, state = "state") {
+  exempt_sum <- df$med_exempt + df$rel_exempt
+  if ("total_exempt" %in% names(df)) {
+    exempt_sum <- dplyr::coalesce(exempt_sum, as.numeric(df$total_exempt))
+  }
+  
   over_coverage <- df %>%
-    dplyr::filter(!is.na(enrollment) & (current + med_exempt + rel_exempt) > enrollment)
+    dplyr::filter(!is.na(enrollment) & (current + .env$exempt_sum) > enrollment)
   
   if (nrow(over_coverage) > 0) {
     warning("Found ", nrow(over_coverage), " rows where current + exempt exceed enrollment.")
@@ -969,6 +1027,7 @@ format_fix_column_classes <- function(df, warn_on_change = TRUE, warn_on_missing
     current          = "integer",
     med_exempt       = "integer",
     rel_exempt       = "integer",
+    total_exempt     = "integer",
     school_name      = "character",
     county_name      = "character",
     school_type      = "character",
@@ -1095,12 +1154,16 @@ print_dqa_summary <- function(dqa_report) {
   na_after_current    <- get_in(dqa_report, c("na_counts", "after", "current"), NA)
   na_after_med_exempt <- get_in(dqa_report, c("na_counts", "after", "med_exempt"), NA)
   na_after_rel_exempt <- get_in(dqa_report, c("na_counts", "after", "rel_exempt"), NA)
+  na_after_total_exempt <- get_in(dqa_report, c("na_counts", "after", "total_exempt"), NA)
   
   if (!all(is.na(c(na_after_current, na_after_med_exempt, na_after_rel_exempt, na_after_enrollment)))) {
     message("  - enrollment: ", fmt(na_after_enrollment))
     message("  - current:    ", fmt(na_after_current))
     message("  - med_exempt: ", fmt(na_after_med_exempt))
     message("  - rel_exempt: ", fmt(na_after_rel_exempt))
+    if (!is.na(na_after_total_exempt)) {
+      message("  - total_exempt: ", fmt(na_after_total_exempt))
+    }
   } else {
     message("  - vaccine_coverage: ", fmt(get_in(dqa_report, c("na_counts", "after", "vaccine_coverage"), NA)))
     message("  - percent_medical_exemption: ", fmt(get_in(dqa_report, c("na_counts", "after", "percent_medical_exemption"), NA)))
@@ -1427,14 +1490,20 @@ run_final_formatting <- function(state,
   print_dqa_summary(dqa_report)
   
   # ---- Remove rows with NAs in key columns ------------------------------------
-  na_rows <- dplyr::filter(kinder_dat,
-                           dplyr::if_any(c(current, enrollment, med_exempt, rel_exempt), is.na))
-  if (nrow(na_rows) > 0) {
-    message("  Rows with NA in key columns (to be removed): ", nrow(na_rows))
+  # current and enrollment must be non-missing. Exemptions must be present
+  # either as both med_exempt and rel_exempt, or (for states that report only
+  # a combined count) as total_exempt.
+  has_total_exempt <- "total_exempt" %in% names(kinder_dat)
+  exempt_ok <- !is.na(kinder_dat$med_exempt) & !is.na(kinder_dat$rel_exempt)
+  if (has_total_exempt) {
+    exempt_ok <- exempt_ok | !is.na(kinder_dat$total_exempt)
   }
-  kinder_dat <- dplyr::filter(kinder_dat,
-                              dplyr::if_all(c(current, enrollment, med_exempt, rel_exempt),
-                                            ~!is.na(.)))
+  key_ok <- !is.na(kinder_dat$current) & !is.na(kinder_dat$enrollment) & exempt_ok
+  
+  if (sum(!key_ok) > 0) {
+    message("  Rows with NA in key columns (to be removed): ", sum(!key_ok))
+  }
+  kinder_dat <- dplyr::filter(kinder_dat, .env$key_ok)
   
   # ---- Remove rows with all-zero key values -----------------------------------
   kinder_dat <- kinder_dat %>%
@@ -1451,7 +1520,8 @@ run_final_formatting <- function(state,
     kinder_dat,
     required_cols = c("school_id", "year", "school_name", "county_name",
                       "enrollment", "current", "med_exempt", "rel_exempt"),
-    optional_cols = c("school_type", "school_level", "excluded_note",
+    optional_cols = c("total_exempt",
+                      "school_type", "school_level", "excluded_note",
                       "addr_clean", "city", "zip", "state", "business_status",
                       "lat", "lon", "district", "district_std")
   )
@@ -1503,9 +1573,14 @@ run_final_formatting <- function(state,
   dqa_report$part4$over_coverage <- result$n_flagged
   message("  Over-coverage (current + exempt > enrollment): ", result$n_flagged, " rows flagged")
   
+  # Cap current so current + med_exempt + rel_exempt <= enrollment. Applied
+  # only where both med_exempt and rel_exempt are present; records kept on
+  # total_exempt alone keep their current value (they are still flagged by
+  # dqa_check_over_coverage() above).
   kinder_dat <- kinder_dat %>%
     dplyr::mutate(current = dplyr::if_else(
-      current + med_exempt + rel_exempt > enrollment,
+      !is.na(med_exempt) & !is.na(rel_exempt) &
+        current + med_exempt + rel_exempt > enrollment,
       enrollment - med_exempt - rel_exempt,
       current
     ))

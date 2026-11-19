@@ -15,7 +15,8 @@ dqa_fix_invalid_values(
   note_col = "excluded_note",
   temp_data_dir,
   state = "state",
-  export_prefix = "invalid_values_fixed"
+  export_prefix = "invalid_values_fixed",
+  total_exempt_col = "total_exempt"
 )
 }
 \arguments{
@@ -46,6 +47,9 @@ dqa_fix_invalid_values(
 
 \item{export_prefix}{Prefix for the export file name (default
 \code{"invalid_values_fixed"}).}
+
+\item{total_exempt_col}{Name of the optional combined-exemption column
+(default \code{"total_exempt"}).  Checked only if present in \code{df}.}
 }
 \value{
 A list with components \code{data} and \code{report}.
@@ -57,6 +61,9 @@ Applies automatic corrections for impossible count values:
   \item \code{current > enrollment} — set \code{current} to \code{NA}
   \item any single exemption count or the sum of exemptions exceeds
         \code{enrollment} — set both exemption columns to \code{NA}
+  \item \code{total_exempt > enrollment} (only when the
+        \code{total_exempt} column is present) — set \code{total_exempt}
+        to \code{NA}
 }
 Before modifying, affected rows are exported as a CSV to \code{temp_data_dir}
 for audit purposes.
