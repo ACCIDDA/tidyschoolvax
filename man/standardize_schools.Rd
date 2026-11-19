@@ -22,7 +22,8 @@ standardize_schools(
   include_prek_only_reference = FALSE,
   use_nces = TRUE,
   nces_cache_dir = file.path(state_geo_dir, "nces"),
-  api_log_dir = file.path(dirname(dirname(state_dir)), "api_logs"),
+  api_log_dir = file.path(dirname(dirname(state_dir)), "checks", "tidyschoolvax",
+    "api_logs"),
   places_qps = 8
 )
 }
@@ -104,7 +105,7 @@ before the first year of vaccination data onward.}
 \item{api_log_dir}{Directory for the Google API call logs written at the
 end of the run (see \code{\link{write_api_log}}), even if the run errors.
 Defaults to an \code{api_logs} folder shared by all states
-(\code{00_preprocessing/api_logs} in the \code{\link{setup_paths}}
+(\code{checks/tidyschoolvax/api_logs} in the \code{\link{setup_paths}}
 layout), so month-to-date totals cover every state.  \code{NULL} skips
 writing the log.}
 

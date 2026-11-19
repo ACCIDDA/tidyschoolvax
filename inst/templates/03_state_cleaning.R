@@ -20,7 +20,7 @@
 #
 #   HOW TO ADAPT FOR A NEW STATE:
 #     1. Copy this file to
-#        00_preprocessing/states/<XX>/code/03_state_cleaning.R
+#        source/tidyschoolvax/<XX>/03_state_cleaning.R
 #        (or run tidyschoolvax::create_state_cleaning_script("<XX>"))
 #     2. Search for every "# CUSTOMIZE:" comment and follow the instruction.
 #     3. Delete option blocks that do not apply to your state.

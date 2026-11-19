@@ -92,7 +92,7 @@ estimate_api_cost <- function(state_id,
                               geocoding_factor = 0.86,
                               places_factor    = 0.46,
                               prices           = google_api_prices(),
-                              api_log_dir      = file.path(dirname(dirname(state_dir)), "api_logs"),
+                              api_log_dir      = file.path(dirname(dirname(state_dir)), "checks", "tidyschoolvax", "api_logs"),
                               verbose          = FALSE,
                               ...) {
 

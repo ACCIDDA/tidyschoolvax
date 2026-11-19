@@ -25,7 +25,7 @@ The path to the script (invisibly) — either the pre-existing file
 \description{
 Copies the generic \code{01_download.R} template into the conventional
 location for a new state:
-\code{<project_root>/00_preprocessing/states/<state>/code/01_download.R}
+\code{<project_root>/source/tidyschoolvax/<state>/01_download.R}
 
 The template contains three data-acquisition options (web scrape, pre-placed
 file, ZIP archive) and covers all three pipeline sections (kindergarten vax

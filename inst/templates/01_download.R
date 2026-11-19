@@ -24,7 +24,7 @@
 #     are expected to exist in the calling environment (set via setup_paths()).
 #
 #   HOW TO ADAPT FOR A NEW STATE:
-#     1. Copy this file to 00_preprocessing/states/<XX>/code/01_download.R
+#     1. Copy this file to source/tidyschoolvax/<XX>/01_download.R
 #     2. Search for every "# CUSTOMIZE:" comment and follow the instruction.
 #     3. Delete or keep the option blocks that apply to your state.
 #     4. Move any manual school-name or address corrections to
@@ -158,7 +158,7 @@
 #   year_source, school_name, school_type, county, vaccine_type,
 #   total_enrollment, count_up_to_date, count_med_exempt, count_rel_exempt,
 #   count_not_up_to_date
-# See 00_preprocessing/states/nc/code/01_download.R for an example.
+# See source/tidyschoolvax/nc/01_download.R for an example.
 
 
 # -----------------------------------------------------------------------------

@@ -74,7 +74,7 @@ tidyschoolvax::download_agnostic_data(
 
 # 1b. State-specific downloads (kindergarten vax data, DOE/DOA school data) ---
 cat("Step 1b: Download state-specific data...\n")
-source(file.path(state_dir, "code/01_download.R"))
+source(file.path(code_dir, "01_download.R"))
 
 # Outputs
 ## Merged annual kindergarten school-level vax data (kinder.csv & kinder.rds)
@@ -146,7 +146,7 @@ check_expected_files(
 # 3. State Specific Fixes -------------------------------------------------------------
 
 cat("Step 3: State-specific data cleaning...\n")
-source(file.path(state_dir, "code/03_state_cleaning.R"))
+source(file.path(code_dir, "03_state_cleaning.R"))
 
 # Output:
 ## State specific cleaned data (intermediate file) to be used for Step 4

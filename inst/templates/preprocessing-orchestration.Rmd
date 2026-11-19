@@ -115,7 +115,7 @@ tidyschoolvax::download_agnostic_data(
 
 ```{r step-1b-download-state}
 cat("Step 1b: Download state-specific data...\n")
-source(file.path(state_dir, "code/01_download.R"))
+source(file.path(code_dir, "01_download.R"))
 ```
 
 **Expected outputs:**
@@ -194,7 +194,7 @@ Apply any state-specific data cleaning rules before final formatting.
 
 ```{r step-3-state-cleaning}
 cat("Step 3: State-specific data cleaning...\n")
-source(file.path(state_dir, "code/03_state_cleaning.R"))
+source(file.path(code_dir, "03_state_cleaning.R"))
 ```
 
 **Expected outputs:**
