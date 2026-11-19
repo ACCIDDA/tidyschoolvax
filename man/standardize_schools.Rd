@@ -21,7 +21,7 @@ standardize_schools(
   elementary_only_reference = TRUE,
   include_prek_only_reference = FALSE,
   use_nces = TRUE,
-  nces_cache_dir = file.path(state_geo_dir, "nces"),
+  nces_cache_dir = file.path(dirname(kinder_dir), "nces"),
   api_log_dir = file.path(dirname(dirname(state_dir)), "api_logs"),
   places_qps = 8
 )
@@ -95,8 +95,12 @@ remaining places to the paid Google Places API.  See
 falls back to Google for every school.  NCES data is pulled from the year
 before the first year of vaccination data onward.}
 
-\item{nces_cache_dir}{Directory for the cached NCES reference file
-(defaults to an \code{nces} folder inside \code{state_geo_dir}).}
+\item{nces_cache_dir}{Directory holding the NCES directories downloaded in
+step 1 by \code{\link{download_agnostic_data}} (see
+\code{\link{download_nces_directories}}).  Defaults to the \code{nces}
+folder next to \code{kinder_dir}, which is \code{setup_paths()$nces_dir}.
+If the files are missing or don't reach back far enough, they are
+downloaded here.}
 
 \item{api_log_dir}{Directory for the Google API call logs written at the
 end of the run (see \code{\link{write_api_log}}), even if the run errors.

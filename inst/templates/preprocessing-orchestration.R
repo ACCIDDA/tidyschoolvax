@@ -63,13 +63,14 @@ list2env(paths, envir = environment())
 ## Download kindergarten school-level vax data, state school data (DOE, DOA, etc.),
 ## greatschools.org data for standardized school names, and VaxView data
 
-# 1a. State-agnostic downloads (GreatSchools.org, CDC VaxView) -----------------
-cat("Step 1a: Download state-agnostic data (GreatSchools, VaxView)...\n")
+# 1a. State-agnostic downloads (GreatSchools.org, CDC VaxView, NCES) -----------------
+cat("Step 1a: Download state-agnostic data (GreatSchools, VaxView, NCES)...\n")
 tidyschoolvax::download_agnostic_data(
   state            = state,
   state_name       = state_name,
   greatschools_dir = greatschools_dir,
-  vaxview_dir      = vaxview_dir
+  vaxview_dir      = vaxview_dir,
+  nces_dir         = nces_dir
 )
 
 # 1b. State-specific downloads (kindergarten vax data, DOE/DOA school data) ---
@@ -123,6 +124,7 @@ school_vax_joined <- tidyschoolvax::standardize_schools(
   temp_data_dir    = temp_data_dir,
   state_geo_dir    = state_geo_dir,
   state_dir        = state_dir,
+  nces_cache_dir   = nces_dir,
   addr_source_pref = addr_source_pref,
   parallel         = TRUE,
   parallel_cache   = TRUE,

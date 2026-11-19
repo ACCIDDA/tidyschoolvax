@@ -75,12 +75,13 @@ library(tidyschoolvax)
 paths <- setup_paths(project_root = here::here(), state = "ca")
 list2env(paths, envir = environment())
 
-# 2. Download state-agnostic data (GreatSchools.org, CDC VaxView)
+# 2. Download state-agnostic data (GreatSchools.org, CDC VaxView, NCES)
 download_agnostic_data(
   state            = "ca",
   state_name       = "California",
   greatschools_dir = greatschools_dir,
-  vaxview_dir      = vaxview_dir
+  vaxview_dir      = vaxview_dir,
+  nces_dir         = nces_dir
 )
 
 # 3. Standardize school names, assign unique IDs, and geocode
@@ -93,6 +94,7 @@ school_vax_joined <- standardize_schools(
   temp_data_dir    = temp_data_dir,
   state_geo_dir    = state_geo_dir,
   state_dir        = state_dir,
+  nces_cache_dir   = nces_dir,
   addr_source_pref = "kinder"
 )
 
@@ -134,7 +136,8 @@ See `vignette("preprocessing-orchestration", package = "tidyschoolvax")` for a c
 
 | Function | Description |
 |---|---|
-| `download_agnostic_data()` | Download GreatSchools.org and CDC VaxView data |
+| `download_agnostic_data()` | Download GreatSchools.org, CDC VaxView and NCES school directory data |
+| `download_nces_directories()` | Download the NCES public (CCD) and private (PSS) school directories for a state |
 | `scrape_greatschools_schools()` | Scrape school listings from GreatSchools.org |
 | `combine_vaxview_data()` / `save_vaxview_parquet()` | Load and save CDC VaxView data |
 

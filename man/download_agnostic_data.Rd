@@ -9,7 +9,8 @@ download_agnostic_data(
   state_name,
   greatschools_dir,
   vaxview_dir,
-  workers = 8
+  workers = 8,
+  nces_dir = NULL
 )
 }
 \arguments{
@@ -23,12 +24,21 @@ download_agnostic_data(
 
 \item{workers}{Number of parallel workers to use when scraping GreatSchools
 (default: 8).}
+
+\item{nces_dir}{Directory for the NCES school directories
+(\code{setup_paths()$nces_dir}).  All years with school coordinates are
+downloaded (public schools from 2000-01, private from 2013-14).
+\code{NULL} (default) skips the NCES download;
+\code{\link{standardize_schools}} then downloads it itself.}
 }
 \value{
-Invisibly returns a list with two elements:
+Invisibly returns a list with three elements:
   \describe{
     \item{greatschools_dat}{Data frame of GreatSchools school listings.}
     \item{vaxview_dat}{Data frame of combined CDC VaxView vaccination data.}
+    \item{nces_dat}{List of the NCES \code{ccd} and \code{pss}
+      directories, or \code{NULL} when \code{nces_dir} is \code{NULL} or
+      the download failed.}
   }
 }
 \description{
@@ -37,6 +47,8 @@ identical logic for all states, parameterized by state:
 \itemize{
   \item GreatSchools.org school listings
   \item CDC VaxView vaccination coverage data (child, school, teen)
+  \item NCES public (CCD) and private (PSS) school directories, when
+    \code{nces_dir} is given (see \code{\link{download_nces_directories}})
 }
 }
 \details{
@@ -48,6 +60,8 @@ The function saves the following files:
   \item \code{<vaxview_dir>/SchoolVaxView.csv}
   \item \code{<vaxview_dir>/TeenVaxView.csv}
   \item \code{<vaxview_dir>/vax_view.parquet}
+  \item \code{<nces_dir>/nces_ccd_directory_<state>.rds} and
+    \code{nces_pss_directory_<state>.rds}
 }
 }
 \examples{
@@ -56,7 +70,8 @@ result <- download_agnostic_data(
   state          = "nc",
   state_name     = "North Carolina",
   greatschools_dir = "path/to/greatschools",
-  vaxview_dir      = "path/to/vaxview"
+  vaxview_dir      = "path/to/vaxview",
+  nces_dir         = "path/to/nces"
 )
 }
 

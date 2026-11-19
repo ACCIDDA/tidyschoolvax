@@ -107,7 +107,8 @@ tidyschoolvax::download_agnostic_data(
   state            = state,
   state_name       = state_name,
   greatschools_dir = greatschools_dir,
-  vaxview_dir      = vaxview_dir
+  vaxview_dir      = vaxview_dir,
+  nces_dir         = nces_dir
 )
 ```
 
@@ -165,6 +166,7 @@ school_vax_joined <- tidyschoolvax::standardize_schools(
   temp_data_dir    = temp_data_dir,
   state_geo_dir    = state_geo_dir,
   state_dir        = state_dir,
+  nces_cache_dir   = nces_dir,
   addr_source_pref = addr_source_pref,
   parallel         = TRUE,
   parallel_cache   = TRUE,

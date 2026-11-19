@@ -63,29 +63,40 @@ test_that(".download_pss_zip separates a missing edition from a failure", {
   expect_false(.download_pss_zip("http://x", tempfile()))
 })
 
-test_that("a failed PSS download doesn't replace the cache or get cached", {
-  ccd <- tibble::tibble(year = 2024, ncessch = "1", school_name = "A", school_status = 1,
-                        latitude = 39, longitude = -76)
+# Raw directory fixtures in the shape the downloaders return.
+ccd_dir_fixture <- function(years = 2015:2024) {
+  tibble::tibble(year = years, ncessch = "1", school_name = "A", school_status = 1,
+                 latitude = 39, longitude = -76)
+}
+pss_dir_fixture <- function(years = c(2016L, 2018L, 2020L, 2022L, 2024L)) {
+  tibble::tibble(ppin = "P", school_name = "P Academy", year = years,
+                 latitude = 39.5, longitude = -76.5)
+}
+save_nces_dir <- function(x, dir, which, first_year = 2000, age_days = 0) {
+  attr(x, "downloaded_at") <- Sys.time() - age_days * 86400
+  attr(x, "first_year") <- first_year
+  saveRDS(x, .nces_directory_paths(dir, "md")[[which]])
+}
+
+test_that("a failed PSS download keeps public schools and retries private ones", {
   local_mocked_bindings(
-    .download_ccd_directory = function(...) ccd,
+    .download_ccd_directory = function(...) ccd_dir_fixture(),
     .download_pss_directory = function(...) stop("timeout")
   )
   dir <- withr::local_tempdir()
 
-  # No cache: public schools for this run, nothing saved so the next run retries.
+  # No PSS copy: public schools only; CCD is saved, PSS is tried again next time.
   expect_warning(out <- load_nces_reference("md", dir), "public schools only")
   expect_equal(out$nces_id, "1")
-  expect_false(file.exists(file.path(dir, "nces_reference_md.rds")))
+  expect_true(file.exists(.nces_directory_paths(dir, "md")[["ccd"]]))
+  expect_false(file.exists(.nces_directory_paths(dir, "md")[["pss"]]))
 
-  # Stale cache: kept as it was, still stale.
-  ref <- nces_fixture()
-  old <- Sys.time() - 365 * 86400
-  attr(ref, "downloaded_at") <- old
-  attr(ref, "first_year") <- 2015
-  saveRDS(ref, file.path(dir, "nces_reference_md.rds"))
+  # Stale PSS copy: kept as it was, still stale.
+  save_nces_dir(pss_dir_fixture(), dir, "pss", age_days = 365)
+  old <- attr(readRDS(.nces_directory_paths(dir, "md")[["pss"]]), "downloaded_at")
   expect_warning(out <- load_nces_reference("md", dir), "using cached copy")
-  expect_equal(nrow(out), 4)
-  expect_equal(attr(readRDS(file.path(dir, "nces_reference_md.rds")), "downloaded_at"), old)
+  expect_setequal(out$nces_id, c("1", "P"))
+  expect_equal(attr(readRDS(.nces_directory_paths(dir, "md")[["pss"]]), "downloaded_at"), old)
 })
 
 test_that("a year without coordinates doesn't change a school's status", {
@@ -103,6 +114,18 @@ test_that("a year without coordinates doesn't change a school's status", {
   p <- .summarise_pss(pss)
   expect_equal(p$business_status, "OPERATIONAL")
   expect_equal(p$lat, 39)
+})
+
+test_that("PSS files keep the physical address where reported, else the mailing one", {
+  x <- tibble::tibble(PPIN = c("X", "Y"), PINST = c("X Academy", "Y School"), PSTABB = "MD",
+                      PL_ADD = c("1 Main St", ""), PADDRS = c("PO Box 5", "2 Elm St"),
+                      PL_CIT = c("Towson", NA), PCITY = c("Baltimore", "Dundalk"),
+                      PCNTY = c("005", "005"), LATITUDE24 = "39", LONGITUDE24 = "-76")
+  out <- .parse_pss_edition(x, "MD", 2023)
+  expect_equal(out$address, c("1 Main St", "2 Elm St"))
+  expect_equal(out$city, c("Towson", "Dundalk"))
+  expect_true(all(is.na(out$zip)))
+  expect_equal(out$county_fips, c("005", "005"))
 })
 
 test_that("PSS files parse whatever the edition's column names", {
@@ -266,20 +289,18 @@ test_that("add_google_name_variants uses its rows' coordinates and names for NCE
   expect_true(is.na(out$school_name_std_google[3]))
 })
 
-test_that("load_nces_reference uses a fresh cache and falls back to a stale one", {
+test_that("load_nces_reference uses fresh directories and falls back to stale ones", {
   dir <- withr::local_tempdir()
-  ref <- nces_fixture()
-  attr(ref, "downloaded_at") <- Sys.time()
-  attr(ref, "first_year") <- 2015
-  saveRDS(ref, file.path(dir, "nces_reference_md.rds"))
+  save_nces_dir(ccd_dir_fixture(), dir, "ccd")
+  save_nces_dir(pss_dir_fixture(), dir, "pss")
 
-  local_mocked_bindings(.download_ccd_directory = function(...) stop("offline"))
-  expect_equal(nrow(load_nces_reference("md", dir)), 4)
+  local_mocked_bindings(.download_ccd_directory = function(...) stop("offline"),
+                        .download_pss_directory = function(...) stop("offline"))
+  expect_equal(nrow(load_nces_reference("md", dir)), 2)
 
-  attr(ref, "downloaded_at") <- Sys.time() - 365 * 86400
-  saveRDS(ref, file.path(dir, "nces_reference_md.rds"))
+  save_nces_dir(ccd_dir_fixture(), dir, "ccd", age_days = 365)
   expect_warning(out <- load_nces_reference("md", dir), "using cached copy")
-  expect_equal(nrow(out), 4)
+  expect_equal(nrow(out), 2)
 
   expect_warning(none <- load_nces_reference("va", dir), "Google only")
   expect_null(none)
@@ -293,30 +314,78 @@ test_that("first NCES year is the year before the first vaccination year", {
   expect_equal(out, 2015L)
 })
 
-test_that("a fresh cache is re-downloaded when it doesn't reach back far enough", {
+test_that("every year with coordinates is downloaded, and reused for any later first_year", {
   dir <- withr::local_tempdir()
-  ref <- nces_fixture()
-  attr(ref, "downloaded_at") <- Sys.time()
-  attr(ref, "first_year") <- 2015
-  saveRDS(ref, file.path(dir, "nces_reference_md.rds"))
-
   requested <- NULL
   local_mocked_bindings(
     .download_ccd_directory = function(state_abbr, first_year) {
-      requested <<- first_year
-      stop("offline")
-    }
+      requested <<- c(requested, first_year)
+      ccd_dir_fixture()
+    },
+    .download_pss_directory = function(...) pss_dir_fixture()
   )
-  expect_equal(nrow(load_nces_reference("md", dir, first_year = 2016)), 4)
-  expect_null(requested)  # the cache starts earlier than needed, so it is used
+  suppressMessages(download_nces_directories("md", dir))
+  expect_equal(requested, 2000)
+  expect_equal(attr(readRDS(.nces_directory_paths(dir, "md")[["ccd"]]), "first_year"), 2000)
 
-  expect_warning(load_nces_reference("md", dir, first_year = 2014), "using cached copy")
-  expect_equal(requested, 2014)
+  # Step 2 asks for its own first year; the full download already covers it.
+  for (fy in c(2010, 2014, 2020)) suppressMessages(load_nces_reference("md", dir, first_year = fy))
+  expect_equal(requested, 2000)
 
-  # A cache from before first_year was recorded is not trusted to cover it.
-  attr(ref, "first_year") <- NULL
-  saveRDS(ref, file.path(dir, "nces_reference_md.rds"))
-  expect_warning(load_nces_reference("md", dir, first_year = 2016), "using cached copy")
+  # A file saved from a later year (e.g. by an older version) is re-downloaded in full.
+  save_nces_dir(ccd_dir_fixture(), dir, "ccd", first_year = 2015)
+  suppressMessages(load_nces_reference("md", dir, first_year = 2016))
+  expect_equal(requested, c(2000, 2000))
+
+  # Only data starting before 2001 asks for more than the full download.
+  suppressMessages(load_nces_reference("md", dir, first_year = 1998))
+  expect_equal(requested, c(2000, 2000, 1998))
+
+  # Files without a recorded first year aren't trusted to cover anything.
+  x <- ccd_dir_fixture(); attr(x, "downloaded_at") <- Sys.time()
+  saveRDS(x, .nces_directory_paths(dir, "md")[["ccd"]])
+  suppressMessages(load_nces_reference("md", dir, first_year = 2016))
+  expect_equal(requested, c(2000, 2000, 1998, 2000))
+})
+
+test_that("the reference only uses years from first_year on, whatever the saved files cover", {
+  dir <- withr::local_tempdir()
+  # School "old" closed before 2018; "renamed" had a different name before 2018.
+  ccd <- tibble::tibble(
+    year = c(2015:2017, 2015:2024, 2015:2024),
+    ncessch = c(rep("old", 3), rep("renamed", 10), rep("open", 10)),
+    school_name = c(rep("Old School", 3), rep("Former Name", 3), rep("New Name", 7),
+                    rep("Open School", 10)),
+    school_status = 1, latitude = 39, longitude = -76
+  )
+  save_nces_dir(ccd, dir, "ccd")
+  save_nces_dir(pss_dir_fixture(), dir, "pss")
+  local_mocked_bindings(.download_ccd_directory = function(...) stop("should not download"),
+                        .download_pss_directory = function(...) stop("should not download"))
+
+  from_2018 <- load_nces_reference("md", dir, first_year = 2018)
+  expect_setequal(from_2018$nces_id, c("renamed", "open", "P"))
+  expect_equal(from_2018$nces_names[from_2018$nces_id == "renamed"], "New Name")
+  # Same result as directories downloaded from 2018 in the first place.
+  expect_equal(from_2018,
+               dplyr::bind_rows(.summarise_ccd(ccd[ccd$year >= 2018, ]),
+                                .summarise_pss(pss_dir_fixture()[pss_dir_fixture()$year >= 2018, ])))
+
+  from_2015 <- load_nces_reference("md", dir, first_year = 2015)
+  expect_true("old" %in% from_2015$nces_id)
+})
+
+test_that("download_nces_directories saves the raw directories with their coverage", {
+  dir <- withr::local_tempdir()
+  local_mocked_bindings(
+    .download_ccd_directory = function(state_abbr, first_year) ccd_dir_fixture(first_year:2024),
+    .download_pss_directory = function(state_abbr, first_year) pss_dir_fixture()
+  )
+  out <- suppressMessages(download_nces_directories("MD", dir))
+  expect_equal(nrow(out$ccd), 25)
+  saved <- readRDS(.nces_directory_paths(dir, "md")[["ccd"]])
+  expect_equal(attr(saved, "first_year"), 2000)
+  expect_true(file.exists(.nces_directory_paths(dir, "md")[["pss"]]))
 })
 
 test_that("CCD and PSS downloads go back to first_year", {
@@ -340,6 +409,11 @@ test_that("CCD and PSS downloads go back to first_year", {
   pss_urls <- character()
   expect_error(.download_pss_directory("MD", first_year = 2015), "no PSS editions")
   expect_equal(sub(".*/(pss[0-9]+)_.*", "\\1", pss_urls[length(pss_urls)]), "pss1516")
+
+  # A full download stops at the first edition published as a CSV.
+  pss_urls <- character()
+  expect_error(.download_pss_directory("MD", first_year = 2000), "no PSS editions")
+  expect_equal(sub(".*/(pss[0-9]+)_.*", "\\1", pss_urls[length(pss_urls)]), "pss1314")
 })
 
 test_that("pre-K-only reference schools are dropped, K-including ones kept", {

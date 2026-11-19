@@ -114,11 +114,15 @@ estimate_api_cost <- function(state_id,
   on.exit(unlink(sandbox, recursive = TRUE), add = TRUE)
   sandbox_geo <- file.path(sandbox, "geo")
   dir.create(sandbox_geo)
-  if (dir.exists(state_geo_dir)) {
+  if (dir.exists(state_geo_dir) && isTRUE(use_cache)) {
     keep <- list.files(state_geo_dir, full.names = TRUE)
-    if (!isTRUE(use_cache)) keep <- keep[basename(keep) == "nces"]
     if (length(keep) > 0L) file.copy(keep, sandbox_geo, recursive = TRUE)
   }
+  # The NCES directories downloaded in step 1 (they aren't billed, so they are
+  # copied whatever use_cache says).
+  real_nces <- file.path(dirname(kinder_dir), "nces")
+  if (dir.exists(real_nces)) file.copy(real_nces, sandbox, recursive = TRUE)
+  if (!dir.exists(file.path(sandbox, "nces"))) dir.create(file.path(sandbox, "nces"))
 
   # A missed call site would fail on this key instead of using (and billing) yours.
   key_before <- Sys.getenv("GOOGLEGEO_API_KEY", unset = NA_character_)
@@ -141,7 +145,7 @@ estimate_api_cost <- function(state_id,
       parallel         = FALSE,
       parallel_cache   = FALSE,
       api_log_dir      = NULL,
-      nces_cache_dir   = file.path(sandbox_geo, "nces"),
+      nces_cache_dir   = file.path(sandbox, "nces"),
       ...
     )
   }

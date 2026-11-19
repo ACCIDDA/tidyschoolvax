@@ -15,17 +15,16 @@ load_nces_reference(
 \arguments{
 \item{state_abbr}{Two-letter state abbreviation (e.g. \code{"md"}).}
 
-\item{cache_dir}{Directory for the cached reference file.}
+\item{cache_dir}{Directory holding the saved NCES directories
+(\code{setup_paths()$nces_dir}).}
 
-\item{first_year}{First school year to download (fall year, e.g.
+\item{first_year}{First school year to use (fall year, e.g.
 \code{2015} for 2015-16). Older years add closed schools and former names.
-CCD coordinates start around 2000 and the PSS files around 2013-14, so
-earlier years add little. \code{\link{standardize_schools}} sets this to
-the year before the first year of vaccination data.}
+\code{\link{standardize_schools}} sets this to the year before the first
+year of vaccination data.}
 
-\item{max_age_days}{Re-download when the cache is older than this.}
-
-\item{refresh}{Logical; force a re-download.}
+\item{max_age_days, refresh}{Passed to
+\code{\link{download_nces_directories}}.}
 }
 \value{
 A tibble with one row per NCES school: \code{nces_id},
@@ -35,11 +34,9 @@ A tibble with one row per NCES school: \code{nces_id},
   \code{business_status}; or \code{NULL} if nothing could be loaded.
 }
 \description{
-Downloads (or reads from cache) the NCES Common Core of Data public-school
-directory for every school year from \code{first_year} to the latest
-available, plus every Private School Survey edition covering those years,
-and reduces them to one row per NCES school with a Google-style
-\code{business_status}:
+Reads the NCES directories saved by \code{\link{download_nces_directories}}
+(downloading them first if they are missing or stale) and reduces the years from \code{first_year} on to one
+row per NCES school with a Google-style \code{business_status}:
 \itemize{
   \item Public (CCD): \code{OPERATIONAL} if listed as open in the latest
     year; \code{CLOSED_PERMANENTLY} if marked closed, or missing from the
@@ -49,14 +46,9 @@ and reduces them to one row per NCES school with a Google-style
     otherwise \code{NA} (PSS can't distinguish closure from non-response).
 }
 Rows with \code{NA} status still match place_ids but leave the status
-lookup to Google.
+lookup to Google.  Only years from \code{first_year} on are used.
 }
 \details{
-The result is cached as \code{nces_reference_<state>.rds} in
-\code{cache_dir} and re-downloaded once it is older than
-\code{max_age_days} (new CCD years are released annually), or when it
-doesn't reach back to \code{first_year}. If a download fails, a stale cache is used if one exists; otherwise \code{NULL} is
-returned with a warning, so callers fall back to Google.  If only the
-private-school download fails and there is no cache, the public schools are
-returned but not cached, so the next run tries again.
+If nothing can be loaded, \code{NULL} is returned with a warning, so
+callers fall back to Google.
 }

@@ -30,6 +30,10 @@
 #'     \item{doe_dir}{Department of Education data directory}
 #'     \item{greatschools_dir}{GreatSchools.org data directory}
 #'     \item{vaxview_dir}{CDC VaxView data directory}
+#'     \item{nces_dir}{NCES public (CCD) and private (PSS) school directories
+#'       (\code{raw_data_dir/nces}), downloaded by
+#'       \code{\link{download_agnostic_data}} and read by
+#'       \code{\link{standardize_schools}}}
 #'     \item{state_school_dir}{Any additional state school data directory}
 #'   }
 #'
@@ -65,11 +69,13 @@ setup_paths <- function(project_root = NULL, state) {
   doe_dir          <- file.path(raw_data_dir, "doe")
   greatschools_dir <- file.path(raw_data_dir, "greatschools")
   vaxview_dir      <- file.path(raw_data_dir, "vaxview")
+  nces_dir         <- file.path(raw_data_dir, "nces")
   state_school_dir <- file.path(raw_data_dir, "state_school_data")
 
   dirs_to_create <- c(
     state_dir, raw_data_dir, temp_data_dir, state_geo_dir, clean_data_dir, outputs_data_dir,
-    general_data_dir, kinder_dir, doe_dir, greatschools_dir, vaxview_dir, state_school_dir
+    general_data_dir, kinder_dir, doe_dir, greatschools_dir, vaxview_dir, nces_dir,
+    state_school_dir
   )
   for (d in dirs_to_create) {
     if (!dir.exists(d)) dir.create(d, recursive = TRUE)
@@ -87,6 +93,7 @@ setup_paths <- function(project_root = NULL, state) {
     doe_dir          = doe_dir,
     greatschools_dir = greatschools_dir,
     vaxview_dir      = vaxview_dir,
+    nces_dir         = nces_dir,
     state_school_dir = state_school_dir
   )
 }
