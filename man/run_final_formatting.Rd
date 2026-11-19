@@ -15,7 +15,9 @@ run_final_formatting(
   outputs_data_dir,
   include_vaxview = NULL,
   final_format = c("csv", "parquet", "rds"),
-  model_input_format = c("parquet", "csv", "rds")
+  model_input_format = c("parquet", "csv", "rds"),
+  review_dir = NULL,
+  series_subfolder = FALSE
 )
 }
 \arguments{
@@ -66,6 +68,22 @@ number).}
 \code{locations}, \code{obs_populations} and \code{linkage_key}:
 \code{"parquet"} (default, keeps column types), \code{"csv"} or
 \code{"rds"}. Read with \code{\link{read_pipeline_table}}.}
+
+\item{review_dir}{Optional directory for every data-quality flag file
+(\code{duplicate_conflicts}, \code{over_coverage_check},
+\code{*_zero_or_missing_enrollment_removed}, and so on). Today these are
+split between \code{state_dir} and \code{temp_data_dir}; with
+\code{review_dir} they all go to one place (\code{review_dir/<type>/} for
+several types). \code{NULL} (default) keeps the old split.}
+
+\item{series_subfolder}{\code{FALSE} (default) or \code{TRUE}. A single type
+normally writes straight into the given directories; with \code{TRUE} it
+goes into \code{<dir>/<type>/} exactly as each type does when several are
+requested, so every series, one or many, has the same layout. Several types
+always get subfolders; in that case the per-series excluded-rows and
+years-by-school files are not written (the stacked files in
+\code{clean_data_dir} hold them), and \code{cleaned_data_all_types} is only
+written for more than one type.}
 }
 \value{
 For a single type, a named list with components \code{kinder_dat},

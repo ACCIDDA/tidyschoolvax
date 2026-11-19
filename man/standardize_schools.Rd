@@ -45,7 +45,7 @@ standardize_schools(
 \item{state_geo_dir}{Path for geocoding cache files.}
 
 \item{state_dir}{Path to the state-level root directory (used for QC
-reports written to \code{<state_dir>/01_cleaning/cleaning_temp}).}
+reports are written to \code{temp_data_dir}).}
 
 \item{addr_source_pref}{Character.  Address source to prefer as the primary
 address in the output.  One of \code{"greatschools"} (default),

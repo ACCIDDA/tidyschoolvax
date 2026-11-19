@@ -1261,6 +1261,20 @@ print_dqa_summary <- function(dqa_report) {
 #'   \code{obs_populations}. \code{NULL} means \code{TRUE} for a single type and,
 #'   for several types, \code{TRUE} only for series whose name contains
 #'   \code{"mmr"}. \code{vax_view.parquet} must exist either way.
+#' @param review_dir Optional directory for every data-quality flag file
+#'   (\code{duplicate_conflicts}, \code{over_coverage_check},
+#'   \code{*_zero_or_missing_enrollment_removed}, and so on). Today these are
+#'   split between \code{state_dir} and \code{temp_data_dir}; with
+#'   \code{review_dir} they all go to one place (\code{review_dir/<type>/} for
+#'   several types). \code{NULL} (default) keeps the old split.
+#' @param series_subfolder \code{FALSE} (default) or \code{TRUE}. A single type
+#'   normally writes straight into the given directories; with \code{TRUE} it
+#'   goes into \code{<dir>/<type>/} exactly as each type does when several are
+#'   requested, so every series, one or many, has the same layout. Several types
+#'   always get subfolders; in that case the per-series excluded-rows and
+#'   years-by-school files are not written (the stacked files in
+#'   \code{clean_data_dir} hold them), and \code{cleaned_data_all_types} is only
+#'   written for more than one type.
 #' @param final_format Format of the final, human-readable tables
 #'   (\code{cleaned_data}, \code{cleaned_data_excluded_rows},
 #'   \code{cleaned_data_years_by_school} and their stacked versions):
@@ -1296,7 +1310,9 @@ run_final_formatting <- function(state,
                                  outputs_data_dir,
                                  include_vaxview = NULL,
                                  final_format = c("csv", "parquet", "rds"),
-                                 model_input_format = c("parquet", "csv", "rds")) {
+                                 model_input_format = c("parquet", "csv", "rds"),
+                                 review_dir = NULL,
+                                 series_subfolder = FALSE) {
 
   final_format       <- match.arg(final_format)
   model_input_format <- match.arg(model_input_format)
@@ -1314,7 +1330,8 @@ run_final_formatting <- function(state,
   kinder_dat <- read_pipeline_table(file.path(temp_data_dir, "kinder_vaccination_clean_03"))
 
   # ---- One series: unchanged behaviour and output layout ----------------------
-  if (is.character(vaccine_type_to_keep) && length(vaccine_type_to_keep) == 1L &&
+  if (!isTRUE(series_subfolder) &&
+      is.character(vaccine_type_to_keep) && length(vaccine_type_to_keep) == 1L &&
       !is.na(vaccine_type_to_keep)) {
     return(invisible(.run_final_formatting_one(
       kinder_dat           = kinder_dat,
@@ -1328,12 +1345,19 @@ run_final_formatting <- function(state,
       outputs_data_dir     = outputs_data_dir,
       include_vaxview      = if (is.null(include_vaxview)) TRUE else include_vaxview,
       final_format         = final_format,
-      model_input_format   = model_input_format
+      model_input_format   = model_input_format,
+      review_dir           = review_dir
     )))
   }
 
   # ---- Several series: one single-series run each, into its own subfolder -----
-  types   <- .resolve_vaccine_types(kinder_dat, vaccine_type_to_keep)
+  if (!"vaccine_type" %in% names(kinder_dat) && is.character(vaccine_type_to_keep) &&
+      length(vaccine_type_to_keep) == 1L && !is.na(vaccine_type_to_keep)) {
+    # a state with a single series and no vaccine_type column: the type only names the folder
+    types <- tolower(trimws(vaccine_type_to_keep))
+  } else {
+    types <- .resolve_vaccine_types(kinder_dat, vaccine_type_to_keep)
+  }
   subdirs <- .vaccine_type_dirnames(types)
 
   by_type <- list()
@@ -1341,8 +1365,14 @@ run_final_formatting <- function(state,
     vt <- types[[i]]
     message("\n######## Vaccine type: ", vt, " ########")
     dirs <- lapply(
-      list(temp = temp_data_dir, clean = clean_data_dir,
-           state = state_dir, outputs = outputs_data_dir),
+      # with review_dir, the flag files go there and temp/state folders are not needed
+      Filter(Negate(is.null), list(
+        temp    = if (is.null(review_dir)) temp_data_dir,
+        clean   = clean_data_dir,
+        state   = if (is.null(review_dir)) state_dir,
+        outputs = outputs_data_dir,
+        review  = review_dir
+      )),
       function(d) {
         out <- file.path(d, subdirs[[i]])
         dir.create(out, recursive = TRUE, showWarnings = FALSE)
@@ -1365,7 +1395,9 @@ run_final_formatting <- function(state,
         include_vaxview
       },
       final_format         = final_format,
-      model_input_format   = model_input_format
+      model_input_format   = model_input_format,
+      review_dir           = dirs$review,
+      write_series_extras  = FALSE
     )
   }
 
@@ -1374,11 +1406,13 @@ run_final_formatting <- function(state,
     by_type[[types[[i]]]]$cleaned_data %>%
       dplyr::mutate(vaccine_type = types[[i]], .before = 1)
   }))
-  cleaned_all_path <- write_pipeline_table(
-    cleaned_all, file.path(clean_data_dir, "cleaned_data_all_types"), final_format)
-  message("\nStacked cleaned data for ", length(types), " vaccine type(s) (",
-          paste(types, collapse = ", "), "): ", nrow(cleaned_all), " rows -> ",
-          cleaned_all_path)
+  if (length(types) > 1L) {
+    cleaned_all_path <- write_pipeline_table(
+      cleaned_all, file.path(clean_data_dir, "cleaned_data_all_types"), final_format)
+    message("\nStacked cleaned data for ", length(types), " vaccine types (",
+            paste(types, collapse = ", "), "): ", nrow(cleaned_all), " rows -> ",
+            cleaned_all_path)
+  }
 
   # ---- Stack the excluded rows, and tabulate years across all types -----------
   excluded_all <- dplyr::bind_rows(lapply(seq_along(types), function(i) {
@@ -1683,7 +1717,16 @@ summarise_years_by_school <- function(cleaned_data, vaccine_type = NULL) {
                                       outputs_data_dir,
                                       include_vaxview = TRUE,
                                       final_format = "csv",
-                                      model_input_format = "parquet") {
+                                      model_input_format = "parquet",
+                                      review_dir = NULL,
+                                      write_series_extras = TRUE) {
+
+  # One folder for every data-quality flag file, if the caller names one
+  if (!is.null(review_dir)) {
+    dir.create(review_dir, recursive = TRUE, showWarnings = FALSE)
+    temp_data_dir <- review_dir
+    state_dir     <- review_dir
+  }
 
   # ---- PART 0: Vaccine type filter --------------------------------------------
   if ("vaccine_type" %in% names(kinder_dat)) {
@@ -1795,15 +1838,19 @@ summarise_years_by_school <- function(cleaned_data, vaccine_type = NULL) {
   write_pipeline_table(cleaned_data, file.path(clean_data_dir, "cleaned_data"), final_format)
 
   # ---- Rows left out of the cleaned data, and years of data by school ---------
-  write_pipeline_table(excluded_rows,
-                       file.path(clean_data_dir, "cleaned_data_excluded_rows"), final_format)
+  if (write_series_extras) {
+    write_pipeline_table(excluded_rows,
+                         file.path(clean_data_dir, "cleaned_data_excluded_rows"), final_format)
+  }
   message("Rows left out of the cleaned data: ", nrow(excluded_rows), " (",
           paste(names(table(excluded_rows$exclusion_reason)),
                 table(excluded_rows$exclusion_reason), sep = ": ", collapse = "; "), ")")
 
   years_by_school <- summarise_years_by_school(kinder_dat, vaccine_type = vaccine_type_to_keep)
-  write_pipeline_table(years_by_school,
-                       file.path(clean_data_dir, "cleaned_data_years_by_school"), final_format)
+  if (write_series_extras) {
+    write_pipeline_table(years_by_school,
+                         file.path(clean_data_dir, "cleaned_data_years_by_school"), final_format)
+  }
   
   # ---- PART 4: Additional flagging DQA checks ---------------------------------
   message("\n=== PART 4: Additional data quality checks ===")
