@@ -340,7 +340,7 @@ geocode_chunk_step2 <- function(chunk_df, google_api_key) {
   Sys.setenv(GOOGLEGEOCODE_API_KEY = google_api_key)
   
   # Build search query: school_name, addr_clean, city, state, zip
-  geocoded <- to_geocode %>%
+  to_geocode <- to_geocode %>%
     dplyr::mutate(
       query = stringr::str_squish(paste(
         dplyr::coalesce(school_name, ""),
@@ -349,7 +349,19 @@ geocode_chunk_step2 <- function(chunk_df, google_api_key) {
         dplyr::coalesce(state, ""),
         dplyr::coalesce(zip, "")
       ))
-    ) %>%
+    )
+
+  if (.api_dry_run()) {
+    # schools at the same address share a synthetic place_id, as they would on Google
+    return(.dry_run_geocoded(to_geocode, already_done, "geocode_chunk_step2",
+                             place_key = stringr::str_squish(paste(
+                               dplyr::coalesce(to_geocode$addr_clean, ""),
+                               dplyr::coalesce(to_geocode$city, ""),
+                               dplyr::coalesce(to_geocode$state, ""),
+                               dplyr::coalesce(to_geocode$zip, "")))))
+  }
+
+  geocoded <- to_geocode %>%
     tidygeocoder::geocode(
       address = query,
       method = "google",
@@ -417,7 +429,7 @@ geocode_chunk_step3 <- function(chunk_df, google_api_key) {
   Sys.setenv(GOOGLEGEOCODE_API_KEY = google_api_key)
   
   # Build search query: school_name, county_std, state, zip
-  geocoded <- to_geocode %>%
+  to_geocode <- to_geocode %>%
     dplyr::mutate(
       query = stringr::str_squish(paste(
         dplyr::coalesce(school_name, ""),
@@ -425,7 +437,14 @@ geocode_chunk_step3 <- function(chunk_df, google_api_key) {
         dplyr::coalesce(state, ""),
         dplyr::coalesce(zip, "")
       ))
-    ) %>%
+    )
+
+  if (.api_dry_run()) {
+    return(.dry_run_geocoded(to_geocode, already_done, "geocode_chunk_step3",
+                             place_key = to_geocode$query))
+  }
+
+  geocoded <- to_geocode %>%
     tidygeocoder::geocode(
       address = query,
       method = "google",
@@ -508,6 +527,24 @@ clean_geocoded_addresses_step3 <- function(geocoded_df) {
 # ------------------------------------------------------------------------------
 # Process one chunk through all steps
 # ------------------------------------------------------------------------------
+
+# Internal: the dry-run stand-in for the Google call in geocode_chunk_step2/3.
+# Counts the requests tidygeocoder would send (one per distinct non-blank query),
+# logs them, and answers every query as if Google had found a place: rows keep any
+# existing place_id and otherwise get a synthetic one keyed on `place_key`. Rows
+# that already have coordinates keep them; nothing else is filled in.
+.dry_run_geocoded <- function(to_geocode, already_done, caller, place_key) {
+  sent <- !is.na(to_geocode$query) & nzchar(to_geocode$query)
+  n    <- dplyr::n_distinct(to_geocode$query[sent])
+  .log_api_calls("geocoding", caller, n_requests = n, n_succeeded = n)
+
+  synthetic <- ifelse(sent, paste0("dryrun:", place_key), NA_character_)
+  to_geocode$place_id <- dplyr::coalesce(to_geocode$place_id, synthetic)
+  to_geocode$geo_source <- dplyr::coalesce(to_geocode$geo_source,
+                                           ifelse(sent, "dry_run", NA_character_))
+  dplyr::bind_rows(already_done, dplyr::select(to_geocode, -query))
+}
+
 
 #' Run Steps 2 and 3 geocoding on a single chunk
 #'
@@ -708,7 +745,7 @@ run_full_geocoding <- function(unique_schools, geo_dir, google_api_key,
           error_message = e$message,
           timestamp = Sys.time()
         )
-        saveRDS(progress_data, progress_path)
+        if (!.api_dry_run()) saveRDS(progress_data, progress_path)
         cat(sprintf("    Progress saved to: %s\n", progress_path))
         cat("    Run the function again to resume from this point.\n\n")
         
@@ -718,19 +755,19 @@ run_full_geocoding <- function(unique_schools, geo_dir, google_api_key,
       results_list[[as.character(i)]] <- chunk_result
       processed_chunks <- c(processed_chunks, i)
       
-      # Save progress after each API chunk
+      # Save progress after each API chunk (not in a dry run)
       progress_data <- list(
         processed_chunks = processed_chunks,
         results_list = results_list,
         chunks_remaining = n_chunks - length(processed_chunks),
         timestamp = Sys.time()
       )
-      saveRDS(progress_data, progress_path)
+      if (!.api_dry_run()) saveRDS(progress_data, progress_path)
       
       cat(sprintf(" Done (%d/%d chunks)\n", length(processed_chunks), n_chunks))
       
       # Rate-limit: pause proportional to chunk size to stay within api_qps
-      if (i != api_indices[[length(api_indices)]]) {
+      if (!.api_dry_run() && i != api_indices[[length(api_indices)]]) {
         Sys.sleep(nrow(chunks[[i]]) / api_qps)
       }
     }
@@ -773,8 +810,12 @@ run_full_geocoding <- function(unique_schools, geo_dir, google_api_key,
         dplyr::distinct(dplyr::across(dplyr::all_of(key_cols)), .keep_all = TRUE)
     }
   }
-  saveRDS(results_to_save, save_path)
-  cat(sprintf("Cache saved to: %s\n", save_path))
+  if (.api_dry_run()) {
+    cat("Dry run: cache not written.\n")
+  } else {
+    saveRDS(results_to_save, save_path)
+    cat(sprintf("Cache saved to: %s\n", save_path))
+  }
   
   # Summary statistics
   cat("\n=== Geocoding Summary ===\n")
@@ -1031,6 +1072,13 @@ run_school_status_with_cache <- function(df, geo_dir, google_api_key, nces_ref =
     dplyr::n_distinct(df$place_id[has_id & resolved & !from_nces]),
     length(ids_to_search)
   ))
+
+  if (.api_dry_run() && length(ids_to_search) > 0) {
+    # count the lookups a real run would send; nothing is looked up or cached
+    .log_api_calls("place_details_pro", "run_school_status_with_cache",
+                   n_requests = length(ids_to_search), n_succeeded = length(ids_to_search))
+    ids_to_search <- character()
+  }
 
   if (length(ids_to_search) > 0) {
     search_list <- .get_place_details_paced(ids_to_search, google_api_key, places_qps)
