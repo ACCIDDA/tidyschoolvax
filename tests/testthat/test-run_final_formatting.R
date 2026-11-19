@@ -71,7 +71,8 @@ test_that("a single vaccine type keeps the previous layout and behaviour", {
   d <- setup_final_format(make_step03())
   res <- run_ff(d, "mmr")
 
-  expect_named(res, c("kinder_dat", "obs", "locations", "obs_populations"))
+  expect_named(res, c("kinder_dat", "obs", "locations", "obs_populations",
+                      "excluded_rows", "years_by_school"))
   expect_true(file.exists(file.path(d$clean, "cleaned_data.rds")))
   expect_true(file.exists(file.path(d$out, "obs.rds")))
   # no per-type subfolders and no stacked file
@@ -91,7 +92,8 @@ test_that("several vaccine types run separately into subfolders", {
   d <- setup_final_format(make_step03())
   res <- run_ff(d, c("mmr", "all_required"))
 
-  expect_named(res, c("by_type", "cleaned_data_all_types"))
+  expect_named(res, c("by_type", "cleaned_data_all_types", "excluded_rows_all_types",
+                      "years_by_school"))
   expect_named(res$by_type, c("mmr", "all_required"))
   for (vt in c("mmr", "all_required")) {
     expect_true(file.exists(file.path(d$clean, vt, "cleaned_data.rds")))
@@ -188,4 +190,182 @@ test_that(".vaccine_type_dirnames() makes safe, unique folder names", {
                c("mmr", "all_required", "dtap_5"))
   expect_equal(.vaccine_type_dirnames(c("a b", "a-b")), c("a_b", "a_b_1"))
   expect_equal(.vaccine_type_dirnames("--"), "type")
+})
+
+
+# ---- excluded rows --------------------------------------------------------------
+
+# One row per exclusion reason, all school-years that otherwise look fine.
+make_problem_rows <- function(type = "mmr") {
+  base <- data.frame(
+    school_id = 7:12, year = 2022L,
+    school_name = paste("Problem", 7:12), county_name = "alpha",
+    enrollment = 70L, current = 60L, med_exempt = 1L, rel_exempt = 2L,
+    state = "xx", lat = 41, lon = -81, vaccine_type = type, stringsAsFactors = FALSE
+  )
+  base$enrollment[1] <- NA                  # 7: missing enrollment
+  base$enrollment[2] <- 0L                  # 8: zero enrollment
+  base$current[3]    <- 99L                 # 9: vaccinated count above enrollment
+  base$med_exempt[4] <- 80L                 # 10: exemption above enrollment
+  base$current[5]    <- NA                  # 11: missing count
+  base$current[6]    <- 0L                  # 12: zero vaccinated
+  base
+}
+
+test_that("every row left out of cleaned_data is saved with its reason", {
+  d <- setup_final_format(rbind(make_step03(), make_problem_rows()))
+  res <- run_ff(d, c("mmr", "all_required"))
+
+  ex <- readRDS(file.path(d$clean, "mmr", "cleaned_data_excluded_rows.rds"))
+  expect_true(file.exists(file.path(d$clean, "mmr", "cleaned_data_excluded_rows.csv")))
+  expect_equal(nrow(ex), 6L)
+  expect_identical(names(ex)[1:4], c("vaccine_type", "exclusion_reason",
+                                     "exclusion_description", "exclusion_detail"))
+  expect_equal(
+    setNames(ex$exclusion_reason, ex$school_id),
+    c("7" = "missing_enrollment", "8" = "zero_enrollment", "9" = "invalid_count",
+      "10" = "invalid_count", "11" = "missing_count", "12" = "zero_vaccinated")
+  )
+  expect_false(anyNA(ex$exclusion_description))
+  # the original values are kept, not the blanked ones
+  expect_equal(ex$current[ex$school_id == 9], 99L)
+  expect_equal(ex$med_exempt[ex$school_id == 10], 80L)
+  # the detail names which count was blanked
+  expect_equal(ex$exclusion_detail[ex$school_id == 9],  "blanked as impossible: current")
+  # an impossible exemption blanks both exemption counts
+  expect_equal(ex$exclusion_detail[ex$school_id == 10], "blanked as impossible: med_exempt; rel_exempt")
+  expect_true(is.na(ex$exclusion_detail[ex$school_id == 11]))
+  expect_false(".row_id" %in% names(ex))
+})
+
+test_that("states with only total_exempt keep those rows and label exclusions correctly", {
+  step03 <- make_step03("mmr")
+  step03$med_exempt <- NA_integer_
+  step03$rel_exempt <- NA_integer_
+  step03$total_exempt <- 3L
+  extra <- make_problem_rows()[c(3, 5), ]          # school ids 9 and 11
+  extra$med_exempt <- NA_integer_
+  extra$rel_exempt <- NA_integer_
+  extra$total_exempt <- c(150L, NA)                 # 9: total above enrollment; 11: nothing reported
+  extra$current <- 60L
+  d <- setup_final_format(dplyr::bind_rows(step03, extra))
+  res <- run_ff(d, "mmr")
+
+  expect_equal(nrow(res$kinder_dat), nrow(step03))        # every total-only row kept
+  expect_true("total_exempt" %in% names(res$kinder_dat))
+  ex <- res$excluded_rows
+  expect_equal(
+    setNames(ex$exclusion_reason, ex$school_id),
+    c("9" = "invalid_count", "11" = "missing_count")
+  )
+  expect_equal(ex$exclusion_detail[ex$school_id == 9], "blanked as impossible: total_exempt")
+})
+
+test_that("kept rows plus excluded rows account for every input row", {
+  d <- setup_final_format(rbind(make_step03(), make_problem_rows()))
+  res <- run_ff(d, c("mmr", "all_required"))
+  for (vt in c("mmr", "all_required")) {
+    kept <- readRDS(file.path(d$clean, vt, "cleaned_data.rds"))
+    ex   <- readRDS(file.path(d$clean, vt, "cleaned_data_excluded_rows.rds"))
+    n_in <- sum(readRDS(file.path(d$temp, "kinder_vaccination_clean_03.rds"))$vaccine_type == vt)
+    expect_equal(nrow(kept) + nrow(ex), n_in, info = vt)
+  }
+})
+
+test_that("a series with nothing to exclude gets an empty excluded-rows file", {
+  d <- setup_final_format(make_step03())
+  res <- run_ff(d, "mmr")
+  expect_equal(nrow(res$excluded_rows), 0L)
+  expect_true(all(c("exclusion_reason", "exclusion_description") %in% names(res$excluded_rows)))
+  expect_true(file.exists(file.path(d$clean, "cleaned_data_excluded_rows.csv")))
+})
+
+test_that("excluded rows are stacked across vaccine types", {
+  prob <- rbind(make_problem_rows("mmr"), make_problem_rows("all_required"))
+  d <- setup_final_format(rbind(make_step03(), prob))
+  res <- run_ff(d, c("mmr", "all_required"))
+
+  all_ex <- readRDS(file.path(d$clean, "cleaned_data_excluded_rows_all_types.rds"))
+  expect_true(file.exists(file.path(d$clean, "cleaned_data_excluded_rows_all_types.csv")))
+  expect_equal(nrow(all_ex), 12L)
+  expect_equal(as.vector(table(all_ex$vaccine_type)[c("mmr", "all_required")]), c(6L, 6L))
+  expect_identical(all_ex, res$excluded_rows_all_types)
+})
+
+test_that("the existing DQA exports do not gain the internal row id", {
+  d <- setup_final_format(rbind(make_step03(), make_problem_rows()))
+  run_ff(d, "mmr")
+  for (f in c("xx_zero_or_missing_enrollment_removed.csv", "xx_invalid_values_fixed.csv")) {
+    expect_true(file.exists(file.path(d$temp, f)), info = f)
+    expect_false(".row_id" %in% names(utils::read.csv(file.path(d$temp, f))), info = f)
+  }
+})
+
+
+# ---- summarise_years_by_school() --------------------------------------------------
+
+test_that("summarise_years_by_school() counts rows per school and year", {
+  d <- data.frame(school_id = c(1, 1, 1, 2, 2), year = c(2021, 2022, 2023, 2021, 2023),
+                  school_name = c("a", "a", "a", "b", "b"), county_name = "c")
+  y <- summarise_years_by_school(d)
+  expect_equal(nrow(y), 2L)
+  expect_equal(y[["2021"]], c(1, 1)); expect_equal(y[["2022"]], c(1, 0)); expect_equal(y[["2023"]], c(1, 1))
+  expect_equal(y$n_years, c(3, 2)); expect_equal(y$n_rows, c(3, 2))
+  expect_identical(names(y), c("school_id", "school_name", "county_name", "vaccine_type",
+                               "2021", "2022", "2023", "n_years", "n_rows",
+                               "has_duplicate_years", "has_missing_years", "years_missing"))
+})
+
+test_that("summarise_years_by_school() flags duplicate and missing years", {
+  d <- data.frame(school_id = c(1, 1, 1, 2, 2), year = c(2021, 2021, 2022, 2021, 2023))
+  y <- summarise_years_by_school(d)
+  y1 <- y[y$school_id == 1, ]; y2 <- y[y$school_id == 2, ]
+  expect_true(y1$has_duplicate_years);  expect_false(y2$has_duplicate_years)
+  expect_equal(y1[["2021"]], 2)
+  # school 1 has no 2023 row, school 2 has no 2022 row
+  expect_true(y1$has_missing_years); expect_equal(y1$years_missing, "2023")
+  expect_true(y2$has_missing_years); expect_equal(y2$years_missing, "2022")
+})
+
+test_that("summarise_years_by_school() has no missing years when every year is present", {
+  y <- summarise_years_by_school(data.frame(school_id = c(1, 1, 2, 2), year = c(2021, 2022, 2021, 2022)))
+  expect_false(any(y$has_missing_years)); expect_true(all(is.na(y$years_missing)))
+  expect_false(any(y$has_duplicate_years))
+})
+
+test_that("available years are judged per vaccine type", {
+  d <- data.frame(school_id = c(1, 1, 1, 2, 2), year = c(2022, 2023, 2023, 2023, 2023),
+                  vaccine_type = c("all", "all", "mmr", "mmr", "mmr"))
+  y <- summarise_years_by_school(d)
+  expect_equal(nrow(y), 3L)  # school 1 x all, school 1 x mmr, school 2 x mmr
+  # mmr only exists in 2023, so no school is missing a year there
+  expect_false(any(y$has_missing_years[y$vaccine_type == "mmr"]))
+  # the "all" series only has school 1 -> not missing either
+  expect_false(any(y$has_missing_years[y$vaccine_type == "all"]))
+  expect_true(y$has_duplicate_years[y$vaccine_type == "mmr" & y$school_id == 2])
+})
+
+test_that("summarise_years_by_school() takes descriptors from each school's latest row", {
+  d <- data.frame(school_id = c(1, 1), year = c(2021, 2023), school_name = c("old", "new"),
+                  city = c("x", "y"))
+  y <- summarise_years_by_school(d)
+  expect_equal(y$school_name, "new"); expect_equal(y$city, "y")
+})
+
+test_that("summarise_years_by_school() labels the series and drops rows without a school_id", {
+  d <- data.frame(school_id = c(1, NA), year = c(2021, 2021))
+  expect_message(y <- summarise_years_by_school(d, vaccine_type = "mmr"), "missing school_id")
+  expect_equal(nrow(y), 1L); expect_equal(y$vaccine_type, "mmr")
+  expect_error(summarise_years_by_school(data.frame(school_id = 1)), "year")
+})
+
+test_that("years-by-school is written by run_final_formatting()", {
+  d <- setup_final_format(make_step03())
+  res <- run_ff(d, c("mmr", "all_required"))
+  y <- readRDS(file.path(d$clean, "cleaned_data_years_by_school.rds"))
+  expect_true(file.exists(file.path(d$clean, "cleaned_data_years_by_school.csv")))
+  expect_equal(nrow(y), 12L)  # 6 schools x 2 series
+  expect_equal(sum(y$n_rows), 36L)
+  expect_identical(y, res$years_by_school)
+  expect_true(file.exists(file.path(d$clean, "mmr", "cleaned_data_years_by_school.rds")))
 })

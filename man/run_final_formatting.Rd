@@ -51,10 +51,12 @@ for several types, \code{TRUE} only for series whose name contains
 }
 \value{
 For a single type, a named list with components \code{kinder_dat},
-  \code{obs}, \code{locations}, and \code{obs_populations}, returned
-  invisibly. For several types (or \code{NULL}), invisibly a list with
-  \code{by_type} (one such list per type, named by type) and
-  \code{cleaned_data_all_types} (the stacked cleaned tables).
+  \code{obs}, \code{locations}, \code{obs_populations},
+  \code{excluded_rows} and \code{years_by_school}, returned invisibly. For
+  several types (or \code{NULL}), invisibly a list with \code{by_type} (one
+  such list per type, named by type), \code{cleaned_data_all_types} (the
+  stacked cleaned tables), \code{excluded_rows_all_types} and
+  \code{years_by_school}.
 }
 \description{
 State-agnostic wrapper that, for each vaccine series requested:
@@ -64,7 +66,10 @@ State-agnostic wrapper that, for each vaccine series requested:
   \item Applies automatic DQA corrections (zero enrollment, invalid counts).
   \item Selects and type-coerces columns to the canonical format.
   \item Saves \code{cleaned_data.rds} and \code{cleaned_data.csv} to
-        \code{clean_data_dir}.
+        \code{clean_data_dir}, with \code{cleaned_data_excluded_rows}
+        (every row left out, with the reason) and
+        \code{cleaned_data_years_by_school} (see
+        \code{\link{summarise_years_by_school}}).
   \item Runs a suite of flagging DQA checks and saves diagnostic CSVs.
   \item Builds the \code{obs}, \code{locations}, and \code{obs_populations}
         tables for the modelling pipeline, incorporating CDC VaxView data.
@@ -89,6 +94,18 @@ several types (or \code{NULL}), for every type \code{<t>} the outputs go to
 \code{vaccine_type} column) is written to \code{clean_data_dir}. Folder
 names are the lower-cased type with non-alphanumeric runs replaced by
 \code{"_"}.
+
+\strong{Excluded rows.} Rows are left out of \code{cleaned_data} for one of
+five reasons, recorded in \code{exclusion_reason} (with a plain-English
+\code{exclusion_description}, and the original values):
+\code{missing_enrollment}, \code{zero_enrollment}, \code{invalid_count}
+(a vaccinated or exemption count larger than enrollment, blanked then
+dropped; \code{exclusion_detail} names the columns), \code{missing_count},
+and \code{zero_vaccinated}. Rows collapsed later when the model inputs are
+built (duplicate school-years) stay in \code{cleaned_data}; see
+\code{duplicate_conflicts.csv}. With several types the per-type files are
+stacked into \code{cleaned_data_excluded_rows_all_types}, and one
+\code{cleaned_data_years_by_school} covers all types.
 
 \strong{VaxView.} The CDC VaxView observations appended to \code{obs} are
 MMR coverage, so by default they are only added to a series whose name

@@ -115,6 +115,11 @@ never merged, since duplicate removal and the DQA checks assume one series), and
 labelled `cleaned_data_all_types.rds` is written to `clean_data_dir`. VaxView, which is MMR-only,
 is added only to series named `mmr*` unless `include_vaxview` says otherwise.
 
+Alongside `cleaned_data`, `run_final_formatting()` saves `cleaned_data_excluded_rows` (every row left
+out, with an `exclusion_reason` and its original values) and `cleaned_data_years_by_school` (one row per
+school and vaccine type, a column per year, flags for duplicate and missing years; also available as
+`summarise_years_by_school()`).
+
 See `vignette("preprocessing-orchestration", package = "tidyschoolvax")` for a complete, annotated walkthrough.
 
 ## Key Functions

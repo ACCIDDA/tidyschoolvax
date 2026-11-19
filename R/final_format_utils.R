@@ -217,7 +217,7 @@ dqa_remove_zero_enrollment <- function(df,
   
   if (nrow(flag) > 0) {
     readr::write_csv(
-      flag,
+      dplyr::select(flag, -dplyr::any_of(".row_id")),
       file.path(temp_data_dir, paste0(state, "_zero_or_missing_enrollment_removed.csv"))
     )
   }
@@ -389,7 +389,7 @@ dqa_fix_invalid_values <- function(
       paste0(state, "_", export_prefix, ".csv")
     )
     
-    readr::write_csv(changed_rows, out_path)
+    readr::write_csv(dplyr::select(changed_rows, -dplyr::any_of(".row_id")), out_path)
     message("DQA export: wrote ", sum(rows_changed, na.rm = TRUE),
             " changed rows to ", out_path)
   } else {
@@ -1188,7 +1188,10 @@ print_dqa_summary <- function(dqa_report) {
 #'   \item Applies automatic DQA corrections (zero enrollment, invalid counts).
 #'   \item Selects and type-coerces columns to the canonical format.
 #'   \item Saves \code{cleaned_data.rds} and \code{cleaned_data.csv} to
-#'         \code{clean_data_dir}.
+#'         \code{clean_data_dir}, with \code{cleaned_data_excluded_rows}
+#'         (every row left out, with the reason) and
+#'         \code{cleaned_data_years_by_school} (see
+#'         \code{\link{summarise_years_by_school}}).
 #'   \item Runs a suite of flagging DQA checks and saves diagnostic CSVs.
 #'   \item Builds the \code{obs}, \code{locations}, and \code{obs_populations}
 #'         tables for the modelling pipeline, incorporating CDC VaxView data.
@@ -1213,6 +1216,18 @@ print_dqa_summary <- function(dqa_report) {
 #' \code{vaccine_type} column) is written to \code{clean_data_dir}. Folder
 #' names are the lower-cased type with non-alphanumeric runs replaced by
 #' \code{"_"}.
+#'
+#' \strong{Excluded rows.} Rows are left out of \code{cleaned_data} for one of
+#' five reasons, recorded in \code{exclusion_reason} (with a plain-English
+#' \code{exclusion_description}, and the original values):
+#' \code{missing_enrollment}, \code{zero_enrollment}, \code{invalid_count}
+#' (a vaccinated or exemption count larger than enrollment, blanked then
+#' dropped; \code{exclusion_detail} names the columns), \code{missing_count},
+#' and \code{zero_vaccinated}. Rows collapsed later when the model inputs are
+#' built (duplicate school-years) stay in \code{cleaned_data}; see
+#' \code{duplicate_conflicts.csv}. With several types the per-type files are
+#' stacked into \code{cleaned_data_excluded_rows_all_types}, and one
+#' \code{cleaned_data_years_by_school} covers all types.
 #'
 #' \strong{VaxView.} The CDC VaxView observations appended to \code{obs} are
 #' MMR coverage, so by default they are only added to a series whose name
@@ -1245,10 +1260,12 @@ print_dqa_summary <- function(dqa_report) {
 #'   \code{"mmr"}. \code{vax_view.parquet} must exist either way.
 #'
 #' @return For a single type, a named list with components \code{kinder_dat},
-#'   \code{obs}, \code{locations}, and \code{obs_populations}, returned
-#'   invisibly. For several types (or \code{NULL}), invisibly a list with
-#'   \code{by_type} (one such list per type, named by type) and
-#'   \code{cleaned_data_all_types} (the stacked cleaned tables).
+#'   \code{obs}, \code{locations}, \code{obs_populations},
+#'   \code{excluded_rows} and \code{years_by_school}, returned invisibly. For
+#'   several types (or \code{NULL}), invisibly a list with \code{by_type} (one
+#'   such list per type, named by type), \code{cleaned_data_all_types} (the
+#'   stacked cleaned tables), \code{excluded_rows_all_types} and
+#'   \code{years_by_school}.
 #'
 #' @importFrom dplyr filter mutate group_by ungroup if_any if_all across everything reframe slice_max arrange select bind_rows row_number case_when
 #' @importFrom data.table as.data.table data.table rbindlist setorder
@@ -1340,7 +1357,21 @@ run_final_formatting <- function(state,
           paste(types, collapse = ", "), "): ", nrow(cleaned_all), " rows -> ",
           file.path(clean_data_dir, "cleaned_data_all_types.rds"))
 
-  invisible(list(by_type = by_type, cleaned_data_all_types = cleaned_all))
+  # ---- Stack the excluded rows, and tabulate years across all types -----------
+  excluded_all <- dplyr::bind_rows(lapply(seq_along(types), function(i) {
+    x <- by_type[[types[[i]]]]$excluded_rows
+    if (!"vaccine_type" %in% names(x)) x <- dplyr::mutate(x, vaccine_type = types[[i]], .before = 1)
+    x
+  }))
+  saveRDS(excluded_all, file.path(clean_data_dir, "cleaned_data_excluded_rows_all_types.rds"))
+  readr::write_csv(excluded_all, file.path(clean_data_dir, "cleaned_data_excluded_rows_all_types.csv"))
+
+  years_all <- summarise_years_by_school(cleaned_all)
+  saveRDS(years_all, file.path(clean_data_dir, "cleaned_data_years_by_school.rds"))
+  readr::write_csv(years_all, file.path(clean_data_dir, "cleaned_data_years_by_school.csv"))
+
+  invisible(list(by_type = by_type, cleaned_data_all_types = cleaned_all,
+                 excluded_rows_all_types = excluded_all, years_by_school = years_all))
 }
 
 
@@ -1425,6 +1456,185 @@ run_final_formatting <- function(state,
 }
 
 
+#' Rows removed between two versions of a table, with the reason
+#'
+#' @param before,after Data frames with a \code{.row_id} column; \code{after} is
+#'   \code{before} with some rows removed.
+#' @param classify Function of the removed rows returning a list with
+#'   \code{exclusion_reason} (one value per row) and optionally
+#'   \code{exclusion_detail}.
+#' @return A tibble of \code{.row_id}, \code{exclusion_reason},
+#'   \code{exclusion_detail}, or \code{NULL} when nothing was removed.
+#' @keywords internal
+#' @noRd
+.removed_rows <- function(before, after, classify) {
+  gone <- before[!before$.row_id %in% after$.row_id, , drop = FALSE]
+  if (nrow(gone) == 0L) return(NULL)
+  info <- classify(gone)
+  tibble::tibble(
+    .row_id          = gone$.row_id,
+    exclusion_reason = info$exclusion_reason,
+    exclusion_detail = if (is.null(info$exclusion_detail)) NA_character_ else info$exclusion_detail
+  )
+}
+
+
+#' Names of the count columns that dqa_fix_invalid_values() blanked
+#'
+#' @param rows Rows (after the fix) to inspect.
+#' @param before_fix The table as it was before the fix; matched by \code{.row_id}.
+#' @return A character vector, one element per row of \code{rows}: the names of
+#'   the count columns that were present before the fix and are \code{NA} now,
+#'   joined by \code{"; "} (\code{""} if none).
+#' @keywords internal
+#' @noRd
+.blanked_columns <- function(rows, before_fix) {
+  prev <- before_fix[match(rows$.row_id, before_fix$.row_id), , drop = FALSE]
+  cols <- intersect(c("current", "med_exempt", "rel_exempt", "total_exempt"),
+                    intersect(names(rows), names(prev)))
+  hit <- vapply(cols, function(cl) is.na(rows[[cl]]) & !is.na(prev[[cl]]), logical(nrow(rows)))
+  hit <- matrix(hit, nrow = nrow(rows), dimnames = list(NULL, cols))
+  apply(hit, 1, function(r) paste(cols[r], collapse = "; "))
+}
+
+
+#' Descriptions of the reasons a row can be left out of the cleaned data
+#' @return A tibble of \code{exclusion_reason} and \code{exclusion_description}.
+#' @keywords internal
+#' @noRd
+.exclusion_reason_labels <- function() {
+  tibble::tribble(
+    ~exclusion_reason,    ~exclusion_description,
+    "missing_enrollment", "Enrollment is missing, so the row cannot be used as a denominator",
+    "zero_enrollment",    "Enrollment is zero or negative",
+    "invalid_count",      "A vaccinated or exemption count is impossible for the school's enrollment (for example larger than enrollment); it was blanked and the row dropped",
+    "missing_count",      "A vaccinated or exemption count is missing",
+    "zero_vaccinated",    "The vaccinated count is zero"
+  )
+}
+
+
+#' Rows left out of the cleaned data, with the reason for each
+#'
+#' @param original_rows The table before any removal (with \code{.row_id}).
+#' @param removed List of tibbles from \code{.removed_rows()}.
+#' @return \code{original_rows} restricted to the removed rows, in original
+#'   order, with \code{exclusion_reason}, \code{exclusion_description} and
+#'   \code{exclusion_detail} (and \code{vaccine_type}, if present) first and
+#'   the helper column dropped.
+#' @keywords internal
+#' @noRd
+.assemble_excluded_rows <- function(original_rows, removed) {
+  removed <- dplyr::bind_rows(removed)
+  if (nrow(removed) == 0L) {
+    removed <- tibble::tibble(.row_id = integer(), exclusion_reason = character(),
+                              exclusion_detail = character())
+  }
+  original_rows %>%
+    dplyr::inner_join(removed, by = ".row_id") %>%
+    dplyr::arrange(.row_id) %>%
+    dplyr::left_join(.exclusion_reason_labels(), by = "exclusion_reason") %>%
+    dplyr::select(-.row_id) %>%
+    dplyr::relocate(dplyr::any_of("vaccine_type"), exclusion_reason,
+                    exclusion_description, exclusion_detail)
+}
+
+
+#' Years of data by school
+#'
+#' Tabulates, for each school and vaccine type, how many rows of cleaned data it
+#' has in each year, and flags schools with duplicate or missing years.
+#'
+#' @param cleaned_data A data frame with at least \code{school_id} and
+#'   \code{year}, such as \code{cleaned_data.rds} from
+#'   \code{\link{run_final_formatting}} or the stacked
+#'   \code{cleaned_data_all_types.rds}. A \code{vaccine_type} column is used if
+#'   present. Descriptive columns \code{school_name}, \code{county_name},
+#'   \code{city} and \code{school_type} are carried over from each school's most
+#'   recent row when present. Rows with a missing \code{school_id} are left out.
+#' @param vaccine_type Label for the \code{vaccine_type} column when
+#'   \code{cleaned_data} has none (default \code{NA}).
+#'
+#' @return A tibble with one row per school and vaccine type: the descriptive
+#'   columns, \code{vaccine_type}, one column per year giving the number of
+#'   rows that school has in that year (\code{0} = none, \code{2} or more =
+#'   duplicate rows), and
+#'   \describe{
+#'     \item{n_years}{Years with at least one row.}
+#'     \item{n_rows}{Total rows.}
+#'     \item{has_duplicate_years}{\code{TRUE} if any year has 2+ rows.}
+#'     \item{has_missing_years}{\code{TRUE} if the school has no row in some
+#'       year that is available for that vaccine type, i.e. present in
+#'       \code{cleaned_data} for any school. Late openers and early closers are
+#'       flagged too.}
+#'     \item{years_missing}{Those years, separated by \code{"; "}; \code{NA} if
+#'       none.}
+#'   }
+#'
+#' @examples
+#' d <- data.frame(school_id = c(1, 1, 2, 2, 2), year = c(2021, 2022, 2021, 2022, 2022))
+#' summarise_years_by_school(d)
+#' @export
+summarise_years_by_school <- function(cleaned_data, vaccine_type = NULL) {
+  missing_cols <- setdiff(c("school_id", "year"), names(cleaned_data))
+  if (length(missing_cols) > 0L) {
+    stop("cleaned_data is missing column(s): ", paste(missing_cols, collapse = ", "),
+         call. = FALSE)
+  }
+  df <- as.data.frame(cleaned_data)
+  if (!"vaccine_type" %in% names(df)) {
+    df$vaccine_type <- if (is.null(vaccine_type)) NA_character_ else as.character(vaccine_type)
+  }
+  n_no_id <- sum(is.na(df$school_id))
+  if (n_no_id > 0L) {
+    message("summarise_years_by_school(): leaving out ", n_no_id,
+            " row(s) with a missing school_id.")
+    df <- df[!is.na(df$school_id), , drop = FALSE]
+  }
+
+  descriptors <- df %>%
+    dplyr::arrange(dplyr::desc(year)) %>%
+    dplyr::distinct(school_id, .keep_all = TRUE) %>%
+    dplyr::select(school_id, dplyr::any_of(c("school_name", "county_name", "city", "school_type")))
+
+  year_values <- sort(unique(df$year))
+  year_cols   <- as.character(year_values)
+
+  counts <- df %>%
+    dplyr::count(vaccine_type, school_id, year) %>%
+    tidyr::pivot_wider(names_from = year, values_from = n, values_fill = 0L)
+  counts <- counts[c("vaccine_type", "school_id", intersect(year_cols, names(counts)))]
+  year_cols <- setdiff(names(counts), c("vaccine_type", "school_id"))
+
+  # Years available for a series x every school of that series, minus those present
+  present  <- unique(df[c("vaccine_type", "school_id", "year")])
+  expected <- merge(unique(df[c("vaccine_type", "year")]),
+                    unique(df[c("vaccine_type", "school_id")]), by = "vaccine_type")
+  gaps <- expected[!paste(expected$vaccine_type, expected$school_id, expected$year) %in%
+                     paste(present$vaccine_type, present$school_id, present$year), ]
+  missing_years <- gaps %>%
+    dplyr::arrange(year) %>%
+    dplyr::group_by(vaccine_type, school_id) %>%
+    dplyr::summarise(years_missing = paste(year, collapse = "; "), .groups = "drop")
+
+  out <- counts %>%
+    dplyr::left_join(descriptors, by = "school_id") %>%
+    dplyr::left_join(missing_years, by = c("vaccine_type", "school_id"))
+  year_mat <- as.matrix(out[year_cols])
+  out$n_years             <- rowSums(year_mat > 0)
+  out$n_rows              <- rowSums(year_mat)
+  out$has_duplicate_years <- out$n_rows > out$n_years
+  out$has_missing_years   <- !is.na(out$years_missing)
+
+  desc_cols <- intersect(c("school_id", "school_name", "county_name", "city", "school_type"),
+                         names(out))
+  out <- out[c(desc_cols, "vaccine_type", year_cols, "n_years", "n_rows",
+               "has_duplicate_years", "has_missing_years", "years_missing")]
+  sort_cols <- intersect(c("vaccine_type", "county_name", "school_name", "school_id"), names(out))
+  tibble::as_tibble(out[do.call(order, unname(as.list(out[sort_cols]))), , drop = FALSE])
+}
+
+
 #' Run final formatting for one vaccine series
 #'
 #' The single-series pipeline behind \code{\link{run_final_formatting}}: PART 0
@@ -1460,12 +1670,19 @@ run_final_formatting <- function(state,
     message("Column 'vaccine_type' not found — skipping filter")
   }
 
+  # Every row is tagged so the rows left out below can be saved with the reason.
+  # (.row_id is dropped again by format_select_columns().)
+  kinder_dat$.row_id <- seq_len(nrow(kinder_dat))
+  original_rows <- kinder_dat
+  removed <- list()
+
   # ---- PART 1: Automatic DQA corrections -------------------------------------
   message("\n=== PART 1: Running data quality checks ===")
   
   dqa_report <- list()
   dqa_report$total_records_start <- nrow(kinder_dat)
   
+  before <- kinder_dat
   result <- dqa_remove_zero_enrollment(
     kinder_dat,
     dqa_report,
@@ -1474,7 +1691,11 @@ run_final_formatting <- function(state,
   )
   kinder_dat <- result$data
   dqa_report <- result$report
-  
+  removed$enrollment <- .removed_rows(before, kinder_dat, function(g) {
+    list(exclusion_reason = ifelse(is.na(g$enrollment), "missing_enrollment", "zero_enrollment"))
+  })
+
+  before_fix <- kinder_dat
   result <- dqa_fix_invalid_values(
     kinder_dat,
     dqa_report,
@@ -1503,15 +1724,32 @@ run_final_formatting <- function(state,
   if (sum(!key_ok) > 0) {
     message("  Rows with NA in key columns (to be removed): ", sum(!key_ok))
   }
+  before <- kinder_dat
   kinder_dat <- dplyr::filter(kinder_dat, .env$key_ok)
+  # A count that was present before dqa_fix_invalid_values() but is NA now was
+  # blanked as impossible; anything else was already missing.
+  removed$missing <- .removed_rows(before, kinder_dat, function(g) {
+    blanked <- .blanked_columns(g, before_fix)
+    list(
+      exclusion_reason = ifelse(nzchar(blanked), "invalid_count", "missing_count"),
+      exclusion_detail = ifelse(nzchar(blanked), paste0("blanked as impossible: ", blanked),
+                                NA_character_)
+    )
+  })
   
   # ---- Remove rows with all-zero key values -----------------------------------
+  before <- kinder_dat
   kinder_dat <- kinder_dat %>%
     dplyr::filter(!dplyr::if_all(c(current, enrollment, med_exempt, rel_exempt), ~ . == 0))
   
   # ---- Remove remaining rows with zero current --------------------------------
   kinder_dat <- kinder_dat %>%
     dplyr::filter(current != 0)
+  removed$zero <- .removed_rows(before, kinder_dat, function(g) {
+    list(exclusion_reason = rep("zero_vaccinated", nrow(g)))
+  })
+
+  excluded_rows <- .assemble_excluded_rows(original_rows, removed)
   
   # ---- PART 3: Final formatting -----------------------------------------------
   message("\n=== PART 3: Final formatting ===")
@@ -1530,6 +1768,17 @@ run_final_formatting <- function(state,
   
   saveRDS(kinder_dat, file.path(clean_data_dir, "cleaned_data.rds"))
   readr::write_csv(kinder_dat, file.path(clean_data_dir, "cleaned_data.csv"))
+
+  # ---- Rows left out of the cleaned data, and years of data by school ---------
+  saveRDS(excluded_rows, file.path(clean_data_dir, "cleaned_data_excluded_rows.rds"))
+  readr::write_csv(excluded_rows, file.path(clean_data_dir, "cleaned_data_excluded_rows.csv"))
+  message("Rows left out of the cleaned data: ", nrow(excluded_rows), " (",
+          paste(names(table(excluded_rows$exclusion_reason)),
+                table(excluded_rows$exclusion_reason), sep = ": ", collapse = "; "), ")")
+
+  years_by_school <- summarise_years_by_school(kinder_dat, vaccine_type = vaccine_type_to_keep)
+  saveRDS(years_by_school, file.path(clean_data_dir, "cleaned_data_years_by_school.rds"))
+  readr::write_csv(years_by_school, file.path(clean_data_dir, "cleaned_data_years_by_school.csv"))
   
   # ---- PART 4: Additional flagging DQA checks ---------------------------------
   message("\n=== PART 4: Additional data quality checks ===")
@@ -1896,6 +2145,8 @@ run_final_formatting <- function(state,
     kinder_dat       = kinder_dat,
     obs              = obs,
     locations        = locations,
-    obs_populations  = obs_populations
+    obs_populations  = obs_populations,
+    excluded_rows    = excluded_rows,
+    years_by_school  = years_by_school
   ))
 }

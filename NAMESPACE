@@ -111,6 +111,7 @@ export(standardize_state_school_data)
 export(standardized_county_name)
 export(standardized_school_name)
 export(start_api_log)
+export(summarise_years_by_school)
 export(write_api_log)
 importFrom(Rcpp,sourceCpp)
 importFrom(data.table,
