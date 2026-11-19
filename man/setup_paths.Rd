@@ -18,23 +18,33 @@ A named list with the following components:
   \describe{
     \item{state_dir}{State-specific directory
       (\code{00_preprocessing/states/<state>})}
-    \item{raw_data_dir}{Raw downloaded data directory
-      (\code{state_dir/00_raw_data})}
-    \item{temp_data_dir}{Temporary cleaning outputs directory
-      (\code{state_dir/01_cleaning/cleaning_temp})}
-    \item{state_geo_dir}{State-specific geocoding directory
-      (\code{state_dir/02_geocoding})}
-    \item{clean_data_dir}{Final cleaned data ready for modelling
-      (\code{state_dir/03_cleaned_data})}
-    \item{outputs_data_dir}{Model-ready output directory
-      (\code{state_dir/01_cleaning/output})}
-    \item{general_data_dir}{Shared data directory used by all states
-      (\code{project_root/data})}
-    \item{kinder_dir}{Kindergarten vaccination data directory}
-    \item{doe_dir}{Department of Education data directory}
-    \item{greatschools_dir}{GreatSchools.org data directory}
-    \item{vaxview_dir}{CDC VaxView data directory}
-    \item{state_school_dir}{Any additional state school data directory}
+    \item{code_dir}{The state's scripts (\code{state_dir/code}); tracked}
+    \item{raw_data_dir}{Downloads and the tables parsed from them, by source
+      (\code{state_dir/raw}); ignored by git}
+    \item{manual_dir}{Hand-exported inputs that a script cannot re-create
+      (\code{state_dir/raw/manual}); tracked}
+    \item{temp_data_dir}{Work files that a later step reads, plus step
+      reports (\code{state_dir/work}); ignored by git}
+    \item{state_geo_dir}{Geocoding and status caches
+      (\code{state_dir/geocoding}); tracked}
+    \item{review_dir}{Small CSVs a person opens: data-quality flags and the
+      unmatched-school review (\code{state_dir/review}); tracked}
+    \item{final_dir}{What downstream code reads (\code{state_dir/final}); one
+      subfolder per series; tracked}
+    \item{clean_data_dir, outputs_data_dir}{Both are \code{final_dir}: the
+      cleaned tables and the model inputs of a series sit in the same folder}
+    \item{general_data_dir}{Data shared by all states
+      (\code{00_preprocessing/shared})}
+    \item{kinder_dir}{Kindergarten vaccination data directory (in
+      \code{raw_data_dir})}
+    \item{doe_dir}{Department of Education data directory (in
+      \code{raw_data_dir})}
+    \item{greatschools_dir}{GreatSchools.org data directory (in
+      \code{raw_data_dir})}
+    \item{vaxview_dir}{CDC VaxView data directory; national, so shared by all
+      states (\code{general_data_dir/vaxview})}
+    \item{state_school_dir}{Any additional state school data directory (in
+      \code{raw_data_dir})}
   }
 }
 \description{
@@ -47,6 +57,20 @@ All directories that do not yet exist are created with
 \code{dir.create(..., recursive = TRUE)}.  The returned list can be
 unpacked into the calling environment with
 \code{list2env(paths, envir = environment())}.
+
+Layout (T = tracked in git, I = ignored):
+\preformatted{
+00_preprocessing/
+  shared/vaxview/        national VaxView (vax_view.parquet is read; CSVs are sources)
+  states/<state>/
+    code/                T   01_download.R, 03_state_cleaning.R
+    raw/                 I   downloads and parsed tables
+      manual/            T   hand-exported inputs
+    work/                I   step files (.parquet) and step reports
+    geocoding/           T   caches (.rds)
+    review/<series>/     T   data-quality flags (.csv)
+    final/<series>/      T   cleaned_data.csv, obs/locations/... .parquet
+}
 }
 \examples{
 \dontrun{

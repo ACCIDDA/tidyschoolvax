@@ -8,9 +8,11 @@
 #     3. Optional third school data source (e.g. a state EDDIE-style report)
 #
 #   Outputs (consumed by subsequent pipeline steps):
-#     kinder_dir/kinder_dat.csv  &  .rds  — kindergarten vaccination records
-#     doe_dir/doe_dat.csv        &  .rds  — DOE/state school reference data
-#     state_school_dir/third_dat.csv & .rds  — optional third school source
+#     kinder_dir/kinder_dat.parquet  — kindergarten vaccination records
+#     doe_dir/doe_dat.parquet        — DOE/state school reference data
+#     state_school_dir/third_dat.parquet  — optional third school source
+#   One file per table (write_pipeline_table() writes Parquet by default).
+#   Files you export by hand and cannot re-download go in manual_dir.
 #
 #   NOTE: GreatSchools.org and CDC VaxView downloads are handled by the
 #   package function: tidyschoolvax::download_agnostic_data()
@@ -22,7 +24,7 @@
 #     are expected to exist in the calling environment (set via setup_paths()).
 #
 #   HOW TO ADAPT FOR A NEW STATE:
-#     1. Copy this file to 00_preprocessing/states/<XX>/01_cleaning/01_download.R
+#     1. Copy this file to 00_preprocessing/states/<XX>/code/01_download.R
 #     2. Search for every "# CUSTOMIZE:" comment and follow the instruction.
 #     3. Delete or keep the option blocks that apply to your state.
 #     4. Move any manual school-name or address corrections to
@@ -156,7 +158,7 @@
 #   year_source, school_name, school_type, county, vaccine_type,
 #   total_enrollment, count_up_to_date, count_med_exempt, count_rel_exempt,
 #   count_not_up_to_date
-# See 00_preprocessing/states/nc/01_cleaning/01_download.R for an example.
+# See 00_preprocessing/states/nc/code/01_download.R for an example.
 
 
 # -----------------------------------------------------------------------------
@@ -200,10 +202,7 @@
 # -----------------------------------------------------------------------------
 
 # GENERIC:
-# write.csv(kinder_dat,
-#           file      = file.path(kinder_dir, "kinder_dat.csv"),
-#           row.names = FALSE)
-# saveRDS(kinder_dat, file.path(kinder_dir, "kinder_dat.rds"))
+# tidyschoolvax::write_pipeline_table(kinder_dat, file.path(kinder_dir, "kinder_dat"))
 
 
 # =============================================================================

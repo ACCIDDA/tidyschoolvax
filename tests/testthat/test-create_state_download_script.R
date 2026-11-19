@@ -5,7 +5,7 @@ test_that("create_state_download_script() creates the file when none exists", {
 
   path <- suppressMessages(create_state_download_script("tx", project_root = tmp))
   expect_true(file.exists(path))
-  expect_true(grepl("00_preprocessing/states/tx/01_cleaning/01_download\\.R$",
+  expect_true(grepl("00_preprocessing/states/tx/code/01_download\\.R$",
                     gsub("\\\\", "/", path)))
 })
 

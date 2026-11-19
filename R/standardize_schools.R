@@ -33,7 +33,7 @@
 #' @param temp_data_dir Path for temporary output files.
 #' @param state_geo_dir Path for geocoding cache files.
 #' @param state_dir Path to the state-level root directory (used for QC
-#'   reports written to \code{<state_dir>/01_cleaning/cleaning_temp}).
+#'   reports are written to \code{temp_data_dir}).
 #' @param addr_source_pref Character.  Address source to prefer as the primary
 #'   address in the output.  One of \code{"greatschools"} (default),
 #'   \code{"doe"}, \code{"third"}, or \code{"kinder"}.
@@ -138,7 +138,7 @@ standardize_schools <- function(state_id,
   # Reviewer-facing QC directory — computed early since Google identity
   # resolution (Parts 1.5/3.5 below) writes school_renames_detected.csv here
   # as soon as renames are found, rather than only at the very end.
-  review_dir <- file.path(state_dir, "01_cleaning", "cleaning_temp")
+  review_dir <- temp_data_dir
   google_api_key <- Sys.getenv("GOOGLEGEO_API_KEY")
 
   # ---- PART 1: Load and clean all data sources --------------------------------
@@ -199,7 +199,7 @@ standardize_schools <- function(state_id,
 #' @param state_id,state_geo_dir,temp_data_dir,state_dir,addr_source_pref,parallel,parallel_cache,api_qps,places_qps
 #'   See \code{\link{standardize_schools}}.
 #' @param review_dir Directory QC reports are written to (normally
-#'   \code{file.path(state_dir, "01_cleaning", "cleaning_temp")}).
+#'   \code{temp_data_dir}).
 #' @param google_api_key Google Geocoding/Places API key.
 #' @param nces_ref Optional NCES reference (\code{\link{load_nces_reference}})
 #'   used for school status and names before falling back to Google Places.

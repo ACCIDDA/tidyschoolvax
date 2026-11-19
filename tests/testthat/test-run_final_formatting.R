@@ -217,8 +217,8 @@ test_that("every row left out of cleaned_data is saved with its reason", {
   d <- setup_final_format(rbind(make_step03(), make_problem_rows()))
   res <- run_ff(d, c("mmr", "all_required"))
 
-  ex <- as.data.frame(readr::read_csv(file.path(d$clean, "mmr", "cleaned_data_excluded_rows.csv"), show_col_types = FALSE))
-  expect_true(file.exists(file.path(d$clean, "mmr", "cleaned_data_excluded_rows.csv")))
+  all_ex <- as.data.frame(readr::read_csv(file.path(d$clean, "cleaned_data_excluded_rows_all_types.csv"), show_col_types = FALSE))
+  ex <- all_ex[all_ex$vaccine_type == "mmr", ]
   expect_equal(nrow(ex), 6L)
   expect_identical(names(ex)[1:4], c("vaccine_type", "exclusion_reason",
                                      "exclusion_description", "exclusion_detail"))
@@ -267,7 +267,8 @@ test_that("kept rows plus excluded rows account for every input row", {
   res <- run_ff(d, c("mmr", "all_required"))
   for (vt in c("mmr", "all_required")) {
     kept <- read_cleaned_data(file.path(d$clean, vt, "cleaned_data.csv"))
-    ex   <- as.data.frame(readr::read_csv(file.path(d$clean, vt, "cleaned_data_excluded_rows.csv"), show_col_types = FALSE))
+    ex   <- as.data.frame(readr::read_csv(file.path(d$clean, "cleaned_data_excluded_rows_all_types.csv"), show_col_types = FALSE))
+    ex   <- ex[ex$vaccine_type == vt, ]
     n_in <- sum(readRDS(file.path(d$temp, "kinder_vaccination_clean_03.rds"))$vaccine_type == vt)
     expect_equal(nrow(kept) + nrow(ex), n_in, info = vt)
   }
@@ -372,7 +373,7 @@ test_that("years-by-school is written by run_final_formatting()", {
   # the CSV is for reading, so compare values, not column types
   expect_equal(names(y), names(res$years_by_school))
   expect_equal(y$n_rows, res$years_by_school$n_rows)
-  expect_true(file.exists(file.path(d$clean, "mmr", "cleaned_data_years_by_school.csv")))
+  expect_false(file.exists(file.path(d$clean, "mmr", "cleaned_data_years_by_school.csv")))
 })
 
 
@@ -421,4 +422,54 @@ test_that("stacked all-types tables follow final_format", {
   expect_true(file.exists(file.path(d$clean, "cleaned_data_all_types.csv")))
   expect_false(file.exists(file.path(d$clean, "cleaned_data_all_types.rds")))
   expect_true(file.exists(file.path(d$clean, "cleaned_data_excluded_rows_all_types.csv")))
+})
+
+
+test_that("review_dir collects every data-quality flag file in one place", {
+  d <- setup_final_format(rbind(make_step03(), make_problem_rows()))
+  review <- file.path(dirname(d$out), "review")
+  run_ff(d, "mmr", review_dir = review)
+  flags <- list.files(review, pattern = "\\.csv$")
+  expect_true(length(flags) > 0)
+  # the flags that used to go to temp_data_dir and state_dir are not left behind
+  expect_equal(length(list.files(d$state, pattern = "\\.csv$")), 0L)
+  expect_false(any(grepl("_check\\.csv$|_removed\\.csv$|_fixed\\.csv$", list.files(d$temp))))
+})
+
+test_that("with several types the flags go to review_dir/<type>/", {
+  d <- setup_final_format(make_step03())
+  review <- file.path(dirname(d$out), "review")
+  run_ff(d, c("mmr", "all_required"), review_dir = review)
+  expect_true(dir.exists(file.path(review, "mmr")))
+  expect_true(dir.exists(file.path(review, "all_required")))
+})
+
+test_that("series_subfolder gives a single series the same layout as several", {
+  d <- setup_final_format(make_step03())
+  res <- run_ff(d, "mmr", series_subfolder = TRUE)
+  expect_true(file.exists(file.path(d$clean, "mmr", "cleaned_data.csv")))
+  expect_true(file.exists(file.path(d$out, "mmr", "obs.parquet")))
+  expect_false(file.exists(file.path(d$clean, "cleaned_data.csv")))
+  # one type: nothing to stack, but excluded rows and years are still written once
+  expect_false(file.exists(file.path(d$clean, "cleaned_data_all_types.csv")))
+  expect_true(file.exists(file.path(d$clean, "cleaned_data_excluded_rows_all_types.csv")))
+  expect_true(file.exists(file.path(d$clean, "cleaned_data_years_by_school.csv")))
+  expect_named(res, c("by_type", "cleaned_data_all_types", "excluded_rows_all_types", "years_by_school"))
+})
+
+test_that("series_subfolder works for a state whose data has no vaccine_type column", {
+  step03 <- make_step03()
+  step03 <- step03[step03$vaccine_type == "mmr", setdiff(names(step03), "vaccine_type")]
+  d <- setup_final_format(step03)
+  run_ff(d, "mmr", series_subfolder = TRUE)
+  expect_true(file.exists(file.path(d$clean, "mmr", "cleaned_data.csv")))
+})
+
+test_that("several types do not write per-series excluded-rows or years files", {
+  d <- setup_final_format(make_step03())
+  run_ff(d, c("mmr", "all_required"))
+  expect_false(file.exists(file.path(d$clean, "mmr", "cleaned_data_excluded_rows.csv")))
+  expect_false(file.exists(file.path(d$clean, "mmr", "cleaned_data_years_by_school.csv")))
+  expect_true(file.exists(file.path(d$clean, "cleaned_data_excluded_rows_all_types.csv")))
+  expect_true(file.exists(file.path(d$clean, "cleaned_data_years_by_school.csv")))
 })

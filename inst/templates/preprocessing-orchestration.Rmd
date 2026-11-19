@@ -115,25 +115,22 @@ tidyschoolvax::download_agnostic_data(
 
 ```{r step-1b-download-state}
 cat("Step 1b: Download state-specific data...\n")
-source(file.path(state_dir, "01_cleaning/01_download.R"))
+source(file.path(state_dir, "code/01_download.R"))
 ```
 
 **Expected outputs:**
 
-- Merged annual kindergarten school-level vax data (`kinder.csv` & `kinder.rds`)
-- GreatSchools.org data for state (`greatschools.csv` & `greatschools.rds`)
-- State data on all schools – DOE, DOA, etc. (`doe.csv` & `doe.rds`)
+- Merged annual kindergarten school-level vax data (`kinder_dat.parquet`)
+- GreatSchools.org data for state (`greatschools_dat.parquet`)
+- State data on all schools – DOE, DOA, etc. (`doe_dat.parquet`)
 - VaxView data
 
 ```{r check-outputs-1}
 check_expected_files(
   paths = c(
-    file.path(kinder_dir, "kinder_dat.csv"),
-    file.path(kinder_dir, "kinder_dat.rds"),
-    file.path(greatschools_dir, "greatschools_dat.csv"),
-    file.path(greatschools_dir, "greatschools_dat.rds"),
-    file.path(doe_dir, "doe_dat.csv"),
-    file.path(doe_dir, "doe_dat.rds"),
+    file.path(kinder_dir, "kinder_dat.parquet"),
+    file.path(greatschools_dir, "greatschools_dat.parquet"),
+    file.path(doe_dir, "doe_dat.parquet"),
     file.path(vaxview_dir, "ChildVaxView.csv"),
     file.path(vaxview_dir, "SchoolVaxView.csv"),
     file.path(vaxview_dir, "TeenVaxView.csv"),
@@ -185,8 +182,7 @@ future::plan(future::sequential)
 ```{r check-outputs-2}
 check_expected_files(
   paths = c(
-    file.path(temp_data_dir, "kinder_vaccination_clean_02.csv"),
-    file.path(temp_data_dir, "kinder_vaccination_clean_02.rds")
+    file.path(temp_data_dir, "kinder_vaccination_clean_02.parquet")
   ),
   step_name = "02_standardize_school"
 )
@@ -198,7 +194,7 @@ Apply any state-specific data cleaning rules before final formatting.
 
 ```{r step-3-state-cleaning}
 cat("Step 3: State-specific data cleaning...\n")
-source(file.path(state_dir, "01_cleaning/03_state_cleaning.R"))
+source(file.path(state_dir, "code/03_state_cleaning.R"))
 ```
 
 **Expected outputs:**
@@ -208,8 +204,7 @@ source(file.path(state_dir, "01_cleaning/03_state_cleaning.R"))
 ```{r check-outputs-3}
 check_expected_files(
   paths = c(
-    file.path(temp_data_dir, "kinder_vaccination_clean_03.rds"),
-    file.path(temp_data_dir, "kinder_vaccination_clean_03.csv")
+    file.path(temp_data_dir, "kinder_vaccination_clean_03.parquet")
   ),
   step_name = "03_state_cleaning"
 )
@@ -230,21 +225,24 @@ tidyschoolvax::run_final_formatting(
   vaxview_dir          = vaxview_dir,
   general_data_dir     = general_data_dir,
   state_dir            = state_dir,
-  outputs_data_dir     = outputs_data_dir
+  outputs_data_dir     = outputs_data_dir,
+  review_dir           = review_dir,       # every data-quality flag file goes here
+  series_subfolder     = TRUE              # outputs go to final/<vaccine type>/
 )
 ```
 
 **Expected outputs:**
 
 - Cleaned vaccination data with DQA checks applied, ready for geocoding
-  (`cleaned_data.rds`, `cleaned_data.csv`)
-- DQA `.csv` files with issue cases in the temp directory
+  (`final/<vaccine type>/cleaned_data.csv`) and the model inputs
+  (`obs`, `locations`, `obs_populations`, `linkage_key`; Parquet) in the same folder
+- DQA `.csv` files with issue cases in `review_dir`
 
 ```{r check-outputs-4}
 check_expected_files(
   paths = c(
-    file.path(clean_data_dir, "cleaned_data.rds"),
-    file.path(clean_data_dir, "cleaned_data.csv")
+    file.path(clean_data_dir, tolower(vaccine_type_to_keep), "cleaned_data.csv"),
+    file.path(outputs_data_dir, tolower(vaccine_type_to_keep), "obs.parquet")
   ),
   step_name = "04_final_formatting"
 )

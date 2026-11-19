@@ -10,9 +10,8 @@
 #     4. Standardize column names and assign school IDs for DQA
 #     5. Export
 #
-#   Input:  temp_data_dir/kinder_vaccination_clean_02.rds
-#   Output: temp_data_dir/kinder_vaccination_clean_03.rds
-#           temp_data_dir/kinder_vaccination_clean_03.csv
+#   Input:  temp_data_dir/kinder_vaccination_clean_02.parquet
+#   Output: temp_data_dir/kinder_vaccination_clean_03.parquet
 #
 #   USAGE:
 #     This file is sourced by the orchestration script after
@@ -21,7 +20,7 @@
 #
 #   HOW TO ADAPT FOR A NEW STATE:
 #     1. Copy this file to
-#        00_preprocessing/states/<XX>/01_cleaning/03_state_cleaning.R
+#        00_preprocessing/states/<XX>/code/03_state_cleaning.R
 #        (or run tidyschoolvax::create_state_cleaning_script("<XX>"))
 #     2. Search for every "# CUSTOMIZE:" comment and follow the instruction.
 #     3. Delete option blocks that do not apply to your state.
@@ -38,7 +37,7 @@
 # =============================================================================
 
 # GENERIC — load the output of 02_standardize_school.R:
-kinder_dat <- readRDS(file.path(temp_data_dir, "kinder_vaccination_clean_02.rds"))
+kinder_dat <- tidyschoolvax::read_pipeline_table(file.path(temp_data_dir, "kinder_vaccination_clean_02"))
 
 
 # =============================================================================
@@ -376,8 +375,5 @@ dplyr::n_distinct(kinder_dat$school_id)
 # =============================================================================
 
 # GENERIC — write outputs consumed by 04_final_formatting.R:
-readr::write_csv(kinder_dat,
-                 file.path(temp_data_dir, "kinder_vaccination_clean_03.csv"))
-
-saveRDS(kinder_dat,
-        file.path(temp_data_dir, "kinder_vaccination_clean_03.rds"))
+tidyschoolvax::write_pipeline_table(kinder_dat,
+                                    file.path(temp_data_dir, "kinder_vaccination_clean_03"))
