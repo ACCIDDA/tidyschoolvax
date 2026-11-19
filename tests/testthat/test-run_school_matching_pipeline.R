@@ -472,3 +472,117 @@ test_that(".detect_kinder_county_outliers() ignores single-county schools and ha
   missing_cols <- tibble::tibble(orig_id = "1", school_name_std = "x")
   expect_equal(nrow(tidyschoolvax:::.detect_kinder_county_outliers(missing_cols)), 0L)
 })
+
+# ---- Step 2 identity columns: city_vacc and nces_id --------------------------
+
+test_that(".run_school_matching_pipeline() keeps each record's own town as city_vacc", {
+  tmp <- tempfile("pipeline_identity_"); dir.create(tmp)
+  on.exit(unlink(tmp, recursive = TRUE), add = TRUE)
+  geo_dir    <- file.path(tmp, "geo");    dir.create(geo_dir)
+  review_dir <- file.path(tmp, "review"); dir.create(review_dir)
+  temp_dir   <- file.path(tmp, "temp");   dir.create(temp_dir)
+  write_geocode_cache(geo_dir)
+
+  # The vaccination file reports its own town for each record; "lincoln
+  # elementary" claims a different town than the GS school it matches.
+  kinder <- make_kinder()
+  kinder$city <- c("Shelbyville", "Springfield", "Ogdenville", "Springfield",
+                   "Springfield", "Springfield", "Springfield")
+
+  result <- suppressWarnings(suppressMessages(
+    .run_school_matching_pipeline(
+      greatschools_dat = make_gs(),
+      doe_dat          = make_doe(),
+      kinder_dat       = kinder,
+      kinder_has_addr  = FALSE,
+      other_dat        = NULL,
+      state_id         = "md",
+      state_geo_dir    = geo_dir,
+      temp_data_dir    = temp_dir,
+      state_dir        = dirname(review_dir),
+      review_dir       = review_dir,
+      google_api_key   = "unused-in-this-test",
+      addr_source_pref = "greatschools"
+    )
+  ))
+
+  expect_true(all(c("city_vacc", "nces_id", "nces_source") %in% names(result)))
+
+  lincoln <- result[result$school_name_std_vacc == "lincoln elementary", , drop = FALSE]
+  expect_equal(lincoln$city_vacc, "Shelbyville")   # the record's own town
+  expect_equal(lincoln$city, "Springfield")        # the matched school's town
+
+  # Unmatched records keep their own town too.
+  mystery <- result[result$school_name_std_vacc == "mystery school", , drop = FALSE]
+  expect_equal(mystery$city_vacc, "Ogdenville")
+
+  # No NCES reference was supplied, so no record is linked to NCES.
+  expect_true(all(is.na(result$nces_id)))
+  expect_true(all(is.na(result$nces_source)))
+
+  # Also written to the step 2 output file.
+  saved <- readRDS(file.path(temp_dir, "kinder_vaccination_clean_02.rds"))
+  expect_true(all(c("city_vacc", "nces_id", "nces_source") %in% names(saved)))
+})
+
+test_that(".run_school_matching_pipeline() sets city_vacc to NA when the vaccination file has no city", {
+  tmp <- tempfile("pipeline_identity_nocity_"); dir.create(tmp)
+  on.exit(unlink(tmp, recursive = TRUE), add = TRUE)
+  geo_dir    <- file.path(tmp, "geo");    dir.create(geo_dir)
+  review_dir <- file.path(tmp, "review"); dir.create(review_dir)
+  temp_dir   <- file.path(tmp, "temp");   dir.create(temp_dir)
+  write_geocode_cache(geo_dir)
+
+  result <- suppressWarnings(suppressMessages(
+    .run_school_matching_pipeline(
+      greatschools_dat = make_gs(), doe_dat = make_doe(), kinder_dat = make_kinder(),
+      kinder_has_addr = FALSE, other_dat = NULL, state_id = "md",
+      state_geo_dir = geo_dir, temp_data_dir = temp_dir,
+      state_dir = dirname(review_dir), review_dir = review_dir,
+      google_api_key = "unused-in-this-test", addr_source_pref = "greatschools"
+    )
+  ))
+
+  expect_true("city_vacc" %in% names(result))
+  expect_true(all(is.na(result$city_vacc)))
+})
+
+test_that("merge_geocoding_results() carries nces_id and nces_source through", {
+  long <- data.frame(
+    school_id   = c(1, 1, 2, NA),
+    school_name = c("A", "A", "B", "C"),
+    city        = c("old", "old", "old", "old"),
+    stringsAsFactors = FALSE
+  )
+  status <- data.frame(
+    school_id       = c(1, 2, NA),
+    school_name     = c("A", "B", "C"),
+    lat = c(1, 2, 3), lon = c(4, 5, 6),
+    addr_clean      = c("1 a st", "2 b st", "3 c st"),
+    city            = c("Alpha", "Beta", "Gamma"),
+    zip = c("01000", "02000", "03000"), state = "ma",
+    business_status = "operational",
+    business_source = c("nces_ccd", "google", "nces_pss"),
+    nces_id         = c("250000100001", NA, "A9100123"),
+    stringsAsFactors = FALSE
+  )
+
+  out <- merge_geocoding_results(long, status)
+
+  expect_equal(out$nces_id,     c("250000100001", "250000100001", NA, "A9100123"))
+  expect_equal(out$nces_source, c("nces_ccd", "nces_ccd", NA, "nces_pss"))
+  expect_equal(out$city, c("Alpha", "Alpha", "Beta", "Gamma"))
+})
+
+test_that("merge_geocoding_results() works when schools_status has no NCES columns", {
+  long <- data.frame(school_id = 1, school_name = "A", stringsAsFactors = FALSE)
+  status <- data.frame(
+    school_id = 1, school_name = "A", lat = 1, lon = 2, addr_clean = "1 a st",
+    city = "Alpha", zip = "01000", state = "ma", business_status = "operational",
+    stringsAsFactors = FALSE
+  )
+  out <- merge_geocoding_results(long, status)
+  expect_true(all(c("nces_id", "nces_source") %in% names(out)))
+  expect_true(is.na(out$nces_id))
+  expect_true(is.na(out$nces_source))
+})

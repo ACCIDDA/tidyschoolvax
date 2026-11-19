@@ -88,7 +88,20 @@
 #' @return The final cleaned \code{data.frame} (invisibly).  The same object is
 #'   also written to \code{temp_data_dir} as
 #'   \code{kinder_vaccination_clean_02.csv} and
-#'   \code{kinder_vaccination_clean_02.rds}.
+#'   \code{kinder_vaccination_clean_02.rds}.  Besides the matched school's
+#'   reference columns (\code{city}, \code{addr_clean}, \code{lat},
+#'   \code{lon}, ...), each row keeps two identity columns:
+#'   \describe{
+#'     \item{\code{city_vacc}}{The town reported on the vaccination record
+#'       itself (\code{NA} if the state's file has no \code{city} column).
+#'       \code{city} is the matched school's town, so the two can be compared
+#'       to catch matches to a same-name school elsewhere.}
+#'     \item{\code{nces_id}, \code{nces_source}}{The NCES school ID
+#'       (\code{ncessch} for public schools, \code{ppin} for private) and
+#'       its source (\code{"nces_ccd"} or \code{"nces_pss"}) when the matched
+#'       school was linked to NCES during the status lookup; \code{NA}
+#'       otherwise, including when \code{use_nces = FALSE}.}
+#'   }
 #'
 #' @details
 #' All preprocessing utility functions (\code{clean_kinder_data},
@@ -1867,10 +1880,17 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
     list(dt_matched_full, dt_unmatched_exp), fill = TRUE
   )
 
-  # 7. Join vaccination counts / year data back
+  # 7. Join vaccination counts / year data back.
+  # The record's own town is kept as `city_vacc` before the reference
+  # columns replace `city`: `city` in the output is the matched school's
+  # town, and without the record's own town a match to a same-name school
+  # in a different town can't be detected downstream.
   dt_kinder_main <- data.table::as.data.table(
     kinder_dat %>%
-      dplyr::mutate(vacc_data_id = as.character(vacc_data_id)) %>%
+      dplyr::mutate(
+        vacc_data_id = as.character(vacc_data_id),
+        city_vacc    = if ("city" %in% names(kinder_dat)) as.character(.data$city) else NA_character_
+      ) %>%
       dplyr::select(-dplyr::any_of(c("school_name_std", "county_std",
                                      "county", "school_type", "school_level",
                                      "city", "zip", "district_std", "district")))
@@ -1884,7 +1904,7 @@ match_kinder_to_reference <- function(kinder_dat_for_matching,
                 "match_source", "school_name_std", "school_name_std_vacc",
                 "county_std", "county", "district", "district_std",
                 "school_type", "school_level",
-                "level_code", "addr_clean", "city", "state", "zip",
+                "level_code", "addr_clean", "city", "city_vacc", "state", "zip",
                 "lat", "lon")
   col_order <- c(intersect(priority, names(vacc_data_cln)),
                  setdiff(names(vacc_data_cln), priority))
