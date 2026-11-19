@@ -1628,29 +1628,47 @@ report_unmatched_schools <- function(df, out_dir) {
 #'   \code{run_school_status_with_cache}) containing \code{school_id},
 #'   \code{school_name}, \code{lat}, \code{lon}, \code{addr_clean},
 #'   \code{city}, \code{zip}, \code{state}, and \code{business_status}.
+#'   If it also has \code{nces_id} (and \code{business_source}), those are
+#'   carried through as \code{nces_id} and \code{nces_source}.
 #'
-#' @return \code{school_vax_long} with geocoding and status columns added.
+#' @return \code{school_vax_long} with geocoding and status columns added,
+#'   including \code{nces_id} and \code{nces_source} (\code{NA} when the
+#'   school was not linked to NCES).
 #' @export
 merge_geocoding_results <- function(school_vax_long, schools_status) {
   
   # 1. DROP the old/wrong coordinates from the long-form data
   # This ensures the new coordinates from schools_status actually flow in
   school_vax_long <- school_vax_long %>%
-    dplyr::select(-dplyr::any_of(c("lat", "lon", "addr_clean", "city", "zip", "state")))
+    dplyr::select(-dplyr::any_of(c("lat", "lon", "addr_clean", "city", "zip", "state",
+                                   "nces_id", "nces_source")))
   
-  # 2. Create the clean lookup table from schools_status
+  # 2. Create the clean lookup table from schools_status.
+  # nces_id is set by run_school_status_with_cache() when a school's
+  # place_id was linked to NCES; its source (CCD vs PSS) is in
+  # business_source for those rows.
+  if (!"nces_id" %in% names(schools_status)) schools_status$nces_id <- NA_character_
+  schools_status$nces_source <- if ("business_source" %in% names(schools_status)) {
+    ifelse(is.na(schools_status$nces_id), NA_character_,
+           as.character(schools_status$business_source))
+  } else {
+    NA_character_
+  }
+
   geo_lookup <- schools_status %>%
     dplyr::select(
       school_id, school_name, lat, lon, 
-      addr_clean, city, zip, state, business_status
+      addr_clean, city, zip, state, business_status, nces_id, nces_source
     ) %>%
     # Ensure character types to avoid the "Logical vs Character" error
-    dplyr::mutate(across(c(addr_clean, city, zip, state, business_status), as.character)) %>%
+    dplyr::mutate(across(c(addr_clean, city, zip, state, business_status,
+                           nces_id, nces_source), as.character)) %>%
     dplyr::distinct()
   
   # 3. Preparation: Create empty target columns in school_vax_long 
   # We initialize them as NAs so rows_patch has a "hole" to fill
-  target_char_cols <- c("addr_clean", "city", "zip", "state", "business_status")
+  target_char_cols <- c("addr_clean", "city", "zip", "state", "business_status",
+                        "nces_id", "nces_source")
   target_num_cols  <- c("lat", "lon")
   
   for(col in target_char_cols) { school_vax_long[[col]] <- NA_character_ }

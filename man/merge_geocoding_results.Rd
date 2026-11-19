@@ -13,10 +13,14 @@ containing at least \code{school_id} and \code{school_name} columns.}
 \item{schools_status}{A data frame of geocoded/status results (e.g. from
 \code{run_school_status_with_cache}) containing \code{school_id},
 \code{school_name}, \code{lat}, \code{lon}, \code{addr_clean},
-\code{city}, \code{zip}, \code{state}, and \code{business_status}.}
+\code{city}, \code{zip}, \code{state}, and \code{business_status}.
+If it also has \code{nces_id} (and \code{business_source}), those are
+carried through as \code{nces_id} and \code{nces_source}.}
 }
 \value{
-\code{school_vax_long} with geocoding and status columns added.
+\code{school_vax_long} with geocoding and status columns added,
+  including \code{nces_id} and \code{nces_source} (\code{NA} when the
+  school was not linked to NCES).
 }
 \description{
 Drops stale coordinate and address columns from \code{school_vax_long},

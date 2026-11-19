@@ -112,7 +112,20 @@ second (default \code{8}); see \code{\link{run_school_status_with_cache}}.}
 The final cleaned \code{data.frame} (invisibly).  The same object is
   also written to \code{temp_data_dir} as
   \code{kinder_vaccination_clean_02.csv} and
-  \code{kinder_vaccination_clean_02.rds}.
+  \code{kinder_vaccination_clean_02.rds}.  Besides the matched school's
+  reference columns (\code{city}, \code{addr_clean}, \code{lat},
+  \code{lon}, ...), each row keeps two identity columns:
+  \describe{
+    \item{\code{city_vacc}}{The town reported on the vaccination record
+      itself (\code{NA} if the state's file has no \code{city} column).
+      \code{city} is the matched school's town, so the two can be compared
+      to catch matches to a same-name school elsewhere.}
+    \item{\code{nces_id}, \code{nces_source}}{The NCES school ID
+      (\code{ncessch} for public schools, \code{ppin} for private) and
+      its source (\code{"nces_ccd"} or \code{"nces_pss"}) when the matched
+      school was linked to NCES during the status lookup; \code{NA}
+      otherwise, including when \code{use_nces = FALSE}.}
+  }
 }
 \description{
 Orchestrates all steps of school name standardization for a given state:
