@@ -220,10 +220,12 @@ test_that("estimate_api_cost() rejects settings it controls and bad rates", {
 })
 
 test_that("estimate_api_cost() runs the pipeline in a sandbox, in dry-run mode, and cleans up", {
-  geo <- tempfile("real_geo_"); dir.create(file.path(geo, "nces"), recursive = TRUE)
-  withr::defer(unlink(geo, recursive = TRUE))
-  saveRDS(1, file.path(geo, "geocoded_cache.rds")); saveRDS(2, file.path(geo, "nces", "nces_reference_xx.rds"))
-  real_before <- tools::md5sum(list.files(geo, full.names = TRUE, recursive = TRUE))
+  geo <- tempfile("real_geo_"); dir.create(geo, recursive = TRUE)
+  proc <- tempfile("real_processed_"); dir.create(proc)
+  withr::defer(unlink(c(geo, proc), recursive = TRUE))
+  saveRDS(1, file.path(geo, "geocoded_cache.rds")); saveRDS(2, file.path(proc, "nces_reference_xx.rds"))
+  real_before <- tools::md5sum(c(list.files(geo, full.names = TRUE, recursive = TRUE),
+                                 list.files(proc, full.names = TRUE, recursive = TRUE)))
   key_before <- Sys.getenv("GOOGLEGEO_API_KEY", unset = NA_character_)
   Sys.setenv(GOOGLEGEO_API_KEY = "my-real-key"); withr::defer(
     if (is.na(key_before)) Sys.unsetenv("GOOGLEGEO_API_KEY") else Sys.setenv(GOOGLEGEO_API_KEY = key_before))
@@ -234,7 +236,8 @@ test_that("estimate_api_cost() runs the pipeline in a sandbox, in dry-run mode, 
       a <- list(...)
       seen <<- list(args = a, dry = .api_dry_run(), key = Sys.getenv("GOOGLEGEO_API_KEY"),
                     cache_copied = file.exists(file.path(a$state_geo_dir, "geocoded_cache.rds")),
-                    nces_copied = file.exists(file.path(a$nces_cache_dir, "nces_reference_xx.rds")))
+                    nces_copied = file.exists(file.path(a$nces_cache_dir, "nces_reference_xx.rds")),
+                    nces_in_temp = identical(a$nces_cache_dir, a$temp_data_dir))
       # a real run would write caches here; they must land in the sandbox copy
       saveRDS(99, file.path(a$state_geo_dir, "geocoded_cache.rds"))
       start_api_log(state = a$state_id)
@@ -246,7 +249,7 @@ test_that("estimate_api_cost() runs the pipeline in a sandbox, in dry-run mode, 
   est <- suppressMessages(estimate_api_cost(
     state_id = "xx", kinder_dir = "k", greatschools_dir = "g", doe_dir = "d",
     state_school_dir = "s", state_geo_dir = geo, state_dir = file.path(tempdir(), "a", "b", "xx"),
-    api_log_dir = NULL
+    api_log_dir = NULL, temp_data_dir = proc
   ))
 
   # what the pipeline was told
@@ -255,12 +258,13 @@ test_that("estimate_api_cost() runs the pipeline in a sandbox, in dry-run mode, 
   expect_false(seen$args$parallel); expect_false(seen$args$parallel_cache)
   expect_null(seen$args$api_log_dir)
   expect_false(startsWith(seen$args$state_geo_dir, geo))         # a copy, not the real folder
-  expect_false(startsWith(seen$args$temp_data_dir, geo))
-  expect_true(seen$cache_copied && seen$nces_copied)
+  expect_false(startsWith(seen$args$temp_data_dir, proc))
+  expect_true(seen$cache_copied && seen$nces_copied && seen$nces_in_temp)
   # what the caller sees afterwards
   expect_false(.api_dry_run())
   expect_equal(Sys.getenv("GOOGLEGEO_API_KEY"), "my-real-key")
-  expect_identical(tools::md5sum(list.files(geo, full.names = TRUE, recursive = TRUE)), real_before)
+  expect_identical(tools::md5sum(c(list.files(geo, full.names = TRUE, recursive = TRUE),
+                                   list.files(proc, full.names = TRUE, recursive = TRUE))), real_before)
   expect_false(dir.exists(dirname(seen$args$state_geo_dir)))     # sandbox removed
   # the estimate itself
   expect_equal(est$requests_dry_run, c(1000, 400))
@@ -269,18 +273,19 @@ test_that("estimate_api_cost() runs the pipeline in a sandbox, in dry-run mode, 
 })
 
 test_that("use_cache = FALSE leaves the existing caches out of the sandbox", {
-  geo <- tempfile("real_geo_"); dir.create(file.path(geo, "nces"), recursive = TRUE)
-  withr::defer(unlink(geo, recursive = TRUE))
-  saveRDS(1, file.path(geo, "geocoded_cache.rds")); saveRDS(2, file.path(geo, "nces", "n.rds"))
+  geo <- tempfile("real_geo_"); dir.create(geo, recursive = TRUE)
+  proc <- tempfile("real_processed_"); dir.create(proc)
+  withr::defer(unlink(c(geo, proc), recursive = TRUE))
+  saveRDS(1, file.path(geo, "geocoded_cache.rds")); saveRDS(2, file.path(proc, "nces_reference_xx.rds"))
   seen <- NULL
   testthat::local_mocked_bindings(standardize_schools = function(...) {
     a <- list(...)
     seen <<- list(cache = file.exists(file.path(a$state_geo_dir, "geocoded_cache.rds")),
-                  nces = file.exists(file.path(a$state_geo_dir, "nces", "n.rds")))
+                  nces = file.exists(file.path(a$nces_cache_dir, "nces_reference_xx.rds")))
     start_api_log(state = "xx"); invisible(NULL)
   })
   e <- suppressMessages(estimate_api_cost("xx", "k", "g", "d", "s", geo, "st",
-                                          use_cache = FALSE, api_log_dir = NULL))
+                                          use_cache = FALSE, api_log_dir = NULL, temp_data_dir = proc))
   expect_false(seen$cache); expect_true(seen$nces)     # NCES is public data, kept
   expect_equal(sum(e$requests_expected), 0)
 })

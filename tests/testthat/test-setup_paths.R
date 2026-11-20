@@ -7,7 +7,7 @@ test_that("setup_paths() returns the layout and creates the folders", {
   expect_equal(rel(p$state_dir),        "data_processing/xx")
   expect_equal(rel(p$raw_data_dir),     "data_processing/xx/raw")
   expect_equal(rel(p$manual_dir),       "data_processing/xx/raw/manual")
-  expect_equal(rel(p$temp_data_dir),    "data_processing/xx/work")
+  expect_equal(rel(p$temp_data_dir),    "data_processing/xx/processed")
   expect_equal(rel(p$state_geo_dir),    "data_processing/xx/geocoding")
   expect_equal(rel(p$general_data_dir), "data_processing/shared")
   expect_equal(rel(p$vaxview_dir),      "data_processing/shared/vaxview")
@@ -16,7 +16,17 @@ test_that("setup_paths() returns the layout and creates the folders", {
   expect_equal(rel(p$final_dir),        "output/tidyschoolvax/xx")
   expect_equal(rel(p$review_dir),       "checks/tidyschoolvax/xx")
   expect_equal(rel(p$api_log_dir),      "checks/tidyschoolvax/api_logs")
-  expect_true(all(vapply(p, dir.exists, logical(1))))
+  made <- p[setdiff(names(p), c("kinder_dir", "doe_dir", "greatschools_dir", "state_school_dir"))]
+  expect_true(all(vapply(made, dir.exists, logical(1))))
+})
+
+test_that("per-source raw folders are returned but not created", {
+  p <- setup_paths(project_root = withr::local_tempdir(), state = "xx")
+  for (d in c("kinder_dir", "doe_dir", "greatschools_dir", "state_school_dir")) {
+    expect_true(startsWith(p[[d]], p$raw_data_dir), info = d)
+    expect_false(dir.exists(p[[d]]), info = d)
+  }
+  expect_true(dir.exists(p$raw_data_dir) && dir.exists(p$manual_dir))
 })
 
 test_that("data_processing holds intermediate data only", {

@@ -8,11 +8,14 @@
 #     3. Optional third school data source (e.g. a state EDDIE-style report)
 #
 #   Outputs (consumed by subsequent pipeline steps):
-#     kinder_dir/kinder_dat.parquet  — kindergarten vaccination records
-#     doe_dir/doe_dat.parquet        — DOE/state school reference data
-#     state_school_dir/third_dat.parquet  — optional third school source
+#     temp_data_dir/kinder_dat.parquet  — kindergarten vaccination records
+#     temp_data_dir/doe_dat.parquet     — DOE/state school reference data
 #   One file per table (write_pipeline_table() writes Parquet by default).
-#   Files you export by hand and cannot re-download go in manual_dir.
+#   raw_data_dir (raw/) holds files exactly as received, one subfolder per source
+#   (create the ones you use: kinder_dir, doe_dir, ...); temp_data_dir
+#   (processed/) holds everything this script produces. Files you export by hand
+#   and cannot re-download go in manual_dir. An optional third school source
+#   (other_dat.csv / .xlsx) goes in state_school_dir.
 #
 #   NOTE: GreatSchools.org and CDC VaxView downloads are handled by the
 #   package function: tidyschoolvax::download_agnostic_data()
@@ -202,13 +205,13 @@
 # -----------------------------------------------------------------------------
 
 # GENERIC:
-# tidyschoolvax::write_pipeline_table(kinder_dat, file.path(kinder_dir, "kinder_dat"))
+# tidyschoolvax::write_pipeline_table(kinder_dat, file.path(temp_data_dir, "kinder_dat"))
 
 
 # =============================================================================
 # PART 2. DEPARTMENT OF EDUCATION / STATE SCHOOL REFERENCE DATA
 # =============================================================================
-# Place raw DOE/DOA files in doe_dir before running. Expected file names:
+# Place raw DOE/DOA files in manual_dir (hand-obtained) or doe_dir before running. Expected file names:
 #   <state>_public.csv   — public schools
 #   <state>_charter.csv  — charter schools (if provided separately from public)
 #   us_private.csv       — national private-school file (filtered to state)
