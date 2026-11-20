@@ -23,7 +23,7 @@ The path to the newly created script (invisibly).
 \description{
 Copies the generic \code{03_state_cleaning.R} template into the conventional
 location for a new state:
-\code{<project_root>/00_preprocessing/states/<state>/code/03_state_cleaning.R}
+\code{<project_root>/source/tidyschoolvax/<state>/03_state_cleaning.R}
 
 The template provides a fully commented scaffold that covers all six
 pipeline sections: data loading, state-specific column adjustments, manual

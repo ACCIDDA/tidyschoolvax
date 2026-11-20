@@ -23,15 +23,16 @@
 #' schools, produces QC reports, and saves the final dataset.
 #'
 #' @param state_id Character.  Two-letter state abbreviation (e.g., \code{"md"}).
-#' @param kinder_dir Path to directory containing \code{kinder_dat.parquet}
-#'   (or \code{kinder_dat.rds} from an earlier run).
-#' @param greatschools_dir Path to directory containing
-#'   \code{greatschools_dat.parquet} (or \code{.rds}).
-#' @param doe_dir Path to directory containing \code{doe_dat.parquet} (or
-#'   \code{.rds}).
-#' @param state_school_dir Path to directory for the optional third data source.
-#' @param temp_data_dir Path for temporary output files.
+#' @param temp_data_dir Path of the processed-data folder (\code{processed/} in the
+#'   \code{\link{setup_paths}} layout): the parsed source tables are read from it,
+#'   and the step-2 output, the NCES reference and the QC reports are written to it.
 #' @param state_geo_dir Path for geocoding cache files.
+#' @param kinder_dir,greatschools_dir,doe_dir Directories containing the parsed
+#'   tables \code{kinder_dat}, \code{greatschools_dat} and \code{doe_dat}
+#'   (\code{.parquet}, or \code{.rds} from an earlier run). They default to
+#'   \code{temp_data_dir}, where the pipeline writes them.
+#' @param state_school_dir Path to the directory holding the optional third data
+#'   source (\code{other_dat.csv} / \code{.xlsx}); \code{NULL} (default) for none.
 #' @param state_dir Path to the state-level root directory (used for QC
 #'   reports are written to \code{temp_data_dir}).
 #' @param addr_source_pref Character.  Address source to prefer as the primary
@@ -63,7 +64,7 @@
 #'   falls back to Google for every school.  NCES data is pulled from the year
 #'   before the first year of vaccination data onward.
 #' @param nces_cache_dir Directory for the cached NCES reference file
-#'   (defaults to an \code{nces} folder inside \code{state_geo_dir}).
+#'   (defaults to \code{temp_data_dir}; it is public data, so it is not tracked).
 #' @param parallel Logical. If \code{TRUE}, the per-row R post-processing loop
 #'   inside every \code{\link{match_schools_names}} call is dispatched to worker
 #'   processes via \code{\link[furrr:future_map]{furrr::future_map()}}. The
@@ -84,7 +85,7 @@
 #' @param api_log_dir Directory for the Google API call logs written at the
 #'   end of the run (see \code{\link{write_api_log}}), even if the run errors.
 #'   Defaults to an \code{api_logs} folder shared by all states
-#'   (\code{00_preprocessing/api_logs} in the \code{\link{setup_paths}}
+#'   (\code{checks/tidyschoolvax/api_logs} in the \code{\link{setup_paths}}
 #'   layout), so month-to-date totals cover every state.  \code{NULL} skips
 #'   writing the log.
 #'
@@ -109,13 +110,13 @@
 #' @importFrom utils write.csv
 #' @export
 standardize_schools <- function(state_id,
-                                kinder_dir,
-                                greatschools_dir,
-                                doe_dir,
-                                state_school_dir,
                                 temp_data_dir,
                                 state_geo_dir,
                                 state_dir,
+                                kinder_dir = temp_data_dir,
+                                greatschools_dir = temp_data_dir,
+                                doe_dir = temp_data_dir,
+                                state_school_dir = NULL,
                                 addr_source_pref = "greatschools",
                                 parallel = FALSE,
                                 parallel_cache = TRUE,
@@ -124,8 +125,8 @@ standardize_schools <- function(state_id,
                                 elementary_only_reference = TRUE,
                                 include_prek_only_reference = FALSE,
                                 use_nces = TRUE,
-                                nces_cache_dir = file.path(state_geo_dir, "nces"),
-                                api_log_dir = file.path(dirname(dirname(state_dir)), "api_logs"),
+                                nces_cache_dir = temp_data_dir,
+                                api_log_dir = file.path(dirname(dirname(state_dir)), "checks", "tidyschoolvax", "api_logs"),
                                 places_qps = 8) {
 
   # Count every Google API request this run sends; write the log on exit.

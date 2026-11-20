@@ -106,7 +106,7 @@ data.
 tidyschoolvax::download_agnostic_data(
   state            = state,
   state_name       = state_name,
-  greatschools_dir = greatschools_dir,
+  greatschools_dir = temp_data_dir,   # the scraped table is written to processed/
   vaxview_dir      = vaxview_dir
 )
 ```
@@ -115,7 +115,7 @@ tidyschoolvax::download_agnostic_data(
 
 ```{r step-1b-download-state}
 cat("Step 1b: Download state-specific data...\n")
-source(file.path(state_dir, "code/01_download.R"))
+source(file.path(code_dir, "01_download.R"))
 ```
 
 **Expected outputs:**
@@ -128,9 +128,9 @@ source(file.path(state_dir, "code/01_download.R"))
 ```{r check-outputs-1}
 check_expected_files(
   paths = c(
-    file.path(kinder_dir, "kinder_dat.parquet"),
-    file.path(greatschools_dir, "greatschools_dat.parquet"),
-    file.path(doe_dir, "doe_dat.parquet"),
+    file.path(temp_data_dir, "kinder_dat.parquet"),
+    file.path(temp_data_dir, "greatschools_dat.parquet"),
+    file.path(temp_data_dir, "doe_dat.parquet"),
     file.path(vaxview_dir, "ChildVaxView.csv"),
     file.path(vaxview_dir, "SchoolVaxView.csv"),
     file.path(vaxview_dir, "TeenVaxView.csv"),
@@ -155,11 +155,8 @@ future::plan(future::multisession, workers = max(1L, parallel::detectCores() - 1
 cat("Step 2: Standardize school names, assign unique school and county IDs\n")
 school_vax_joined <- tidyschoolvax::standardize_schools(
   state_id         = state_id,
-  kinder_dir       = kinder_dir,
-  greatschools_dir = greatschools_dir,
-  doe_dir          = doe_dir,
   state_school_dir = state_school_dir,
-  temp_data_dir    = temp_data_dir,
+  temp_data_dir    = temp_data_dir,   # the parsed tables are read from here
   state_geo_dir    = state_geo_dir,
   state_dir        = state_dir,
   addr_source_pref = addr_source_pref,
@@ -194,7 +191,7 @@ Apply any state-specific data cleaning rules before final formatting.
 
 ```{r step-3-state-cleaning}
 cat("Step 3: State-specific data cleaning...\n")
-source(file.path(state_dir, "code/03_state_cleaning.R"))
+source(file.path(code_dir, "03_state_cleaning.R"))
 ```
 
 **Expected outputs:**

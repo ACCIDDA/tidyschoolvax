@@ -52,6 +52,9 @@
 #' @param state_dir The state's real directory (see \code{\link{setup_paths}}).
 #'   Only used to locate \code{api_log_dir}; the dry run writes to a temporary
 #'   copy.
+#' @param temp_data_dir The state's real processed-data folder. Optional: if it
+#'   holds an NCES reference (\code{nces_reference_<state>.rds}, public data) the
+#'   dry run uses a copy instead of downloading it again. Nothing is written to it.
 #' @param use_cache If \code{TRUE} (default) the estimate is for running now,
 #'   with your existing geocoding and status caches. \code{FALSE} ignores them,
 #'   estimating a first run from scratch (or one after
@@ -92,11 +95,12 @@ estimate_api_cost <- function(state_id,
                               geocoding_factor = 0.86,
                               places_factor    = 0.46,
                               prices           = google_api_prices(),
-                              api_log_dir      = file.path(dirname(dirname(state_dir)), "api_logs"),
+                              api_log_dir      = file.path(dirname(dirname(state_dir)), "checks", "tidyschoolvax", "api_logs"),
                               verbose          = FALSE,
+                              temp_data_dir    = NULL,
                               ...) {
 
-  fixed <- c("parallel", "parallel_cache", "api_qps", "api_log_dir", "temp_data_dir",
+  fixed <- c("parallel", "parallel_cache", "api_qps", "api_log_dir",
              "state_dir", "state_geo_dir", "nces_cache_dir")
   clash <- intersect(names(list(...)), fixed)
   if (length(clash) > 0L) {
@@ -112,12 +116,18 @@ estimate_api_cost <- function(state_id,
   sandbox <- tempfile("api_cost_estimate_")
   dir.create(sandbox)
   on.exit(unlink(sandbox, recursive = TRUE), add = TRUE)
-  sandbox_geo <- file.path(sandbox, "geo")
+  sandbox_geo  <- file.path(sandbox, "geo")
+  sandbox_temp <- file.path(sandbox, "temp")
   dir.create(sandbox_geo)
-  if (dir.exists(state_geo_dir)) {
+  dir.create(sandbox_temp)
+  if (use_cache && dir.exists(state_geo_dir)) {
     keep <- list.files(state_geo_dir, full.names = TRUE)
-    if (!isTRUE(use_cache)) keep <- keep[basename(keep) == "nces"]
     if (length(keep) > 0L) file.copy(keep, sandbox_geo, recursive = TRUE)
+  }
+  # NCES is public data, so its reference is kept even when the caches are not
+  if (!is.null(temp_data_dir) && dir.exists(temp_data_dir)) {
+    nces <- list.files(temp_data_dir, pattern = "^nces_reference_.*\\.rds$", full.names = TRUE)
+    if (length(nces) > 0L) file.copy(nces, sandbox_temp)
   }
 
   # A missed call site would fail on this key instead of using (and billing) yours.
@@ -134,14 +144,14 @@ estimate_api_cost <- function(state_id,
       greatschools_dir = greatschools_dir,
       doe_dir          = doe_dir,
       state_school_dir = state_school_dir,
-      temp_data_dir    = file.path(sandbox, "temp"),
+      temp_data_dir    = sandbox_temp,
       state_geo_dir    = sandbox_geo,
       state_dir        = file.path(sandbox, "state"),
       addr_source_pref = addr_source_pref,
       parallel         = FALSE,
       parallel_cache   = FALSE,
       api_log_dir      = NULL,
-      nces_cache_dir   = file.path(sandbox_geo, "nces"),
+      nces_cache_dir   = sandbox_temp,
       ...
     )
   }

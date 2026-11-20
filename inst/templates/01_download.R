@@ -8,11 +8,14 @@
 #     3. Optional third school data source (e.g. a state EDDIE-style report)
 #
 #   Outputs (consumed by subsequent pipeline steps):
-#     kinder_dir/kinder_dat.parquet  — kindergarten vaccination records
-#     doe_dir/doe_dat.parquet        — DOE/state school reference data
-#     state_school_dir/third_dat.parquet  — optional third school source
+#     temp_data_dir/kinder_dat.parquet  — kindergarten vaccination records
+#     temp_data_dir/doe_dat.parquet     — DOE/state school reference data
 #   One file per table (write_pipeline_table() writes Parquet by default).
-#   Files you export by hand and cannot re-download go in manual_dir.
+#   raw_data_dir (raw/) holds files exactly as received, one subfolder per source
+#   (create the ones you use: kinder_dir, doe_dir, ...); temp_data_dir
+#   (processed/) holds everything this script produces. Files you export by hand
+#   and cannot re-download go in manual_dir. An optional third school source
+#   (other_dat.csv / .xlsx) goes in state_school_dir.
 #
 #   NOTE: GreatSchools.org and CDC VaxView downloads are handled by the
 #   package function: tidyschoolvax::download_agnostic_data()
@@ -24,7 +27,7 @@
 #     are expected to exist in the calling environment (set via setup_paths()).
 #
 #   HOW TO ADAPT FOR A NEW STATE:
-#     1. Copy this file to 00_preprocessing/states/<XX>/code/01_download.R
+#     1. Copy this file to source/tidyschoolvax/<XX>/01_download.R
 #     2. Search for every "# CUSTOMIZE:" comment and follow the instruction.
 #     3. Delete or keep the option blocks that apply to your state.
 #     4. Move any manual school-name or address corrections to
@@ -63,7 +66,7 @@
 #   xlsx_links,
 #   paste0(base_url, xlsx_links)
 # )
-# download_xlsx_files(xlsx_links, file.path(kinder_dir, "raw_downloaded"))
+# download_xlsx_files(xlsx_links, kinder_dir)
 
 
 # --- Option B: Pre-placed file shared directly by the state health dept ------
@@ -79,9 +82,9 @@
 # Use when data are distributed as a single zip containing multiple files.
 
 # zip_url  <- "https://<download-url>/data.zip"            # CUSTOMIZE: URL
-# zip_path <- file.path(kinder_dir, "raw_downloaded", "data.zip")
+# zip_path <- file.path(kinder_dir, "data.zip")
 # download.file(zip_url, destfile = zip_path, mode = "wb")
-# unzip(zip_path, exdir = file.path(kinder_dir, "raw_downloaded"))
+# unzip(zip_path, exdir = kinder_dir)
 
 
 # -----------------------------------------------------------------------------
@@ -90,7 +93,7 @@
 
 # GENERIC — multi-year Excel files (one .xlsx per school year, e.g. Option A/C):
 # files <- fs::dir_ls(
-#   file.path(kinder_dir, "raw_downloaded"),
+#   kinder_dir,
 #   regexp = "\\.xlsx$",
 #   type   = "file"
 # )
@@ -100,7 +103,7 @@
 # )]
 # if (length(files) == 0)
 #   stop("No valid school-year Excel files found in ",
-#        file.path(kinder_dir, "raw_downloaded"))
+#        kinder_dir)
 #
 # kinder_list <- purrr::map(files, read_file)                    # GENERIC
 # names(kinder_list) <- purrr::map_chr(
@@ -158,7 +161,7 @@
 #   year_source, school_name, school_type, county, vaccine_type,
 #   total_enrollment, count_up_to_date, count_med_exempt, count_rel_exempt,
 #   count_not_up_to_date
-# See 00_preprocessing/states/nc/code/01_download.R for an example.
+# See source/tidyschoolvax/nc/01_download.R for an example.
 
 
 # -----------------------------------------------------------------------------
@@ -202,13 +205,13 @@
 # -----------------------------------------------------------------------------
 
 # GENERIC:
-# tidyschoolvax::write_pipeline_table(kinder_dat, file.path(kinder_dir, "kinder_dat"))
+# tidyschoolvax::write_pipeline_table(kinder_dat, file.path(temp_data_dir, "kinder_dat"))
 
 
 # =============================================================================
 # PART 2. DEPARTMENT OF EDUCATION / STATE SCHOOL REFERENCE DATA
 # =============================================================================
-# Place raw DOE/DOA files in doe_dir before running. Expected file names:
+# Place raw DOE/DOA files in manual_dir (hand-obtained) or doe_dir before running. Expected file names:
 #   <state>_public.csv   — public schools
 #   <state>_charter.csv  — charter schools (if provided separately from public)
 #   us_private.csv       — national private-school file (filtered to state)

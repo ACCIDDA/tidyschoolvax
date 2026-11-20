@@ -16,35 +16,41 @@ root directory. Defaults to \code{getwd()}.}
 \value{
 A named list with the following components:
   \describe{
-    \item{state_dir}{State-specific directory
-      (\code{00_preprocessing/states/<state>})}
-    \item{code_dir}{The state's scripts (\code{state_dir/code}); tracked}
-    \item{raw_data_dir}{Downloads and the tables parsed from them, by source
-      (\code{state_dir/raw}); ignored by git}
-    \item{manual_dir}{Hand-exported inputs that a script cannot re-create
+    \item{state_dir}{The state's intermediate data
+      (\code{data_processing/<state>})}
+    \item{raw_data_dir}{Files exactly as received, one subfolder per source,
+      with the files directly in it (\code{state_dir/raw}); ignored by git}
+    \item{manual_dir}{Hand-obtained inputs that a script cannot re-create
       (\code{state_dir/raw/manual}); tracked}
-    \item{temp_data_dir}{Work files that a later step reads, plus step
-      reports (\code{state_dir/work}); ignored by git}
-    \item{state_geo_dir}{Geocoding and status caches
-      (\code{state_dir/geocoding}); tracked}
-    \item{review_dir}{Small CSVs a person opens: data-quality flags and the
-      unmatched-school review (\code{state_dir/review}); tracked}
-    \item{final_dir}{What downstream code reads (\code{state_dir/final}); one
-      subfolder per series; tracked}
+    \item{temp_data_dir}{Everything the pipeline produces and a later step
+      reads: the parsed source tables (\code{kinder_dat}, \code{doe_dat},
+      \code{greatschools_dat}, ...), the step files, the NCES reference and
+      step reports (\code{state_dir/processed}); ignored by git}
+    \item{state_geo_dir}{Geocoding and status caches, which cost API
+      requests to rebuild (\code{state_dir/geocoding}); tracked}
+    \item{code_dir}{The state's scripts
+      (\code{source/tidyschoolvax/<state>}); tracked}
+    \item{final_dir}{What downstream code reads
+      (\code{output/tidyschoolvax/<state>}); one subfolder per series;
+      tracked}
     \item{clean_data_dir, outputs_data_dir}{Both are \code{final_dir}: the
       cleaned tables and the model inputs of a series sit in the same folder}
-    \item{general_data_dir}{Data shared by all states
-      (\code{00_preprocessing/shared})}
-    \item{kinder_dir}{Kindergarten vaccination data directory (in
+    \item{review_dir}{Small CSVs a person opens: data-quality flags and the
+      unmatched-school review (\code{checks/tidyschoolvax/<state>}); tracked}
+    \item{api_log_dir}{Google API call logs, shared by all states
+      (\code{checks/tidyschoolvax/api_logs}); tracked}
+    \item{general_data_dir}{Intermediate data shared by all states
+      (\code{data_processing/shared})}
+    \item{kinder_dir}{Where the kindergarten vaccination downloads go (in
       \code{raw_data_dir})}
-    \item{doe_dir}{Department of Education data directory (in
+    \item{doe_dir}{Where Department of Education downloads go (in
       \code{raw_data_dir})}
-    \item{greatschools_dir}{GreatSchools.org data directory (in
-      \code{raw_data_dir})}
+    \item{greatschools_dir}{Kept for compatibility: GreatSchools is scraped,
+      so there is no download to store (in \code{raw_data_dir})}
     \item{vaxview_dir}{CDC VaxView data directory; national, so shared by all
       states (\code{general_data_dir/vaxview})}
-    \item{state_school_dir}{Any additional state school data directory (in
-      \code{raw_data_dir})}
+    \item{state_school_dir}{Optional third school source, e.g.
+      \code{other_dat.csv} (in \code{raw_data_dir})}
   }
 }
 \description{
@@ -53,23 +59,34 @@ for a given state and project root, creates any missing directories, and
 returns the paths as a named list.
 }
 \details{
-All directories that do not yet exist are created with
-\code{dir.create(..., recursive = TRUE)}.  The returned list can be
-unpacked into the calling environment with
-\code{list2env(paths, envir = environment())}.
+The folders of the state and of the pipeline are created with
+\code{dir.create(..., recursive = TRUE)}. The per-source folders under
+\code{raw_data_dir} (\code{kinder_dir}, \code{doe_dir},
+\code{greatschools_dir}, \code{state_school_dir}) are returned but not
+created: a state only has the ones its download script writes to, so the
+script creates them. The returned list can be unpacked into the calling
+environment with \code{list2env(paths, envir = environment())}.
 
-Layout (T = tracked in git, I = ignored):
+Rule of thumb: \code{raw/} is what was received, \code{processed/} is what the
+pipeline made, and the pipeline reads only from \code{processed/},
+\code{raw/manual/} and \code{shared/}.
+
+Layout (T = tracked in git, I = ignored). Code, outputs and checks live
+outside \code{data_processing/}, which holds intermediate data only; each of
+\code{source/}, \code{output/} and \code{checks/} has a \code{tidyschoolvax/}
+folder (this pipeline) and an \code{imugap/} folder (the model):
 \preformatted{
-00_preprocessing/
+data_processing/
   shared/vaxview/        national VaxView (vax_view.parquet is read; CSVs are sources)
-  states/<state>/
-    code/                T   01_download.R, 03_state_cleaning.R
-    raw/                 I   downloads and parsed tables
-      manual/            T   hand-exported inputs
-    work/                I   step files (.parquet) and step reports
-    geocoding/           T   caches (.rds)
-    review/<series>/     T   data-quality flags (.csv)
-    final/<series>/      T   cleaned_data.csv, obs/locations/... .parquet
+  <state>/
+    raw/                 I   files as received (one subfolder per source)
+      manual/            T   hand-obtained inputs
+    processed/           I   parsed tables, step files (.parquet), NCES, step reports
+    geocoding/           T   geocoded_cache.rds, status_cache.rds
+source/tidyschoolvax/<state>/   T   01_download.R, 03_state_cleaning.R, runner .Rmd
+output/tidyschoolvax/<state>/<series>/   T   cleaned_data.csv, obs/locations/... .parquet
+checks/tidyschoolvax/<state>/<series>/   T   data-quality flags (.csv)
+checks/tidyschoolvax/api_logs/           T   Google API call logs
 }
 }
 \examples{

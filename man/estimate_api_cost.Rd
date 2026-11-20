@@ -17,21 +17,23 @@ estimate_api_cost(
   geocoding_factor = 0.86,
   places_factor = 0.46,
   prices = google_api_prices(),
-  api_log_dir = file.path(dirname(dirname(state_dir)), "api_logs"),
+  api_log_dir = file.path(dirname(dirname(state_dir)), "checks", "tidyschoolvax",
+    "api_logs"),
   verbose = FALSE,
+  temp_data_dir = NULL,
   ...
 )
 }
 \arguments{
 \item{state_id}{Character.  Two-letter state abbreviation (e.g., \code{"md"}).}
 
-\item{kinder_dir}{Path to directory containing \code{kinder_dat.rds}.}
+\item{kinder_dir, greatschools_dir, doe_dir}{Directories containing the parsed
+tables \code{kinder_dat}, \code{greatschools_dat} and \code{doe_dat}
+(\code{.parquet}, or \code{.rds} from an earlier run). They default to
+\code{temp_data_dir}, where the pipeline writes them.}
 
-\item{greatschools_dir}{Path to directory containing \code{greatschools_dat.RDS}.}
-
-\item{doe_dir}{Path to directory containing \code{doe_dat.rds}.}
-
-\item{state_school_dir}{Path to directory for the optional third data source.}
+\item{state_school_dir}{Path to the directory holding the optional third data
+source (\code{other_dat.csv} / \code{.xlsx}); \code{NULL} (default) for none.}
 
 \item{state_geo_dir}{Path for geocoding cache files.}
 
@@ -60,6 +62,10 @@ calculation. \code{NULL} assumes none of this month's allowance is used.}
 
 \item{verbose}{If \code{FALSE} (default) the dry run's progress output is
 suppressed.}
+
+\item{temp_data_dir}{The state's real processed-data folder. Optional: if it
+holds an NCES reference (\code{nces_reference_<state>.rds}, public data) the
+dry run uses a copy instead of downloading it again. Nothing is written to it.}
 
 \item{...}{Further arguments passed to \code{standardize_schools()}
 (\code{po_box_action}, \code{elementary_only_reference},

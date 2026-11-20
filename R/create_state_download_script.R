@@ -3,7 +3,7 @@
 #' @description
 #' Copies the generic \code{01_download.R} template into the conventional
 #' location for a new state:
-#' \code{<project_root>/00_preprocessing/states/<state>/code/01_download.R}
+#' \code{<project_root>/source/tidyschoolvax/<state>/01_download.R}
 #'
 #' The template contains three data-acquisition options (web scrape, pre-placed
 #' file, ZIP archive) and covers all three pipeline sections (kindergarten vax
@@ -81,8 +81,7 @@ create_state_download_script <- function(state,
   }
 
   # --- Build destination path ------------------------------------------------
-  dest_dir  <- file.path(project_root, "00_preprocessing", "states",
-                         state, "code")
+  dest_dir  <- file.path(project_root, "source", "tidyschoolvax", state)
   dest_file <- file.path(dest_dir, "01_download.R")
 
   if (file.exists(dest_file) && !overwrite) {
