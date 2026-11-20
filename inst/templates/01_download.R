@@ -66,7 +66,7 @@
 #   xlsx_links,
 #   paste0(base_url, xlsx_links)
 # )
-# download_xlsx_files(xlsx_links, file.path(kinder_dir, "raw_downloaded"))
+# download_xlsx_files(xlsx_links, kinder_dir)
 
 
 # --- Option B: Pre-placed file shared directly by the state health dept ------
@@ -82,9 +82,9 @@
 # Use when data are distributed as a single zip containing multiple files.
 
 # zip_url  <- "https://<download-url>/data.zip"            # CUSTOMIZE: URL
-# zip_path <- file.path(kinder_dir, "raw_downloaded", "data.zip")
+# zip_path <- file.path(kinder_dir, "data.zip")
 # download.file(zip_url, destfile = zip_path, mode = "wb")
-# unzip(zip_path, exdir = file.path(kinder_dir, "raw_downloaded"))
+# unzip(zip_path, exdir = kinder_dir)
 
 
 # -----------------------------------------------------------------------------
@@ -93,7 +93,7 @@
 
 # GENERIC — multi-year Excel files (one .xlsx per school year, e.g. Option A/C):
 # files <- fs::dir_ls(
-#   file.path(kinder_dir, "raw_downloaded"),
+#   kinder_dir,
 #   regexp = "\\.xlsx$",
 #   type   = "file"
 # )
@@ -103,7 +103,7 @@
 # )]
 # if (length(files) == 0)
 #   stop("No valid school-year Excel files found in ",
-#        file.path(kinder_dir, "raw_downloaded"))
+#        kinder_dir)
 #
 # kinder_list <- purrr::map(files, read_file)                    # GENERIC
 # names(kinder_list) <- purrr::map_chr(

@@ -14,8 +14,8 @@
 #'   \describe{
 #'     \item{state_dir}{The state's intermediate data
 #'       (\code{data_processing/<state>})}
-#'     \item{raw_data_dir}{Files exactly as received, one subfolder per source
-#'       (\code{state_dir/raw}); ignored by git}
+#'     \item{raw_data_dir}{Files exactly as received, one subfolder per source,
+#'       with the files directly in it (\code{state_dir/raw}); ignored by git}
 #'     \item{manual_dir}{Hand-obtained inputs that a script cannot re-create
 #'       (\code{state_dir/raw/manual}); tracked}
 #'     \item{temp_data_dir}{Everything the pipeline produces and a later step
